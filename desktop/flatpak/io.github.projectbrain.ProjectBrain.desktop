@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Project Moah
+Comment=Create, organize, and revisit development projects
+Exec=project-brain
+Icon=io.github.projectbrain.ProjectBrain
+Categories=Development;Office;
+Terminal=false
+StartupWMClass=project-brain-desktop

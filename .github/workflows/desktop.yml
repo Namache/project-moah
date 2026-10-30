@@ -1,0 +1,147 @@
+name: Desktop packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  linux-flatpak:
+    name: Build Linux Flatpak
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install Linux Flatpak build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder elfutils
+          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub \
+            org.freedesktop.Platform//25.08 \
+            org.freedesktop.Sdk//25.08
+
+      - name: Install backend dependencies
+        run: python -m pip install -e './backend[dev]' pyinstaller
+
+      - name: Check backend
+        run: |
+          python -m pytest backend/tests
+          python -m ruff check backend
+          python -m ruff format --check backend
+
+      - name: Build frontend
+        run: |
+          npm ci --prefix frontend
+          npm run check --prefix frontend
+          npm run test --prefix frontend
+          npm run build --prefix frontend
+
+      - name: Build native backend sidecar
+        run: python scripts/build-backend-sidecar.py
+
+      - name: Build Flatpak bundle
+        run: |
+          npm ci --prefix desktop
+          npm run build:linux --prefix desktop
+
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-moah-linux-flatpak
+          path: desktop/dist/*.flatpak
+          if-no-files-found: error
+
+  windows-exe:
+    name: Build Windows executables
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install backend dependencies
+        run: python -m pip install -e './backend[dev]' pyinstaller
+
+      - name: Check backend
+        run: |
+          python -m pytest backend/tests
+          python -m ruff check backend
+          python -m ruff format --check backend
+
+      - name: Build frontend
+        run: |
+          npm ci --prefix frontend
+          npm run check --prefix frontend
+          npm run test --prefix frontend
+          npm run build --prefix frontend
+
+      - name: Build native backend sidecar
+        run: python scripts/build-backend-sidecar.py
+
+      - name: Build Windows executables
+        run: |
+          npm ci --prefix desktop
+          npm run build:windows --prefix desktop
+
+      - name: Upload Windows executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-moah-windows-exe
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish the Linux bundle to a GitHub Release
+    # Only for version tags. Windows files stay workflow artifacts until they have been tested.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: linux-flatpak
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download the Flatpak bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: project-moah-linux-flatpak
+          path: dist
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.flatpak --repo "$GITHUB_REPOSITORY" --title "Project Moah $GITHUB_REF_NAME" --generate-notes

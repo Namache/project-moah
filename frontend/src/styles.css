@@ -1,0 +1,283 @@
+@import "tailwindcss";
+
+@theme {
+  /* Design tokens: every colour, radius and shadow the app uses comes from here. */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-canvas: #f8f9f8;
+  --color-sidebar: #f1f3f1;
+  --color-surface: #ffffff;
+  /* forest is the accent for text, icons, borders and focus rings; primary is the solid fill behind white text. */
+  --color-forest: #1f6b57;
+  --color-primary: #1f6b57;
+  --color-primary-hover: #18594a;
+  --color-sage-pale: #eaf3ef;
+  --color-line: #e6e9e6;
+  --color-line-strong: #d5dbd6;
+  --color-line-hover: #c3cbc5;
+  --color-ink: #18211e;
+  --color-ink-muted: #5b6661;
+  /* At least 4.5:1 on every background above, so small text stays readable (WCAG AA). */
+  --color-ink-subtle: #677169;
+  --color-hover: rgb(24 33 30 / 0.045);
+  /* The sidebar is dark in both themes, so the page content reads as the lit area. */
+  --color-side: #15201b;
+  --color-side-ink: #edf3f0;
+  --color-side-muted: #a7b6af;
+  --color-side-hover: rgb(255 255 255 / 0.07);
+  --color-side-active: rgb(255 255 255 / 0.13);
+  --color-side-line: rgb(255 255 255 / 0.09);
+  --color-side-accent: #7fd8b5;
+  --color-side-accent-ink: #0d2a20;
+  --color-side-new: #218060;
+  --color-side-new-hover: #1b7053;
+  /* Status tones (see docs/DESIGN.md): soft is the tint, ink the text on it, the bare name the dot or bar. */
+  --color-neutral: #a3aaa6;
+  --color-neutral-soft: #eff1ef;
+  --color-neutral-ink: #474f4b;
+  --color-info: #3b82f6;
+  --color-info-soft: #e1ecfd;
+  --color-info-ink: #1e45a8;
+  --color-success: #10a374;
+  --color-success-soft: #d8f5e8;
+  --color-success-ink: #075c43;
+  --color-warning: #f2a007;
+  --color-warning-soft: #fdf0cc;
+  --color-warning-ink: #84400c;
+  --color-danger: #e5484d;
+  --color-danger-soft: #fde2e2;
+  --color-danger-ink: #962020;
+  --color-special: #8b5cf6;
+  --color-special-soft: #ece7fe;
+  --color-special-ink: #5525a8;
+  /* Solid fill behind white text on destructive buttons; dark enough for white text in both themes. */
+  --color-danger-solid: #b42318;
+  --color-danger-solid-hover: #9a1d14;
+  /* Softer corners: the large radii were what made cards feel heavy. */
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 0.875rem;
+  --shadow-card: 0 1px 2px rgb(16 24 20 / 0.04);
+  --shadow-card-hover: 0 4px 16px rgb(16 24 20 / 0.07);
+  --shadow-dialog: 0 24px 64px rgb(15 28 23 / 0.18), 0 2px 8px rgb(15 28 23 / 0.06);
+}
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Dark theme. src/lib/theme.ts sets data-theme on <html> from the person's choice (System, Light or Dark).
+ * Only tokens change here: the semantic colours above, and the tinted Tailwind shades the app uses for
+ * status colours (light tints become dark tints, dark text becomes light text). Red 700 stays as it is,
+ * because it is the solid fill of danger buttons.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: #121614;
+  --color-sidebar: #0e1110;
+  --color-surface: #191e1b;
+  --color-forest: #5bbf9c;
+  --color-primary: #1f7a62;
+  --color-primary-hover: #248a6f;
+  --color-sage-pale: #183129;
+  --color-line: #29302c;
+  --color-line-strong: #39413d;
+  --color-line-hover: #4a534e;
+  --color-ink: #e5ebe7;
+  --color-ink-muted: #a6b0ab;
+  --color-ink-subtle: #8d9792;
+  --color-hover: rgb(255 255 255 / 0.06);
+  --color-side: #0c100e;
+  --color-neutral-soft: #262d29;
+  --color-neutral-ink: #c4ccc8;
+  --color-info-soft: color-mix(in oklab, var(--color-info) 20%, var(--color-surface));
+  --color-info-ink: color-mix(in oklab, var(--color-info) 45%, white);
+  --color-success-soft: color-mix(in oklab, var(--color-success) 20%, var(--color-surface));
+  --color-success-ink: color-mix(in oklab, var(--color-success) 45%, white);
+  --color-warning-soft: color-mix(in oklab, var(--color-warning) 20%, var(--color-surface));
+  --color-warning-ink: color-mix(in oklab, var(--color-warning) 45%, white);
+  --color-danger-soft: color-mix(in oklab, var(--color-danger) 20%, var(--color-surface));
+  --color-danger-ink: color-mix(in oklab, var(--color-danger) 45%, white);
+  --color-special-soft: color-mix(in oklab, var(--color-special) 20%, var(--color-surface));
+  --color-special-ink: color-mix(in oklab, var(--color-special) 45%, white);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-card-hover: 0 4px 16px rgb(0 0 0 / 0.45);
+  --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --color-stone-50: #1d2220;
+  --color-stone-100: #222825;
+  --color-stone-200: #2e3531;
+  --color-stone-700: #c4ccc8;
+  --color-stone-800: #dce2df;
+  --color-amber-50: color-mix(in oklab, var(--color-amber-500) 9%, var(--color-surface));
+  --color-amber-100: color-mix(in oklab, var(--color-amber-500) 17%, var(--color-surface));
+  --color-amber-200: color-mix(in oklab, var(--color-amber-500) 28%, var(--color-surface));
+  --color-amber-300: color-mix(in oklab, var(--color-amber-500) 40%, var(--color-surface));
+  --color-amber-800: color-mix(in oklab, var(--color-amber-500) 42%, white);
+  --color-amber-900: color-mix(in oklab, var(--color-amber-500) 34%, white);
+  --color-amber-950: color-mix(in oklab, var(--color-amber-500) 26%, white);
+  --color-emerald-50: color-mix(in oklab, var(--color-emerald-500) 9%, var(--color-surface));
+  --color-emerald-100: color-mix(in oklab, var(--color-emerald-500) 17%, var(--color-surface));
+  --color-emerald-200: color-mix(in oklab, var(--color-emerald-500) 28%, var(--color-surface));
+  --color-emerald-300: color-mix(in oklab, var(--color-emerald-500) 40%, var(--color-surface));
+  --color-emerald-800: color-mix(in oklab, var(--color-emerald-500) 42%, white);
+  --color-emerald-900: color-mix(in oklab, var(--color-emerald-500) 34%, white);
+  --color-emerald-950: color-mix(in oklab, var(--color-emerald-500) 26%, white);
+  --color-green-50: color-mix(in oklab, var(--color-green-500) 9%, var(--color-surface));
+  --color-green-100: color-mix(in oklab, var(--color-green-500) 17%, var(--color-surface));
+  --color-green-200: color-mix(in oklab, var(--color-green-500) 28%, var(--color-surface));
+  --color-green-300: color-mix(in oklab, var(--color-green-500) 40%, var(--color-surface));
+  --color-green-800: color-mix(in oklab, var(--color-green-500) 42%, white);
+  --color-green-900: color-mix(in oklab, var(--color-green-500) 34%, white);
+  --color-green-950: color-mix(in oklab, var(--color-green-500) 26%, white);
+  --color-orange-50: color-mix(in oklab, var(--color-orange-500) 9%, var(--color-surface));
+  --color-orange-100: color-mix(in oklab, var(--color-orange-500) 17%, var(--color-surface));
+  --color-orange-200: color-mix(in oklab, var(--color-orange-500) 28%, var(--color-surface));
+  --color-orange-300: color-mix(in oklab, var(--color-orange-500) 40%, var(--color-surface));
+  --color-orange-800: color-mix(in oklab, var(--color-orange-500) 42%, white);
+  --color-orange-900: color-mix(in oklab, var(--color-orange-500) 34%, white);
+  --color-orange-950: color-mix(in oklab, var(--color-orange-500) 26%, white);
+  --color-red-50: color-mix(in oklab, var(--color-red-500) 9%, var(--color-surface));
+  --color-red-100: color-mix(in oklab, var(--color-red-500) 17%, var(--color-surface));
+  --color-red-200: color-mix(in oklab, var(--color-red-500) 28%, var(--color-surface));
+  --color-red-300: color-mix(in oklab, var(--color-red-500) 40%, var(--color-surface));
+  --color-red-800: color-mix(in oklab, var(--color-red-500) 42%, white);
+  --color-red-900: color-mix(in oklab, var(--color-red-500) 34%, white);
+  --color-red-950: color-mix(in oklab, var(--color-red-500) 26%, white);
+  --color-rose-50: color-mix(in oklab, var(--color-rose-500) 9%, var(--color-surface));
+  --color-rose-100: color-mix(in oklab, var(--color-rose-500) 17%, var(--color-surface));
+  --color-rose-200: color-mix(in oklab, var(--color-rose-500) 28%, var(--color-surface));
+  --color-rose-300: color-mix(in oklab, var(--color-rose-500) 40%, var(--color-surface));
+  --color-rose-800: color-mix(in oklab, var(--color-rose-500) 42%, white);
+  --color-rose-900: color-mix(in oklab, var(--color-rose-500) 34%, white);
+  --color-rose-950: color-mix(in oklab, var(--color-rose-500) 26%, white);
+  --color-sky-50: color-mix(in oklab, var(--color-sky-500) 9%, var(--color-surface));
+  --color-sky-100: color-mix(in oklab, var(--color-sky-500) 17%, var(--color-surface));
+  --color-sky-200: color-mix(in oklab, var(--color-sky-500) 28%, var(--color-surface));
+  --color-sky-300: color-mix(in oklab, var(--color-sky-500) 40%, var(--color-surface));
+  --color-sky-700: color-mix(in oklab, var(--color-sky-500) 70%, white);
+  --color-sky-800: color-mix(in oklab, var(--color-sky-500) 42%, white);
+  --color-sky-900: color-mix(in oklab, var(--color-sky-500) 34%, white);
+  --color-sky-950: color-mix(in oklab, var(--color-sky-500) 26%, white);
+  --color-blue-50: color-mix(in oklab, var(--color-blue-500) 9%, var(--color-surface));
+  --color-blue-100: color-mix(in oklab, var(--color-blue-500) 17%, var(--color-surface));
+  --color-blue-200: color-mix(in oklab, var(--color-blue-500) 28%, var(--color-surface));
+  --color-blue-300: color-mix(in oklab, var(--color-blue-500) 40%, var(--color-surface));
+  --color-blue-800: color-mix(in oklab, var(--color-blue-500) 42%, white);
+  --color-blue-900: color-mix(in oklab, var(--color-blue-500) 34%, white);
+  --color-blue-950: color-mix(in oklab, var(--color-blue-500) 26%, white);
+  --color-violet-50: color-mix(in oklab, var(--color-violet-500) 9%, var(--color-surface));
+  --color-violet-100: color-mix(in oklab, var(--color-violet-500) 17%, var(--color-surface));
+  --color-violet-200: color-mix(in oklab, var(--color-violet-500) 28%, var(--color-surface));
+  --color-violet-300: color-mix(in oklab, var(--color-violet-500) 40%, var(--color-surface));
+  --color-violet-800: color-mix(in oklab, var(--color-violet-500) 42%, white);
+  --color-violet-900: color-mix(in oklab, var(--color-violet-500) 34%, white);
+  --color-violet-950: color-mix(in oklab, var(--color-violet-500) 26%, white);
+}
+
+/* In the base layer so text-size utilities on buttons and fields (e.g. text-sm in Button) still apply. */
+@layer base {
+  button, input, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  left: 1rem;
+  top: -4rem;
+  border-radius: 0.5rem;
+  background: var(--color-primary);
+  padding: 0.6rem 1rem;
+  color: white;
+  font-weight: 600;
+}
+.skip-link:focus { top: 1rem; }
+
+/* Sidebar rows on the dark sidebar: quiet until hovered; the current page gets a lighter band and a bright icon. */
+.sidebar-link, .project-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 2.125rem;
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  color: var(--color-side-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.sidebar-link:hover, .project-nav-link:hover { background: var(--color-side-hover); color: var(--color-side-ink); }
+.sidebar-link-active, .sidebar-link-active:hover, .project-nav-link-active, .project-nav-link-active:hover { background: var(--color-side-active); color: var(--color-side-ink); font-weight: 600; }
+.sidebar-link-active svg { color: var(--color-side-accent); }
+.sidebar-section { padding: 0 0.625rem; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-side-muted); }
+.sidebar-link:focus-visible, .project-nav-link:focus-visible { outline: 2px solid var(--color-side-accent); outline-offset: 1px; }
+.section-tab:focus-visible, .filter-tab:focus-visible, .feature-link:focus-visible { outline: 2px solid var(--color-forest); outline-offset: 2px; }
+
+.field-label { display: block; margin-bottom: 0.375rem; font-size: 0.8125rem; font-weight: 600; color: var(--color-ink); }
+/* A component layer, so utilities such as text-xs or font-mono on a field win over these defaults. */
+@layer components {
+  .field-input {
+    display: block;
+    width: 100%;
+    min-height: 2.375rem;
+    border: 1px solid var(--color-line-strong);
+    border-radius: 0.5rem;
+    background: var(--color-surface);
+    padding: 0.5rem 0.75rem;
+    color: var(--color-ink);
+    font-size: 0.875rem;
+    font-weight: 400;
+    outline: none;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .field-input:hover { border-color: var(--color-line-hover); }
+  .field-input::placeholder { color: var(--color-ink-subtle); }
+  .field-input:focus { border-color: var(--color-forest); box-shadow: 0 0 0 3px rgb(31 107 87 / 0.14); }
+}
+
+.filter-tab { min-height: 2rem; border-radius: 0.4375rem; padding: 0.3125rem 0.75rem; color: var(--color-ink-muted); font-size: 0.875rem; font-weight: 500; }
+.filter-tab:hover { background: var(--color-hover); color: var(--color-ink); }
+.filter-tab-active, .filter-tab-active:hover { background: var(--color-surface); color: var(--color-ink); font-weight: 600; box-shadow: 0 1px 2px rgb(16 24 20 / 0.08), 0 0 0 1px rgb(16 24 20 / 0.05); }
+
+.section-tab { flex-shrink: 0; border-bottom: 2px solid transparent; padding: 0.625rem 0.75rem; color: var(--color-ink-muted); font-size: 0.875rem; font-weight: 500; transition: color 120ms ease, border-color 120ms ease; }
+.section-tab:hover { color: var(--color-ink); }
+.section-tab-active, .section-tab-active:hover { border-color: var(--color-forest); color: var(--color-ink); font-weight: 600; }
+
+.feature-link { display: flex; align-items: center; gap: 0.75rem; min-width: 0; border: 1px solid var(--color-line); border-radius: 0.625rem; padding: 0.75rem; color: var(--color-ink-muted); transition: background-color 120ms ease, border-color 120ms ease; }
+.feature-link:hover { background: var(--color-canvas); border-color: var(--color-line-strong); color: var(--color-forest); }
+.feature-link-icon { display: flex; height: 2.25rem; width: 2.25rem; flex: none; align-items: center; justify-content: center; border-radius: 0.5rem; background: var(--color-sage-pale); color: var(--color-forest); }
+.feature-link strong, .feature-link small { display: block; }
+.feature-link strong { color: var(--color-ink); font-size: 0.875rem; font-weight: 600; }
+.feature-link small { margin-top: 0.1rem; color: var(--color-ink-subtle); font-size: 0.75rem; }
+
+.inline-field { display: block; width: 100%; resize: vertical; border: 1px solid transparent; border-radius: 0.5rem; background: transparent; padding: 0.4rem 0.55rem; margin-left: -0.55rem; color: var(--color-ink); font-size: 0.875rem; line-height: 1.5; outline: none; }
+.inline-field:hover { border-color: var(--color-line); }
+.inline-field:focus { border-color: var(--color-forest); background: var(--color-surface); box-shadow: 0 0 0 3px rgb(31 107 87 / 0.14); }
+.inline-field::placeholder { color: var(--color-ink-subtle); }
+.panel-right { height: 100vh; }
+
+.dialog-panel::backdrop { backdrop-filter: blur(2px); }
+.dialog-panel[open] { animation: dialog-in 140ms ease-out; }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(6px) scale(0.985); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Keep the board's horizontal scrollbar visible when columns overflow, so the hidden columns are discoverable. */
+.board-scroll { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+.board-scroll::-webkit-scrollbar { height: 8px; }
+.board-scroll::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 999px; }
+.section-tab-active svg { color: var(--color-forest); }
+
+/* The look of every SegmentedControl: a tinted track holding filter-tab buttons. */
+.segmented { display: inline-flex; max-width: 100%; align-items: center; gap: 0.125rem; overflow-x: auto; border-radius: 0.5rem; background: var(--color-neutral-soft); padding: 0.125rem; }
+.segmented > .filter-tab { flex: none; }

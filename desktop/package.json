@@ -1,0 +1,58 @@
+{
+  "name": "project-brain-desktop",
+  "productName": "Project Moah",
+  "version": "0.1.0",
+  "private": true,
+  "desktopName": "io.github.projectbrain.ProjectBrain.desktop",
+  "description": "Local desktop app for Project Moah",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack:linux": "electron-builder --linux dir --x64",
+    "build:linux": "npm run pack:linux && bash ../scripts/build-flatpak.sh",
+    "build:windows": "electron-builder --win nsis portable --x64"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "io.github.projectbrain.ProjectBrain",
+    "productName": "Project Moah",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "assets/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": ["project-brain-backend", "project-brain-backend.exe"]
+      }
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "artifactName": "ProjectMoah-Setup-${version}-${arch}.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "ProjectMoah-Portable-${version}-${arch}.exe"
+    },
+    "linux": {
+      "executableName": "project-brain-desktop",
+      "icon": "assets/icon.png",
+      "category": "Development",
+      "target": ["dir"]
+    }
+  }
+}
