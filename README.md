@@ -123,8 +123,7 @@ The first install also downloads the Flatpak runtime, so it takes a little longe
 
 </details>
 
-**Connect your agent:** open the app and go to **Help → Connect Claude Code** (or **Connect Codex**). The commands there are made for the way you installed the app; copy them once. No API key is needed.
-
+**Connect your agent:** open the app and go to **Help -> Connect Claude Code/Codex**.
 ---
 
 ## Private by design
