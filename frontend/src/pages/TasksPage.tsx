@@ -11,6 +11,7 @@ import { TaskList } from "../components/tasks/TaskList";
 import { TaskPanel } from "../components/tasks/TaskPanel";
 import { useMilestones, useMoveTask, useTasks } from "../hooks/useTasks";
 import type { TaskDetail, TaskStatus, TaskSummary } from "../types/task";
+import { t } from "../lib/i18n";
 
 function view(): "board" | "list" {
   try { return localStorage.getItem("pb-task-view") === "list" ? "list" : "board"; } catch { return "board"; }
@@ -46,28 +47,28 @@ export function TasksPage({ projectId, archived }: { projectId: string; archived
   const syncRef = useCallback((task: TaskDetail | null) => setParam("task", task?.human_id ?? null), [setParam]);
   const switchMode = (next: "board" | "list") => { setMode(next); try { localStorage.setItem("pb-task-view", next); } catch { /* optional */ } };
 
-  if (tasksQuery.isError) return <ErrorState title="Tasks could not be loaded" message={tasksQuery.error.message} onRetry={() => void tasksQuery.refetch()} />;
+  if (tasksQuery.isError) return <ErrorState title={t("Tasks could not be loaded")} message={tasksQuery.error.message} onRetry={() => void tasksQuery.refetch()} />;
   const empty = tasksQuery.isSuccess && (tasksQuery.data?.length ?? 0) === 0;
 
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <SegmentedControl label="Task view" value={mode} onChange={switchMode} options={[{ value: "board", label: "Board", icon: LayoutGrid }, { value: "list", label: "List", icon: List }]} />
-          <label className="sr-only" htmlFor="milestone-filter">Milestone</label>
+          <SegmentedControl label={t("Task view")} value={mode} onChange={switchMode} options={[{ value: "board", label: t("Board"), icon: LayoutGrid }, { value: "list", label: t("List"), icon: List }]} />
+          <label className="sr-only" htmlFor="milestone-filter">{t("Milestone")}</label>
           <select id="milestone-filter" value={milestoneFilter} onChange={(e) => setParam("milestone", e.target.value || null)} className="field-input !min-h-9 !w-auto !py-1">
-            <option value="">All milestones</option>
+            <option value="">{t("All milestones")}</option>
             {activeMilestones.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.completed_task_count}/{m.task_count})</option>)}
           </select>
-          <Button variant="quiet" aria-expanded={managingMilestones} onClick={() => setManagingMilestones((current) => !current)}>{managingMilestones ? "Hide milestones" : "Manage milestones"}</Button>
+          <Button variant="quiet" aria-expanded={managingMilestones} onClick={() => setManagingMilestones((current) => !current)}>{managingMilestones ? t("Hide milestones") : t("Manage milestones")}</Button>
         </div>
-        {!archived && <Button variant="primary" onClick={() => setCreating("todo")}><Plus size={16} aria-hidden="true" />New task</Button>}
+        {!archived && <Button variant="primary" onClick={() => setCreating("todo")}><Plus size={16} aria-hidden="true" />{t("New task")}</Button>}
       </div>
-      {managingMilestones && (milestonesQuery.isPending ? <p role="status" className="mb-5 text-sm text-ink-muted">Loading milestones…</p> : milestonesQuery.isError ? <div className="mb-5"><ErrorState title="Milestones could not be loaded" message={milestonesQuery.error.message} onRetry={() => void milestonesQuery.refetch()} /></div> : <MilestoneManager projectId={projectId} milestones={milestones} readonly={archived} />)}
-      {move.isError && <div className="mb-4"><ErrorState title="That move did not save" message={move.error.message} /></div>}
+      {managingMilestones && (milestonesQuery.isPending ? <p role="status" className="mb-5 text-sm text-ink-muted">{t("Loading milestones…")}</p> : milestonesQuery.isError ? <div className="mb-5"><ErrorState title={t("Milestones could not be loaded")} message={milestonesQuery.error.message} onRetry={() => void milestonesQuery.refetch()} /></div> : <MilestoneManager projectId={projectId} milestones={milestones} readonly={archived} />)}
+      {move.isError && <div className="mb-4"><ErrorState title={t("That move did not save")} message={move.error.message} /></div>}
 
-      {tasksQuery.isPending ? <div role="status" aria-label="Loading tasks" className="h-64 animate-pulse rounded-xl bg-surface" />
-        : empty ? <EmptyState icon={<ListTodo size={26} />} title="No tasks yet" action={<div className="flex flex-wrap justify-center gap-2">{!archived && <Button variant="primary" onClick={() => setCreating("todo")}><Plus size={16} />Create first task</Button>}<Link to="/help/tasks" className={`${buttonBase} ${buttonClasses.secondary}`}>Learn about tasks</Link></div>}>Tasks keep you and your AI agents aligned on what needs to be built. Try something small, such as "Implement save migration".</EmptyState>
+      {tasksQuery.isPending ? <div role="status" aria-label={t("Loading tasks")} className="h-64 animate-pulse rounded-xl bg-surface" />
+        : empty ? <EmptyState icon={<ListTodo size={26} />} title={t("No tasks yet")} action={<div className="flex flex-wrap justify-center gap-2">{!archived && <Button variant="primary" onClick={() => setCreating("todo")}><Plus size={16} />{t("Create first task")}</Button>}<Link to="/help/tasks" className={`${buttonBase} ${buttonClasses.secondary}`}>{t("Learn about tasks")}</Link></div>}>{t("Tasks keep you and your AI agents aligned on what needs to be built. Try something small, such as \"Implement save migration\".")}</EmptyState>
         : mode === "board" ? <TaskBoard tasks={tasks} selectedId={tasksQuery.data.find((t) => t.human_id === selected)?.id ?? null} onOpen={open} onMove={(id, status, index) => { if (!archived) move.mutate({ id, status, index }); }} onAdd={setCreating} readOnly={archived} />
         : <TaskList tasks={tasks} selectedId={tasksQuery.data.find((t) => t.human_id === selected)?.id ?? null} onOpen={open} />}
 

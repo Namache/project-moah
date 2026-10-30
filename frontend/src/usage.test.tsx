@@ -32,8 +32,8 @@ describe("efficiency dashboard", () => {
     expect(screen.getByText("~/Desktop/Scratch")).toBeInTheDocument();
     expect(screen.getByText("No project")).toBeInTheDocument();
     // The 5 hour window is current; the weekly one has already reset and is not shown as used.
-    expect(screen.getByRole("meter", { name: "Codex 5 hour window limit" })).toHaveAttribute("aria-valuenow", "82");
-    expect(screen.getByRole("meter", { name: "Codex weekly limit" })).toHaveAttribute("aria-valuenow", "0");
+    expect(screen.getByRole("meter", { name: "Codex limit: 5 hour window" })).toHaveAttribute("aria-valuenow", "82");
+    expect(screen.getByRole("meter", { name: "Codex limit: Weekly" })).toHaveAttribute("aria-valuenow", "0");
     expect(screen.getByText("Reset")).toBeInTheDocument();
   });
 

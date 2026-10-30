@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { getArticle } from "../../lib/help";
 import { IntegrationSnippet } from "./IntegrationSnippet";
 import { useTimeout } from "../../hooks/useTimeout";
+import { t } from "../../lib/i18n";
 
 /**
  * A deliberately small Markdown renderer that builds React elements and never injects HTML,
@@ -34,7 +35,7 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
   }
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-line bg-neutral-soft">
-      <div className="flex items-center justify-between border-b border-line px-3 py-1.5 text-xs text-ink-muted"><span>{label ?? "Command"}</span><button type="button" onClick={() => void copy()} aria-label={`Copy ${label ?? "command"}`} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium hover:bg-surface focus-visible:outline-2 focus-visible:outline-forest">{copied ? <Check size={13} /> : <Copy size={13} />}{copied ? "Copied" : "Copy"}</button></div>
+      <div className="flex items-center justify-between border-b border-line px-3 py-1.5 text-xs text-ink-muted"><span>{label ?? t("Command")}</span><button type="button" onClick={() => void copy()} aria-label={label ? t("Copy: {name}", { name: label }) : t("Copy command")} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium hover:bg-surface focus-visible:outline-2 focus-visible:outline-forest">{copied ? <Check size={13} /> : <Copy size={13} />}{copied ? t("Copied") : t("Copy")}</button></div>
       <pre tabIndex={0} className="max-h-64 overflow-auto p-3 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-forest text-xs leading-6 text-ink"><code>{code}</code></pre>
     </div>
   );

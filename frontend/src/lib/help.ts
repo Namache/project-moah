@@ -1,3 +1,4 @@
+import { msg } from "./i18n";
 export interface HelpArticle { slug: string; title: string; category: string; summary: string; keywords: string[]; related: string[]; body: string }
 
 const files = import.meta.glob("../content/help/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
@@ -10,14 +11,14 @@ export function parseArticle(slug: string, raw: string): HelpArticle {
     const at = line.indexOf(":");
     if (at > 0) meta[line.slice(0, at).trim()] = line.slice(at + 1).trim();
   }
-  return { slug, title: meta.title ?? slug, category: meta.category ?? "Other", summary: meta.summary ?? "", keywords: list(meta.keywords), related: list(meta.related), body: (match?.[2] ?? raw).trim() };
+  return { slug, title: meta.title ?? slug, category: meta.category ?? msg("Other"), summary: meta.summary ?? "", keywords: list(meta.keywords), related: list(meta.related), body: (match?.[2] ?? raw).trim() };
 }
 
 export const articles: HelpArticle[] = Object.entries(files)
   .map(([path, raw]) => parseArticle(path.split("/").pop()!.replace(/\.md$/, ""), raw))
   .sort((a, b) => a.title.localeCompare(b.title));
 
-export const categoryOrder = ["Getting started", "Core features", "Connect agents", "Troubleshooting"];
+export const categoryOrder = [msg("Getting started"), msg("Core features"), msg("Connect agents"), msg("Troubleshooting")];
 export const getArticle = (slug: string) => articles.find((a) => a.slug === slug);
 
 /** Local, deterministic search. Every word must appear somewhere; title and keywords weigh most. */

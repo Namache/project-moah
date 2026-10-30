@@ -1,4 +1,5 @@
 import type { ImageInfo } from "./image";
+import { labels, msg } from "../lib/i18n";
 
 export type TaskStatus = "backlog" | "todo" | "in_progress" | "blocked" | "review" | "completed" | "archived";
 export type TaskPriority = "low" | "normal" | "high" | "critical";
@@ -6,18 +7,18 @@ export type MilestoneStatus = "planned" | "active" | "completed" | "archived";
 export type RelationshipType = "parent" | "child" | "depends_on" | "blocks" | "related_to" | "supersedes" | "superseded_by";
 
 export const boardColumns: { status: TaskStatus; label: string }[] = [
-  { status: "backlog", label: "Backlog" },
-  { status: "todo", label: "To do" },
-  { status: "in_progress", label: "In progress" },
-  { status: "blocked", label: "Blocked" },
-  { status: "review", label: "Review" },
-  { status: "completed", label: "Done" },
+  labels({ status: "backlog", label: msg("Backlog") }, ["label"]),
+  labels({ status: "todo", label: msg("To do") }, ["label"]),
+  labels({ status: "in_progress", label: msg("In progress") }, ["label"]),
+  labels({ status: "blocked", label: msg("Blocked") }, ["label"]),
+  labels({ status: "review", label: msg("Review") }, ["label"]),
+  labels({ status: "completed", label: msg("Done") }, ["label"]),
 ];
 
-export const statusLabels: Record<TaskStatus, string> = {
-  backlog: "Backlog", todo: "To do", in_progress: "In progress", blocked: "Blocked", review: "Review", completed: "Done", archived: "Archived",
-};
-export const priorityLabels: Record<TaskPriority, string> = { low: "Low", normal: "Normal", high: "High", critical: "Critical" };
+export const statusLabels: Record<TaskStatus, string> = labels({
+  backlog: msg("Backlog"), todo: msg("To do"), in_progress: msg("In progress"), blocked: msg("Blocked"), review: msg("Review"), completed: msg("Done"), archived: msg("Archived"),
+});
+export const priorityLabels: Record<TaskPriority, string> = labels({ low: msg("Low"), normal: msg("Normal"), high: msg("High"), critical: msg("Critical") });
 
 export interface Milestone {
   id: string;

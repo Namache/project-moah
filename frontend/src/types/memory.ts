@@ -1,5 +1,6 @@
 import type { ImageInfo } from "./image";
 import type { TaskRef } from "./task";
+import { labels, msg } from "../lib/i18n";
 
 export type MemoryType = "decision" | "rule" | "fact" | "idea" | "bug" | "note" | "warning";
 export type MemoryStatus = "active" | "superseded" | "invalidated" | "archived";
@@ -8,21 +9,21 @@ export type AiVisibility = "always" | "relevant_only" | "manual_only" | "hidden"
 export type MemorySort = "priority" | "updated_desc" | "updated_asc" | "title_asc";
 
 export const memoryTypes: { value: MemoryType; label: string; plural: string }[] = [
-  { value: "decision", label: "Decision", plural: "Decisions" },
-  { value: "rule", label: "Rule", plural: "Rules" },
-  { value: "fact", label: "Fact", plural: "Facts" },
-  { value: "idea", label: "Idea", plural: "Ideas" },
-  { value: "bug", label: "Known issue", plural: "Known issues" },
-  { value: "note", label: "Note", plural: "Notes" },
-  { value: "warning", label: "Warning", plural: "Warnings" },
+  labels({ value: "decision", label: msg("Decision"), plural: msg("Decisions") }, ["label", "plural"]),
+  labels({ value: "rule", label: msg("Rule"), plural: msg("Rules") }, ["label", "plural"]),
+  labels({ value: "fact", label: msg("Fact"), plural: msg("Facts") }, ["label", "plural"]),
+  labels({ value: "idea", label: msg("Idea"), plural: msg("Ideas") }, ["label", "plural"]),
+  labels({ value: "bug", label: msg("Known issue"), plural: msg("Known issues") }, ["label", "plural"]),
+  labels({ value: "note", label: msg("Note"), plural: msg("Notes") }, ["label", "plural"]),
+  labels({ value: "warning", label: msg("Warning"), plural: msg("Warnings") }, ["label", "plural"]),
 ];
 
-export const visibilityLabels: Record<AiVisibility, string> = {
-  always: "Always",
-  relevant_only: "Relevant only",
-  manual_only: "Manual only",
-  hidden: "Hidden",
-};
+export const visibilityLabels: Record<AiVisibility, string> = labels({
+  always: msg("Always"),
+  relevant_only: msg("Relevant only"),
+  manual_only: msg("Manual only"),
+  hidden: msg("Hidden"),
+});
 
 export interface MemoryRef {
   id: string;

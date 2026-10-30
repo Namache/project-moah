@@ -7,6 +7,7 @@ import { setTheme, themeChoices } from "../lib/theme";
 import type { Project } from "../types/project";
 import { primaryNav, projectsNavItem, secondaryNav, supportNav } from "./navItems";
 import { ProjectAvatar } from "./ui";
+import { t } from "../lib/i18n";
 
 /** A command either opens a page (to) or does something in place (action). */
 interface Command { id: string; group: string; label: string; icon: ReactNode; to?: string; action?: () => void }
@@ -50,12 +51,12 @@ export function CommandPalette({ projects, current, onClose }: { projects: Proje
     }
     for (const item of [...primaryNav, projectsNavItem, ...secondaryNav, ...supportNav]) {
       const Icon = item.icon;
-      all.push({ id: `page-${item.to}`, group: "Go to", label: item.label, icon: <Icon size={16} aria-hidden="true" />, to: item.to });
+      all.push({ id: `page-${item.to}`, group: t("Go to"), label: item.label, icon: <Icon size={16} aria-hidden="true" />, to: item.to });
     }
-    for (const project of projects) all.push({ id: `project-${project.id}`, group: "Projects", label: project.name, icon: <ProjectAvatar project={project} size="small" />, to: projectPath(project.id) });
-    all.push({ id: "new-project", group: "Create", label: "New project", icon: <Plus size={16} aria-hidden="true" />, to: "/projects?new=1" });
+    for (const project of projects) all.push({ id: `project-${project.id}`, group: t("Projects"), label: project.name, icon: <ProjectAvatar project={project} size="small" />, to: projectPath(project.id) });
+    all.push({ id: "new-project", group: t("Create"), label: t("New project"), icon: <Plus size={16} aria-hidden="true" />, to: "/projects?new=1" });
     for (const { value, label, icon: Icon } of themeChoices) {
-      all.push({ id: `theme-${value}`, group: "Appearance", label: `${label} theme`, icon: <Icon size={16} aria-hidden="true" />, action: () => setTheme(value) });
+      all.push({ id: `theme-${value}`, group: t("Appearance"), label: t("{name} theme", { name: t(label) }), icon: <Icon size={16} aria-hidden="true" />, action: () => setTheme(value) });
     }
 
     const found = q ? all.filter((c) => matches(c.label, q)).sort((a, b) => rank(a.label, q) - rank(b.label, q)) : all;
@@ -64,8 +65,8 @@ export function CommandPalette({ projects, current, onClose }: { projects: Proje
     // so "soul" + Enter opens Starling, but before loose letter-by-letter matches, so a phrase never dead-ends.
     const search: Command[] = [];
     const encoded = encodeURIComponent(query.trim());
-    if (current) search.push({ id: "search-here", group: "Search", label: `Search "${query.trim()}" in ${current.name}`, icon: <Search size={16} aria-hidden="true" />, to: `/search?q=${encoded}&project=${encodeURIComponent(current.id)}` });
-    search.push({ id: "search-all", group: "Search", label: `Search "${query.trim()}" in all projects`, icon: <FileSearch size={16} aria-hidden="true" />, to: `/search?q=${encoded}` });
+    if (current) search.push({ id: "search-here", group: t("Search"), label: t("Search \"{query}\" in {name}", { query: query.trim(), name: current.name }), icon: <Search size={16} aria-hidden="true" />, to: `/search?q=${encoded}&project=${encodeURIComponent(current.id)}` });
+    search.push({ id: "search-all", group: t("Search"), label: t("Search \"{query}\" in all projects", { query: query.trim() }), icon: <FileSearch size={16} aria-hidden="true" />, to: `/search?q=${encoded}` });
     const close = found.filter((c) => rank(c.label, q) < 2);
     const loose = found.filter((c) => rank(c.label, q) === 2);
     return groupBy([...close, ...search, ...loose]);
@@ -101,7 +102,7 @@ export function CommandPalette({ projects, current, onClose }: { projects: Proje
   return (
     <dialog
       ref={dialogRef}
-      aria-label="Search or jump to"
+      aria-label={t("Search or jump to")}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       className="dialog-panel mx-auto mt-[12vh] w-[calc(100%-2rem)] max-w-xl overflow-hidden rounded-xl border border-line bg-surface p-0 text-ink shadow-dialog backdrop:bg-black/40"
@@ -115,8 +116,8 @@ export function CommandPalette({ projects, current, onClose }: { projects: Proje
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={commands.length ? optionId(selected) : undefined}
-          aria-label="Search or jump to"
-          placeholder="Search or jump to…"
+          aria-label={t("Search or jump to")}
+          placeholder={t("Search or jump to…")}
           value={query}
           maxLength={200}
           onChange={(event) => { setQuery(event.target.value); setActive(0); }}
@@ -125,7 +126,7 @@ export function CommandPalette({ projects, current, onClose }: { projects: Proje
         />
         <kbd className="flex-none rounded border border-line px-1.5 text-xs text-ink-subtle">Esc</kbd>
       </div>
-      <div id={listId} role="listbox" aria-label="Results" className="max-h-[min(60vh,420px)] overflow-y-auto p-2">
+      <div id={listId} role="listbox" aria-label={t("Results")} className="max-h-[min(60vh,420px)] overflow-y-auto p-2">
         {groups.map((group) => (
           <div key={group.name} role="group" aria-label={group.name} className="pb-1">
             <div className="px-2.5 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-ink-subtle" aria-hidden="true">{group.name}</div>
@@ -146,7 +147,7 @@ export function CommandPalette({ projects, current, onClose }: { projects: Proje
             ); })}
           </div>
         ))}
-        {!commands.length && <p className="px-3 py-6 text-center text-sm text-ink-muted">Nothing matches.</p>}
+        {!commands.length && <p className="px-3 py-6 text-center text-sm text-ink-muted">{t("Nothing matches.")}</p>}
       </div>
     </dialog>
   );

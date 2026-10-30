@@ -77,11 +77,11 @@ it("lists what needs a look, opens a project's details and accepts a suggested s
   const row = screen.getByRole("button", { name: /Trailhead.*Findable: 38% linked.*Used lately: 1 pack/ });
   await userEvent.click(row);
   expect(row).toHaveAttribute("aria-expanded", "true");
-  expect(screen.getByText(/Links brought in 0% of the records agents got/)).toBeInTheDocument();
+  expect(screen.getByText(/Links brought in 0% of the memories agents got/)).toBeInTheDocument();
   expect(within(screen.getByRole("list", { name: "Topics in Trailhead" })).getByText("Wyrm")).toBeInTheDocument();
   expect(screen.getByText("50% of 6")).toBeInTheDocument();
 
-  expect(screen.getAllByText("Show the 2 records")).toHaveLength(2);
+  expect(screen.getAllByText("Show the 2 memories")).toHaveLength(2);
   expect(screen.getByRole("link", { name: "Write a rule" })).toHaveAttribute("href", "/projects/p1/memory?new=1&type=rule");
   await userEvent.click(screen.getByRole("button", { name: "File them" }));
   expect(await screen.findByText("Filed on Game design > Game mechanics.")).toBeInTheDocument();

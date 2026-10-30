@@ -7,6 +7,7 @@ import { useProjects } from "../hooks/useProjects";
 import { usePendingProposals, useProposals } from "../hooks/useProposals";
 import { GLOBAL_ID, projectPath } from "../lib/routes";
 import type { Project } from "../types/project";
+import { t } from "../lib/i18n";
 
 type Scope = Pick<Project, "id" | "name" | "icon" | "accent"> & { archived: boolean };
 
@@ -20,16 +21,16 @@ function ProjectGroup({ scope, count }: { scope: Scope; count: number }) {
         <h2 id={titleId} className="flex min-w-0 items-center gap-2.5 text-base font-semibold tracking-tight text-ink">
           {scope.id === GLOBAL_ID ? <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-sage-pale text-forest" aria-hidden="true"><Globe2 size={14} /></span> : <ProjectAvatar project={scope} size="small" />}
           <span className="truncate">{scope.name}</span>
-          <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-white" aria-label={`${count} waiting`}>{count}</span>
+          <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-white" aria-label={t("{count} waiting", { count })}>{count}</span>
         </h2>
         <div className="flex flex-wrap items-center gap-2">
-          {!scope.archived && items.length > 1 && <AcceptAllButton projectId={scope.id} count={items.length} label={`Accept all ${items.length}`} />}
-          <Link to={projectPath(scope.id, "review")} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-semibold text-forest hover:bg-sage-pale focus-visible:outline-2 focus-visible:outline-forest">History<span className="sr-only"> for {scope.name}</span><ArrowRight size={14} aria-hidden="true" /></Link>
+          {!scope.archived && items.length > 1 && <AcceptAllButton projectId={scope.id} count={items.length} label={t("Accept all {count}", { count: items.length })} />}
+          <Link to={projectPath(scope.id, "review")} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-semibold text-forest hover:bg-sage-pale focus-visible:outline-2 focus-visible:outline-forest">{t("History")}<span className="sr-only"> {t("for {name}", { name: scope.name })}</span><ArrowRight size={14} aria-hidden="true" /></Link>
         </div>
       </div>
-      {query.isPending ? <div role="status" aria-label={`Loading suggestions for ${scope.name}`} className="h-32 animate-pulse rounded-xl bg-surface" />
-        : query.isError ? <ErrorState title={`Suggestions for ${scope.name} could not be loaded`} message={query.error.message} onRetry={() => void query.refetch()} />
-        : <ul className="space-y-4" aria-label={`Suggestions for ${scope.name}`}>{items.map((p) => <ProposalCard key={p.id} proposal={p} readonly={scope.archived} />)}</ul>}
+      {query.isPending ? <div role="status" aria-label={t("Loading suggestions for {name}", { name: scope.name })} className="h-32 animate-pulse rounded-xl bg-surface" />
+        : query.isError ? <ErrorState title={t("Suggestions for {name} could not be loaded", { name: scope.name })} message={query.error.message} onRetry={() => void query.refetch()} />
+        : <ul className="space-y-4" aria-label={t("Suggestions for {name}", { name: scope.name })}>{items.map((p) => <ProposalCard key={p.id} proposal={p} readonly={scope.archived} />)}</ul>}
     </section>
   );
 }
@@ -48,13 +49,13 @@ export function ReviewInboxPage() {
 
   return (
     <div className="max-w-4xl">
-      <PageHeading title="Inbox" description="Suggestions from your agents, from every project. Nothing changes until you accept one." />
+      <PageHeading title={t("Inbox")} description={t("Suggestions from your agents, from every project. Nothing changes until you accept one.")} />
       <div className="mt-8 space-y-10">
-        {pending.isPending || projects.isPending ? <div role="status" aria-label="Loading suggestions" className="h-40 animate-pulse rounded-xl bg-surface" />
-          : pending.isError ? <ErrorState title="Suggestions could not be loaded" message={pending.error.message} onRetry={() => void pending.refetch()} />
+        {pending.isPending || projects.isPending ? <div role="status" aria-label={t("Loading suggestions")} className="h-40 animate-pulse rounded-xl bg-surface" />
+          : pending.isError ? <ErrorState title={t("Suggestions could not be loaded")} message={pending.error.message} onRetry={() => void pending.refetch()} />
           : groups.length === 0 ? (
-            <EmptyState icon={<ClipboardCheck size={26} />} title="You're all caught up">
-              When Claude Code or Codex wants to change something you control, such as a locked decision or a task's status, the suggestion waits here for you.
+            <EmptyState icon={<ClipboardCheck size={26} />} title={t("You're all caught up")}>
+              {t("When Claude Code or Codex wants to change something you control, such as a locked decision or a task's status, the suggestion waits here for you.")}
             </EmptyState>
           ) : groups.map(({ scope, count }) => <ProjectGroup key={scope.id} scope={scope} count={count} />)}
       </div>

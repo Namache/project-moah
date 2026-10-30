@@ -15,6 +15,7 @@ import { projectPath, taskPath } from "../lib/routes";
 import { statusLabels } from "../types/task";
 import type { Project } from "../types/project";
 import type { ProjectOverview } from "../types/task";
+import { locale, t, tp, tx } from "../lib/i18n";
 
 const linkClass = "rounded font-semibold text-forest hover:underline focus-visible:outline-2 focus-visible:outline-forest";
 
@@ -22,19 +23,19 @@ const linkClass = "rounded font-semibold text-forest hover:underline focus-visib
 function since(value: string): string {
   const seconds = (new Date(value).getTime() - Date.now()) / 1000;
   if (!Number.isFinite(seconds)) return "";
-  const format = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const format = new Intl.RelativeTimeFormat(locale(), { numeric: "auto" });
   const steps: [Intl.RelativeTimeFormatUnit, number][] = [["minute", 60], ["hour", 3600], ["day", 86400]];
-  if (Math.abs(seconds) < 60) return "just now";
+  if (Math.abs(seconds) < 60) return t("just now");
   if (Math.abs(seconds) > 7 * 86400) return formatDate(value);
   const [unit, size] = [...steps].reverse().find(([, s]) => Math.abs(seconds) >= s)!;
   return format.format(Math.round(seconds / size), unit);
 }
 
 function greeting(hour: number): string {
-  if (hour < 5) return "Good night";
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
+  if (hour < 5) return t("Good night");
+  if (hour < 12) return t("Good morning");
+  if (hour < 18) return t("Good afternoon");
+  return t("Good evening");
 }
 
 /** One project's focus task, or a nudge to pick one. */
@@ -44,8 +45,8 @@ function FocusRow({ project, overview }: { project: Project; overview: ProjectOv
     return (
       <li className="flex items-center gap-3 py-2.5">
         <ProjectAvatar project={project} size="small" />
-        <p className="min-w-0 flex-1 truncate text-sm text-ink-muted"><span className="font-medium text-ink">{project.name}</span>: nothing in focus</p>
-        <Link to={projectPath(project.id, "tasks")} className={`${linkClass} flex-none text-sm`}>Pick a task<span className="sr-only"> for {project.name}</span></Link>
+        <p className="min-w-0 flex-1 truncate text-sm text-ink-muted">{tx("<b>{name}</b>: nothing in focus", { b: (text) => <span className="font-medium text-ink">{text}</span>, name: project.name })}</p>
+        <Link to={projectPath(project.id, "tasks")} className={`${linkClass} flex-none text-sm`}>{t("Pick a task")}<span className="sr-only"> {t("for {name}", { name: project.name })}</span></Link>
       </li>
     );
   }
@@ -56,7 +57,7 @@ function FocusRow({ project, overview }: { project: Project; overview: ProjectOv
         <Icon size={18} className={`mt-0.5 flex-none ${toneClasses[tone].text}`} aria-label={statusLabels[focus.status]} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold text-ink">{focus.title}</span>
-          {focus.next_action && <span className="mt-0.5 block truncate text-sm text-ink-muted">Next: {focus.next_action}</span>}
+          {focus.next_action && <span className="mt-0.5 block truncate text-sm text-ink-muted">{t("Next: {action}", { action: focus.next_action })}</span>}
           <span className="mt-1 flex items-center gap-1.5 text-xs text-ink-subtle"><ProjectAvatar project={project} size="small" />{project.name} · {focus.human_id}</span>
         </span>
       </Link>
@@ -74,13 +75,13 @@ function ProjectTileLink({ project, overview, pending }: { project: Project; ove
       <Link to={projectPath(project.id)} className="group block rounded-xl p-1.5 hover:bg-hover focus-visible:outline-2 focus-visible:outline-forest">
         <span className="relative block">
           <ProjectTile project={project} className="transition-transform group-hover:-translate-y-0.5" />
-          {pending > 0 && <span className="absolute -right-1.5 -top-1.5 min-w-6 rounded-full border-2 border-surface bg-primary px-1.5 text-center text-xs font-semibold leading-5 text-white" aria-label={`${pending} in Inbox`}>{pending}</span>}
+          {pending > 0 && <span className="absolute -right-1.5 -top-1.5 min-w-6 rounded-full border-2 border-surface bg-primary px-1.5 text-center text-xs font-semibold leading-5 text-white" aria-label={t("{count} in Inbox", { count: pending })}>{pending}</span>}
         </span>
         <span className="mt-2.5 block truncate text-center text-sm font-semibold text-ink">{project.name}</span>
         <span className="mt-0.5 block truncate text-center text-xs text-ink-subtle">
-          {checkpoint?.id ? `Saved ${since(checkpoint.created_at)}` : milestone ? milestone.name : "No milestone"}
+          {checkpoint?.id ? t("Saved {when}", { when: since(checkpoint.created_at) }) : milestone ? milestone.name : t("No milestone")}
         </span>
-        {percent !== null && <span className="mx-auto mt-2 block w-3/4"><ProgressBar value={percent} label={`${project.name}: ${percent}% of ${milestone!.name} done`} /></span>}
+        {percent !== null && <span className="mx-auto mt-2 block w-3/4"><ProgressBar value={percent} label={t("{project}: {share} of {milestone} done", { project: project.name, share: `${percent}%`, milestone: milestone!.name })} /></span>}
       </Link>
     </li>
   );
@@ -115,48 +116,48 @@ export function HomePage() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">{greeting(now.getHours())}</h1>
-        <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle">{now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle">{now.toLocaleDateString(locale(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
       </header>
 
-      {projects.isPending ? <div role="status" aria-label="Loading projects" className="grid gap-4 lg:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="h-48 animate-pulse rounded-xl bg-surface" />)}</div>
-        : projects.isError ? <ErrorState title="Projects are unavailable" message={projects.error.message} onRetry={() => void projects.refetch()} />
+      {projects.isPending ? <div role="status" aria-label={t("Loading projects")} className="grid gap-4 lg:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="h-48 animate-pulse rounded-xl bg-surface" />)}</div>
+        : projects.isError ? <ErrorState title={t("Projects are unavailable")} message={projects.error.message} onRetry={() => void projects.refetch()} />
         : active.length === 0 ? (
-          <EmptyState icon={<FolderKanban size={26} />} title="No active projects yet" action={<Link to="/projects?new=1" className={`${buttonBase} ${buttonClasses.primary}`}><Plus size={16} aria-hidden="true" />New project</Link>}>
-            Create a project, or open a folder in Claude Code or Codex and it shows up here.
+          <EmptyState icon={<FolderKanban size={26} />} title={t("No active projects yet")} action={<Link to="/projects?new=1" className={`${buttonBase} ${buttonClasses.primary}`}><Plus size={16} aria-hidden="true" />{t("New project")}</Link>}>
+            {t("Create a project, or open a folder in Claude Code or Codex and it shows up here.")}
           </EmptyState>
         ) : (
           <>
             <div className="grid gap-4 lg:grid-cols-3">
-              <Widget title="In focus" icon={Crosshair} to="/tasks" linkLabel="All tasks" className="lg:col-span-2">
+              <Widget title={t("In focus")} icon={Crosshair} to="/tasks" linkLabel={t("All tasks")} className="lg:col-span-2">
                 <ul className="divide-y divide-line">
                   {active.map((project) => <FocusRow key={project.id} project={project} overview={overviewById.get(project.id)} />)}
                 </ul>
               </Widget>
 
               <div className="grid gap-4">
-                <Widget title="Inbox" icon={Inbox} to="/review" linkLabel="Open Inbox">
+                <Widget title={t("Inbox")} icon={Inbox} to="/review" linkLabel={t("Open Inbox")}>
                   {waiting > 0
-                    ? <Link to="/review" className="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-forest"><span className="text-4xl font-semibold tabular-nums tracking-tight text-ink">{waiting}</span><span className="text-sm text-ink-muted">{waiting === 1 ? "suggestion waits" : "suggestions wait"} for your decision</span></Link>
-                    : <p className="flex items-center gap-2.5 text-sm text-ink-muted"><CheckCircle2 size={22} className="text-success" aria-hidden="true" />All caught up</p>}
+                    ? <Link to="/review" className="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-forest"><span className="text-4xl font-semibold tabular-nums tracking-tight text-ink">{waiting}</span><span className="text-sm text-ink-muted">{tp(waiting, "suggestion waits for your decision", "suggestions wait for your decision")}</span></Link>
+                    : <p className="flex items-center gap-2.5 text-sm text-ink-muted"><CheckCircle2 size={22} className="text-success" aria-hidden="true" />{t("All caught up")}</p>}
                 </Widget>
-                <Widget title="Recent activity" icon={ActivityIcon} to="/activity" linkLabel="All activity">
-                  {recent.isSuccess && recent.data.length === 0 && <p className="text-sm text-ink-subtle">Nothing yet.</p>}
+                <Widget title={t("Recent activity")} icon={ActivityIcon} to="/activity" linkLabel={t("All activity")}>
+                  {recent.isSuccess && recent.data.length === 0 && <p className="text-sm text-ink-subtle">{t("Nothing yet.")}</p>}
                   {recent.isSuccess && recent.data.length > 0 && <ol className="-mt-2">{recent.data.slice(0, 4).map((event) => <CompactActivityItem key={event.id} event={event} />)}</ol>}
                 </Widget>
               </div>
             </div>
 
-            <Widget title="Projects" icon={FolderKanban} to="/projects" linkLabel="All projects">
-              <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-3" aria-label="Active projects">
+            <Widget title={t("Projects")} icon={FolderKanban} to="/projects" linkLabel={t("All projects")}>
+              <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-3" aria-label={t("Active projects")}>
                 {active.map((project) => <ProjectTileLink key={project.id} project={project} overview={overviewById.get(project.id)} pending={pending?.by_project?.[project.id] ?? 0} />)}
                 <li className="min-w-0">
                   <Link to="/projects?new=1" className="group block rounded-xl p-1.5 hover:bg-hover focus-visible:outline-2 focus-visible:outline-forest">
                     <span className="flex aspect-square items-center justify-center rounded-xl border-2 border-dashed border-line-strong text-ink-subtle group-hover:border-forest group-hover:text-forest"><Plus size={30} aria-hidden="true" /></span>
-                    <span className="mt-2.5 block text-center text-sm font-medium text-ink-muted">New project</span>
+                    <span className="mt-2.5 block text-center text-sm font-medium text-ink-muted">{t("New project")}</span>
                   </Link>
                 </li>
               </ul>
-              {others > 0 && <p className="mt-3 text-sm text-ink-muted">{others} paused or completed {others === 1 ? "project is" : "projects are"} on <Link to="/projects" className={linkClass}>Projects</Link>.</p>}
+              {others > 0 && <p className="mt-3 text-sm text-ink-muted">{tx(tp(others, "{count} paused or completed project is on <link>Projects</link>.", "{count} paused or completed projects are on <link>Projects</link>."), { link: (text) => <Link to="/projects" className={linkClass}>{text}</Link> })}</p>}
             </Widget>
           </>
         )}

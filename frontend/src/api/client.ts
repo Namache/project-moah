@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 /** Shared HTTP plumbing for every API module: the desktop token, JSON bodies, and readable errors. */
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -32,7 +33,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     });
   } catch (error) {
     if (options?.signal?.aborted) throw error;
-    throw new ApiError("Project Moah could not reach its local service. Check that the backend is running, then try again.", 0);
+    throw new ApiError(t("Project Moah could not reach its local service. Check that the backend is running, then try again."), 0);
   }
 
   if (!response.ok) {
@@ -42,7 +43,7 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     } catch {
       // Some server and proxy errors have no JSON body.
     }
-    const message = detailMessage(detail) ?? `The request failed (${response.status}). Please try again.`;
+    const message = detailMessage(detail) ?? t("The request failed ({status}). Please try again.", { status: String(response.status) });
     throw new ApiError(message, response.status);
   }
 

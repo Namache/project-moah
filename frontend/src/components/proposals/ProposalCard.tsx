@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { useReviewActions } from "../../hooks/useProposals";
 import { proposalLabels, type Proposal } from "../../types/proposal";
 import { Badge, Button, formatDate } from "../ui";
+import { t } from "../../lib/i18n";
 
 type Draft = Record<string, unknown>;
 type FieldKind = "boolean" | "list" | "number" | "text" | "fixed";
@@ -52,8 +53,8 @@ function PayloadEditor({ original, draft, onChange }: { original: Draft; draft: 
         const kind = kindOf(value);
         const text = String(draft[key] ?? "");
         if (kind === "boolean") return <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(draft[key])} onChange={(e) => onChange({ ...draft, [key]: e.target.checked })} className="h-4 w-4 accent-primary" />{label}</label>;
-        if (kind === "fixed") return <div key={key}><p className="field-label">{label} <span className="font-normal text-ink-subtle">not editable here</span></p><pre className="overflow-x-auto rounded-lg bg-surface p-2 text-xs">{JSON.stringify(value, null, 2)}</pre></div>;
-        if (kind === "list") return <div key={key}><label htmlFor={id} className="field-label">{label} <span className="font-normal text-ink-subtle">comma separated</span></label><input id={id} className="field-input" value={text} onChange={(e) => onChange({ ...draft, [key]: e.target.value })} /></div>;
+        if (kind === "fixed") return <div key={key}><p className="field-label">{label} <span className="font-normal text-ink-subtle">{t("not editable here")}</span></p><pre className="overflow-x-auto rounded-lg bg-surface p-2 text-xs">{JSON.stringify(value, null, 2)}</pre></div>;
+        if (kind === "list") return <div key={key}><label htmlFor={id} className="field-label">{label} <span className="font-normal text-ink-subtle">{t("comma separated")}</span></label><input id={id} className="field-input" value={text} onChange={(e) => onChange({ ...draft, [key]: e.target.value })} /></div>;
         if (kind === "number") return <div key={key}><label htmlFor={id} className="field-label">{label}</label><input id={id} inputMode="decimal" className="field-input" value={text} onChange={(e) => onChange({ ...draft, [key]: e.target.value })} /></div>;
         return <div key={key}><label htmlFor={id} className="field-label">{label}</label><textarea id={id} rows={text.length > 80 ? 4 : 2} className="field-input" value={text} onChange={(e) => onChange({ ...draft, [key]: e.target.value })} /></div>;
       })}
@@ -80,27 +81,27 @@ export function ProposalCard({ proposal, readonly }: { proposal: Proposal; reado
           <span className="rounded-full bg-sage-pale px-2.5 py-0.5 font-semibold text-forest">{proposalLabels[proposal.proposal_type]}</span>
           <span className="inline-flex items-center gap-1 text-ink-muted"><Bot size={13} aria-hidden="true" />{proposal.agent}</span>
           <span className="text-ink-subtle">{formatDate(proposal.created_at)}</span>
-          {!pending && <Badge tone={proposal.status === "accepted" ? "success" : "neutral"}>{proposal.status === "accepted" ? "Accepted" : "Dismissed"}</Badge>}
+          {!pending && <Badge tone={proposal.status === "accepted" ? "success" : "neutral"}>{proposal.status === "accepted" ? t("Accepted") : t("Dismissed")}</Badge>}
         </div>
-        {proposal.target_label && <h3 className="mt-2 flex items-center gap-2 text-sm font-semibold text-ink">{proposal.target_label}{proposal.target_locked && <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning-ink"><Lock size={11} aria-hidden="true" />Locked</span>}</h3>}
-        {proposal.reason && <p className="mt-2 text-sm leading-6 text-ink-muted"><strong className="text-ink">Why:</strong> {proposal.reason}</p>}
-        <ul className="mt-3 space-y-1 rounded-xl bg-neutral-soft px-4 py-3 text-sm text-ink" aria-label="What will change">{proposal.changes.map((line) => <li key={line}>{line}</li>)}</ul>
-        {pending && proposal.target_locked && <p className="mt-2 text-xs text-warning-ink">This memory is locked, so an agent could not change it. Accepting applies the change because you reviewed it. The memory stays locked.</p>}
-        {proposal.applied_payload && <p className="mt-2 text-xs text-ink-subtle">You edited this before accepting it.</p>}
-        {proposal.review_note && <p className="mt-2 text-xs text-ink-subtle">Your note: {proposal.review_note}</p>}
+        {proposal.target_label && <h3 className="mt-2 flex items-center gap-2 text-sm font-semibold text-ink">{proposal.target_label}{proposal.target_locked && <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning-ink"><Lock size={11} aria-hidden="true" />{t("Locked")}</span>}</h3>}
+        {proposal.reason && <p className="mt-2 text-sm leading-6 text-ink-muted"><strong className="text-ink">{t("Why:")}</strong> {proposal.reason}</p>}
+        <ul className="mt-3 space-y-1 rounded-xl bg-neutral-soft px-4 py-3 text-sm text-ink" aria-label={t("What will change")}>{proposal.changes.map((line) => <li key={line}>{line}</li>)}</ul>
+        {pending && proposal.target_locked && <p className="mt-2 text-xs text-warning-ink">{t("This memory is locked, so an agent could not change it. Accepting applies the change because you reviewed it. The memory stays locked.")}</p>}
+        {proposal.applied_payload && <p className="mt-2 text-xs text-ink-subtle">{t("You edited this before accepting it.")}</p>}
+        {proposal.review_note && <p className="mt-2 text-xs text-ink-subtle">{t("Your note:")} {proposal.review_note}</p>}
         {shownError && pending && <p role="alert" className="mt-3 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-ink">{shownError}</p>}
 
         {pending && !readonly && (
           <>
             {editing && <PayloadEditor original={proposal.payload} draft={draft} onChange={setDraft} />}
-            {rejecting && <div className="mt-3"><label htmlFor={`note-${proposal.id}`} className="field-label">Note for the record <span className="font-normal text-ink-subtle">Optional</span></label><input id={`note-${proposal.id}`} className="field-input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} /></div>}
+            {rejecting && <div className="mt-3"><label htmlFor={`note-${proposal.id}`} className="field-label">{t("Note for the record")} <span className="font-normal text-ink-subtle">{t("Optional")}</span></label><input id={`note-${proposal.id}`} className="field-input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} /></div>}
             <div className="mt-4 flex flex-wrap gap-2">
               {!rejecting && (editing
-                ? <><Button variant="primary" disabled={busy} onClick={() => accept.mutate({ id: proposal.id, payload: payloadFrom(proposal.payload, draft) })}>Accept with my edits</Button><Button variant="quiet" onClick={() => { setEditing(false); setDraft(draftFrom(proposal.payload)); }}>Cancel edit</Button></>
-                : <><Button variant="primary" disabled={busy} onClick={() => accept.mutate({ id: proposal.id })}>Accept</Button><Button disabled={busy} onClick={() => setEditing(true)}>Edit and accept</Button></>)}
+                ? <><Button variant="primary" disabled={busy} onClick={() => accept.mutate({ id: proposal.id, payload: payloadFrom(proposal.payload, draft) })}>{t("Accept with my edits")}</Button><Button variant="quiet" onClick={() => { setEditing(false); setDraft(draftFrom(proposal.payload)); }}>{t("Cancel edit")}</Button></>
+                : <><Button variant="primary" disabled={busy} onClick={() => accept.mutate({ id: proposal.id })}>{t("Accept")}</Button><Button disabled={busy} onClick={() => setEditing(true)}>{t("Edit and accept")}</Button></>)}
               {!editing && (rejecting
-                ? <><Button variant="danger" disabled={busy} onClick={() => reject.mutate({ id: proposal.id, note: note.trim() || undefined })}>Dismiss suggestion</Button><Button variant="quiet" onClick={() => setRejecting(false)}>Cancel</Button></>
-                : <Button variant="quiet" disabled={busy} onClick={() => setRejecting(true)}>Dismiss</Button>)}
+                ? <><Button variant="danger" disabled={busy} onClick={() => reject.mutate({ id: proposal.id, note: note.trim() || undefined })}>{t("Dismiss suggestion")}</Button><Button variant="quiet" onClick={() => setRejecting(false)}>{t("Cancel")}</Button></>
+                : <Button variant="quiet" disabled={busy} onClick={() => setRejecting(true)}>{t("Dismiss")}</Button>)}
             </div>
           </>
         )}

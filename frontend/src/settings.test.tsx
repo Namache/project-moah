@@ -4,14 +4,15 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { LanguageRoot, setLanguage } from "./lib/i18n";
 import { diagnosticReport } from "./pages/SettingsPage";
 
 const diag = { app_version: "0.1.0", python: "3.13.1", platform: "Linux", sqlite_version: "3.51.2", database: { path: "/home/u/.var/app/x/data/project-brain/project-brain.db", size_bytes: 204800, migration: "0007_proposals", integrity: "ok", foreign_key_problems: 0, search_index_ready: true }, counts: { projects: 2, tasks: 5, pending_proposals: 1 }, git: { available: false, version: null }, mcp: { command: "project-brain-mcp", tools: 15 } };
 const agentSettings = { default_agent: "claude", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude" };
 const taskSettings = { auto_delete_done: false, auto_delete_done_since: null };
 const respond = (u: string) => Response.json(u === "/api/system/diagnostics" ? diag : u === "/api/settings/agents" ? agentSettings : u === "/api/settings/tasks" ? taskSettings : []);
-const renderAt = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/settings"]}><App /></MemoryRouter></QueryClientProvider>);
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+const renderAt = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/settings"]}><LanguageRoot><App /></LanguageRoot></MemoryRouter></QueryClientProvider>);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setLanguage("system"); });
 
 describe("settings", () => {
   it("switches the theme, remembers it, and goes back to following the system", async () => {
@@ -31,7 +32,7 @@ describe("settings", () => {
   it("shows where data lives, health, Git availability, and a report without project content", async () => {
     vi.stubGlobal("fetch", vi.fn(async (u: RequestInfo | URL) => respond(String(u))));
     renderAt();
-    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect((await screen.findAllByText("Healthy")).length).toBeGreaterThan(0);
     expect(screen.getByText(/project-brain\.db/)).toBeInTheDocument();
     expect(screen.getByText(/Not available to Project Moah/)).toBeInTheDocument();
     const report = diagnosticReport(diag);
@@ -54,13 +55,25 @@ describe("settings", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
-  it("offers connection commands for each agent", async () => {
+  it("points each agent to its setup guide", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (u: RequestInfo | URL) => respond(String(u))));
+    renderAt();
+    expect(await screen.findByRole("link", { name: /Claude Code.*Setup guide/ })).toHaveAttribute("href", "/help/claude");
+    expect(screen.getByRole("link", { name: /Codex.*Setup guide/ })).toHaveAttribute("href", "/help/codex");
+  });
+
+  it("switches the whole app to Russian and back", async () => {
     vi.stubGlobal("fetch", vi.fn(async (u: RequestInfo | URL) => respond(String(u))));
     const user = userEvent.setup();
     renderAt();
-    expect(await screen.findByRole("region", { name: "Setup commands for Claude Code" })).toBeInTheDocument();
-    await user.click(within(screen.getByRole("group", { name: "Agent to connect" })).getByRole("button", { name: "Codex" }));
-    expect(await screen.findByRole("region", { name: "Setup commands for Codex" })).toBeInTheDocument();
+    await user.click(within(await screen.findByRole("group", { name: "Language" })).getByRole("radio", { name: "Русский" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Настройки" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("ru");
+    expect(localStorage.getItem("pb-language")).toBe("ru");
+    expect(screen.getByRole("link", { name: /Справка/ })).toBeInTheDocument();
+    await user.click(within(screen.getByRole("group", { name: "Язык" })).getByRole("radio", { name: "Система" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    expect(localStorage.getItem("pb-language")).toBeNull();
   });
 
   it("turns on deleting completed tasks after two weeks and says when the first can go", async () => {

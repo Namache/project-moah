@@ -10,8 +10,9 @@ import type { MemoryType } from "../types/memory";
 const memoryTypeLabels = Object.fromEntries(memoryTypes.map((t) => [t.value, t.label])) as Record<MemoryType, string>;
 import type { SearchEntityType, SearchResult } from "../types/search";
 import { checkpointPath, memoryPath, projectPath, taskPath } from "../lib/routes";
+import { labels, msg, t, tp } from "../lib/i18n";
 
-const entityLabels: Record<SearchEntityType, string> = { project: "Projects", task: "Tasks", memory: "Memory", checkpoint: "Checkpoints", file: "Files" };
+const entityLabels: Record<SearchEntityType, string> = labels({ project: msg("Projects"), task: msg("Tasks"), memory: msg("Memory"), checkpoint: msg("Checkpoints"), file: msg("Files") });
 const entityIcons = { project: FolderKanban, task: ListTodo, memory: Brain, checkpoint: CheckCircle2, file: FileText } as const;
 
 function resultHref(r: SearchResult): string {
@@ -59,41 +60,41 @@ export function SearchPage() {
 
   return (
     <div>
-      <PageHeading title="Search" />
-      <form role="search" aria-label="Search query" className="mt-6 flex gap-2" onSubmit={(e) => { e.preventDefault(); set("q", String(new FormData(e.currentTarget).get("q") ?? "").trim() || null); }}>
-        <input key={q} name="q" defaultValue={q} aria-label="Search words" placeholder="Search tasks, memory, and checkpoints" className="field-input" maxLength={200} autoFocus />
-        <Button type="submit" variant="primary"><Search size={16} aria-hidden="true" />Search</Button>
+      <PageHeading title={t("Search")} />
+      <form role="search" aria-label={t("Search query")} className="mt-6 flex gap-2" onSubmit={(e) => { e.preventDefault(); set("q", String(new FormData(e.currentTarget).get("q") ?? "").trim() || null); }}>
+        <input key={q} name="q" defaultValue={q} aria-label={t("Search words")} placeholder={t("Search tasks, memory, and checkpoints")} className="field-input" maxLength={200} autoFocus />
+        <Button type="submit" variant="primary"><Search size={16} aria-hidden="true" />{t("Search")}</Button>
       </form>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         {projectId && (
-          <div role="group" aria-label="Search scope" className="segmented">
-            <button type="button" aria-pressed={!scopeAll} onClick={() => set("scope", null)} className={`filter-tab ${!scopeAll ? "filter-tab-active" : ""}`}>{scopeProject ? `In ${scopeProject.name}` : "This project"}</button>
-            <button type="button" aria-pressed={scopeAll} onClick={() => set("scope", "all")} className={`filter-tab ${scopeAll ? "filter-tab-active" : ""}`}>All projects</button>
+          <div role="group" aria-label={t("Search scope")} className="segmented">
+            <button type="button" aria-pressed={!scopeAll} onClick={() => set("scope", null)} className={`filter-tab ${!scopeAll ? "filter-tab-active" : ""}`}>{scopeProject ? t("In {name}", { name: scopeProject.name }) : t("This project")}</button>
+            <button type="button" aria-pressed={scopeAll} onClick={() => set("scope", "all")} className={`filter-tab ${scopeAll ? "filter-tab-active" : ""}`}>{t("All projects")}</button>
           </div>
         )}
-        <div role="group" aria-label="Result type" className="segmented">
-          {types.map((t) => <button key={t ?? "all"} type="button" aria-pressed={entity === t} onClick={() => updateParams(t === "memory" ? { type: t } : { type: t, memory_type: null })} className={`filter-tab ${entity === t ? "filter-tab-active" : ""}`}>{t ? entityLabels[t] : "All"}</button>)}
+        <div role="group" aria-label={t("Result type")} className="segmented">
+          {types.map((kind) => <button key={kind ?? "all"} type="button" aria-pressed={entity === kind} onClick={() => updateParams(kind === "memory" ? { type: kind } : { type: kind, memory_type: null })} className={`filter-tab ${entity === kind ? "filter-tab-active" : ""}`}>{kind ? entityLabels[kind] : t("All")}</button>)}
         </div>
         {(entity === "memory" || memoryType) && (
-          <select aria-label="Memory type" value={memoryType ?? ""} onChange={(e) => updateParams(e.target.value ? { memory_type: e.target.value, type: "memory" } : { memory_type: null })} className="field-input !min-h-10 !w-auto">
-            <option value="">Any memory type</option>
+          <select aria-label={t("Memory type")} value={memoryType ?? ""} onChange={(e) => updateParams(e.target.value ? { memory_type: e.target.value, type: "memory" } : { memory_type: null })} className="field-input !min-h-10 !w-auto">
+            <option value="">{t("Any memory type")}</option>
             {memoryTypes.map((m) => <option key={m.value} value={m.value}>{m.plural}</option>)}
           </select>
         )}
-        <label className="inline-flex items-center gap-2 text-sm text-ink-muted"><input type="checkbox" checked={history} onChange={(e) => set("history", e.target.checked ? "1" : null)} className="h-4 w-4 accent-primary" />Include archived and history</label>
+        <label className="inline-flex items-center gap-2 text-sm text-ink-muted"><input type="checkbox" checked={history} onChange={(e) => set("history", e.target.checked ? "1" : null)} className="h-4 w-4 accent-primary" />{t("Include archived and history")}</label>
       </div>
-      {scopeAll && <p className="mt-3 text-xs text-ink-subtle">Searching every active project. Results show which project they belong to, and are never sent to an agent automatically.</p>}
+      {scopeAll && <p className="mt-3 text-xs text-ink-subtle">{t("Searching every active project. Results show which project they belong to, and are never sent to an agent automatically.")}</p>}
 
       <div className="mt-6" aria-live="polite">
-        {!q.trim() ? <EmptyState icon={<Search size={26} />} title="What are you looking for?">Search by words, or by an ID such as CAMP-037. Press / anywhere to jump here.</EmptyState>
-          : query.isPending ? <div role="status" aria-label="Searching" className="h-40 animate-pulse rounded-xl bg-surface" />
-          : query.isError ? <ErrorState title="Search could not run" message={query.error.message} onRetry={() => void query.refetch()} />
-          : query.data.items.length === 0 ? <EmptyState icon={<Search size={26} />} title={`No results for "${q.trim()}"`}>{!scopeAll ? "Try searching all projects, " : "Try different words, "}{history ? "or check the spelling." : "or turn on archived and history."}</EmptyState>
+        {!q.trim() ? <EmptyState icon={<Search size={26} />} title={t("What are you looking for?")}>{t("Search by words, or by an ID such as CAMP-037. Press / anywhere to jump here.")}</EmptyState>
+          : query.isPending ? <div role="status" aria-label={t("Searching")} className="h-40 animate-pulse rounded-xl bg-surface" />
+          : query.isError ? <ErrorState title={t("Search could not run")} message={query.error.message} onRetry={() => void query.refetch()} />
+          : query.data.items.length === 0 ? <EmptyState icon={<Search size={26} />} title={t("No results for \"{query}\"", { query: q.trim() })}>{!scopeAll ? (history ? t("Try searching all projects, or check the spelling.") : t("Try searching all projects, or turn on archived and history.")) : (history ? t("Try different words, or check the spelling.") : t("Try different words, or turn on archived and history."))}</EmptyState>
           : <>
-            <p className="mb-3 text-sm text-ink-muted">{query.data.total} {query.data.total === 1 ? "result" : "results"}</p>
+            <p className="mb-3 text-sm text-ink-muted">{tp(query.data.total, "{count} result", "{count} results")}</p>
             <ul className="space-y-2.5">{query.data.items.map((r) => <Row key={`${r.entity_type}:${r.entity_id}`} result={r} showProject={scopeAll} color={style.get(r.project_id)} />)}</ul>
-            {query.hasNextPage && <div className="mt-5 text-center"><Button onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>{query.isFetchingNextPage ? "Loading…" : "Load more"}</Button></div>}
+            {query.hasNextPage && <div className="mt-5 text-center"><Button onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>{query.isFetchingNextPage ? t("Loading…") : t("Load more")}</Button></div>}
           </>}
       </div>
     </div>

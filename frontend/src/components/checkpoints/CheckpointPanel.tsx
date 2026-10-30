@@ -7,6 +7,7 @@ import { useTasks } from "../../hooks/useTasks";
 import type { Checkpoint, CheckpointChanges, CheckpointInput } from "../../types/checkpoint";
 import { taskPath } from "../../lib/routes";
 import { useModalDialog } from "../../hooks/useModalDialog";
+import { labels, msg, t } from "../../lib/i18n";
 
 interface Draft {
   title: string;
@@ -50,11 +51,11 @@ function changesFrom(draft: Draft, record: Checkpoint): CheckpointChanges {
 }
 
 const sections = [
-  { key: "summary", label: "Summary", hint: "The state of the work at this moment.", rows: 3 },
-  { key: "completed_work", label: "Completed work", hint: "What is finished and verified?", rows: 4 },
-  { key: "remaining_work", label: "Remaining work", hint: "What is still unfinished?", rows: 4 },
-  { key: "problems", label: "Problems", hint: "Blockers, failures, and known risks.", rows: 3 },
-  { key: "next_steps", label: "Next steps", hint: "What should the next person or agent do first?", rows: 4 },
+  labels({ key: "summary", label: msg("Summary"), hint: msg("The state of the work at this moment."), rows: 3 }, ["label", "hint"]),
+  labels({ key: "completed_work", label: msg("Completed work"), hint: msg("What is finished and verified?"), rows: 4 }, ["label", "hint"]),
+  labels({ key: "remaining_work", label: msg("Remaining work"), hint: msg("What is still unfinished?"), rows: 4 }, ["label", "hint"]),
+  labels({ key: "problems", label: msg("Problems"), hint: msg("Blockers, failures, and known risks."), rows: 3 }, ["label", "hint"]),
+  labels({ key: "next_steps", label: msg("Next steps"), hint: msg("What should the next person or agent do first?"), rows: 4 }, ["label", "hint"]),
 ] as const;
 
 export function CheckpointPanel({ projectId, checkpointId, defaultTaskId, readonly, onClose, onChanged }: {
@@ -98,7 +99,7 @@ export function CheckpointPanel({ projectId, checkpointId, defaultTaskId, readon
         : await actions.update.mutateAsync({ id: record!.id, changes });
       onChanged(saved.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The checkpoint could not be saved.");
+      setError(cause instanceof Error ? cause.message : t("The checkpoint could not be saved."));
     }
   }
 
@@ -112,34 +113,34 @@ export function CheckpointPanel({ projectId, checkpointId, defaultTaskId, readon
       className="dialog-panel panel-right fixed inset-y-0 right-0 left-auto m-0 h-full max-h-none w-full max-w-[620px] overflow-y-auto border-l border-line bg-surface p-0 text-ink shadow-dialog backdrop:bg-black/40">
       <div className="flex items-start justify-between gap-3 border-b border-line px-6 py-5">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-forest">{creating ? "New checkpoint" : "Checkpoint"}</p>
-          <h2 id="checkpoint-panel-title" className="mt-1 text-xl font-semibold tracking-tight">{creating ? "Record progress" : record?.title ?? "Checkpoint details"}</h2>
-          {record && <p className="mt-1 text-xs text-ink-muted">Created {formatDate(record.created_at)} · Updated {formatDate(record.updated_at)}</p>}
+          <p className="text-xs font-bold uppercase tracking-wide text-forest">{creating ? t("New checkpoint") : t("Checkpoint")}</p>
+          <h2 id="checkpoint-panel-title" className="mt-1 text-xl font-semibold tracking-tight">{creating ? t("Record progress") : record?.title ?? t("Checkpoint details")}</h2>
+          {record && <p className="mt-1 text-xs text-ink-muted">{t("Created {created} · Updated {updated}", { created: formatDate(record.created_at), updated: formatDate(record.updated_at) })}</p>}
         </div>
-        <Button variant="quiet" size="icon" onClick={onClose} aria-label="Close checkpoint"><X size={18} /></Button>
+        <Button variant="quiet" size="icon" onClick={onClose} aria-label={t("Close checkpoint")}><X size={18} /></Button>
       </div>
 
-      {!creating && recordQuery.isPending && <p role="status" className="px-6 py-10 text-sm text-ink-muted">Loading checkpoint…</p>}
-      {!creating && recordQuery.isError && <div role="alert" className="m-6 rounded-xl border border-danger/40 bg-danger-soft p-4 text-sm text-danger-ink">{recordQuery.error.message} <Button onClick={() => void recordQuery.refetch()}>Try again</Button></div>}
+      {!creating && recordQuery.isPending && <p role="status" className="px-6 py-10 text-sm text-ink-muted">{t("Loading checkpoint…")}</p>}
+      {!creating && recordQuery.isError && <div role="alert" className="m-6 rounded-xl border border-danger/40 bg-danger-soft p-4 text-sm text-danger-ink">{recordQuery.error.message} <Button onClick={() => void recordQuery.refetch()}>{t("Try again")}</Button></div>}
       {error && <p role="alert" className="mx-6 mt-4 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger-ink">{error}</p>}
-      {readonly && <p className="mx-6 mt-4 rounded-xl bg-neutral-soft p-4 text-sm text-ink-muted">Checkpoints are read-only while their project or task is archived.</p>}
-      {wrongTask && <p role="alert" className="mx-6 mt-4 rounded-xl border border-warning/40 bg-warning-soft p-4 text-sm text-warning-ink">This checkpoint does not belong to the open task. Close it and choose a checkpoint from this task.</p>}
+      {readonly && <p className="mx-6 mt-4 rounded-xl bg-neutral-soft p-4 text-sm text-ink-muted">{t("Checkpoints are read-only while their project or task is archived.")}</p>}
+      {wrongTask && <p role="alert" className="mx-6 mt-4 rounded-xl border border-warning/40 bg-warning-soft p-4 text-sm text-warning-ink">{t("This checkpoint does not belong to the open task. Close it and choose a checkpoint from this task.")}</p>}
 
       {(creating || record) && !wrongTask && <form onSubmit={(event) => void save(event)} className="space-y-5 px-6 py-6">
-        <div><label htmlFor="checkpoint-title" className="field-label">Title <span aria-hidden="true">*</span></label><input id="checkpoint-title" className="field-input" value={draft.title} onChange={(event) => setField("title", event.target.value)} maxLength={200} required disabled={readonly} placeholder="Capacity work is ready for migration" /></div>
+        <div><label htmlFor="checkpoint-title" className="field-label">{t("Title")} <span aria-hidden="true">*</span></label><input id="checkpoint-title" className="field-input" value={draft.title} onChange={(event) => setField("title", event.target.value)} maxLength={200} required disabled={readonly} placeholder={t("Capacity work is ready for migration")} /></div>
         {sections.map(({ key, label, hint, rows }) => <div key={key}><label htmlFor={`checkpoint-${key}`} className="field-label">{label}</label><textarea id={`checkpoint-${key}`} className="field-input" rows={rows} maxLength={20000} value={draft[key]} onChange={(event) => setField(key, event.target.value)} disabled={readonly} placeholder={hint} /><p className="mt-1 text-xs text-ink-subtle">{hint}</p></div>)}
         <div>
-          <label htmlFor="checkpoint-task" className="field-label">Linked task</label>
-          {defaultTaskId ? <p id="checkpoint-task" className="mt-1 text-sm text-ink-muted">This checkpoint belongs to the open task.</p>
-            : <select id="checkpoint-task" className="field-input" value={draft.task_id} onChange={(event) => setField("task_id", event.target.value)} disabled={readonly || tasksQuery.isPending}><option value="">Project-wide checkpoint</option>{taskOptions.map((task) => <option key={task.id} value={task.id}>{task.human_id} {task.title}</option>)}</select>}
-          {record?.task && <Link className="mt-2 inline-block text-xs font-semibold text-forest hover:underline" to={taskPath(projectId, record.task.human_id)}>Open {record.task.human_id} · {record.task.title}</Link>}
-          {tasksQuery.isError && !defaultTaskId && <p role="alert" className="mt-1 text-xs text-danger-ink">Tasks could not be loaded: {tasksQuery.error.message}</p>}
+          <label htmlFor="checkpoint-task" className="field-label">{t("Linked task")}</label>
+          {defaultTaskId ? <p id="checkpoint-task" className="mt-1 text-sm text-ink-muted">{t("This checkpoint belongs to the open task.")}</p>
+            : <select id="checkpoint-task" className="field-input" value={draft.task_id} onChange={(event) => setField("task_id", event.target.value)} disabled={readonly || tasksQuery.isPending}><option value="">{t("Project-wide checkpoint")}</option>{taskOptions.map((task) => <option key={task.id} value={task.id}>{task.human_id} {task.title}</option>)}</select>}
+          {record?.task && <Link className="mt-2 inline-block text-xs font-semibold text-forest hover:underline" to={taskPath(projectId, record.task.human_id)}>{t("Open {id}", { id: record.task.human_id })} · {record.task.title}</Link>}
+          {tasksQuery.isError && !defaultTaskId && <p role="alert" className="mt-1 text-xs text-danger-ink">{t("Tasks could not be loaded:")} {tasksQuery.error.message}</p>}
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div><label htmlFor="checkpoint-agent" className="field-label">Agent</label><input id="checkpoint-agent" className="field-input" value={draft.agent} onChange={(event) => setField("agent", event.target.value)} maxLength={120} disabled={readonly} placeholder="Optional" /></div>
-          <div><label htmlFor="checkpoint-commit" className="field-label">Git commit</label><input id="checkpoint-commit" className="field-input font-mono text-xs" value={draft.git_commit} onChange={(event) => setField("git_commit", event.target.value)} maxLength={64} disabled={readonly} placeholder="Optional hash" /></div>
+          <div><label htmlFor="checkpoint-agent" className="field-label">{t("Agent")}</label><input id="checkpoint-agent" className="field-input" value={draft.agent} onChange={(event) => setField("agent", event.target.value)} maxLength={120} disabled={readonly} placeholder={t("Optional")} /></div>
+          <div><label htmlFor="checkpoint-commit" className="field-label">{t("Git commit")}</label><input id="checkpoint-commit" className="field-input font-mono text-xs" value={draft.git_commit} onChange={(event) => setField("git_commit", event.target.value)} maxLength={64} disabled={readonly} placeholder={t("Optional hash")} /></div>
         </div>
-        {!readonly && <div className="flex justify-end"><Button variant="primary" type="submit" disabled={!canSave || busy}>{busy ? "Saving…" : creating ? "Create checkpoint" : "Save changes"}</Button></div>}
+        {!readonly && <div className="flex justify-end"><Button variant="primary" type="submit" disabled={!canSave || busy}>{busy ? t("Saving…") : creating ? t("Create checkpoint") : t("Save changes")}</Button></div>}
       </form>}
     </dialog>
   );

@@ -8,6 +8,7 @@ import { buildBrainLayout } from "./layout";
 import { useBrainStore } from "./store";
 import { KIND_COLORS } from "./colors";
 import type { BrainActivation, BrainGraph, BrainShelf, NodeKind, WorkspaceBrain } from "../../types/graph";
+import { labels, msg, t } from "../../lib/i18n";
 
 // The 3D scene and its libraries load only when someone opens the Brain page.
 const BrainScene = lazy(() => import("./BrainScene").then((m) => ({ default: m.BrainScene })));
@@ -22,10 +23,10 @@ function hasWebGL(): boolean {
 }
 
 const KINDS: { kind: NodeKind; label: string }[] = [
-  { kind: "task", label: "Tasks" },
-  { kind: "memory", label: "Memory" },
-  { kind: "file", label: "Files" },
-  { kind: "milestone", label: "Milestones" },
+  labels({ kind: "task", label: msg("Tasks") }, ["label"]),
+  labels({ kind: "memory", label: msg("Memory") }, ["label"]),
+  labels({ kind: "file", label: msg("Files") }, ["label"]),
+  labels({ kind: "milestone", label: msg("Milestones") }, ["label"]),
 ];
 
 /** Turns the workspace payload into one graph: each project is a region, its shelves sit inside it. */
@@ -67,7 +68,7 @@ export function BrainView({ webgl = hasWebGL() }: { webgl?: boolean }) {
     if (hit) select(hit.key);
   }
 
-  if (brain.isError) return <p role="alert" className="text-sm text-danger-ink">The brain could not be loaded: {brain.error.message}</p>;
+  if (brain.isError) return <p role="alert" className="text-sm text-danger-ink">{t("The brain could not be loaded:")} {brain.error.message}</p>;
   const shelfNames = new Map((data?.shelves ?? []).map((s) => [s.id, s.name]));
   // The task's own project region wakes too, so you can see where the work lives.
   const lit: BrainActivation | null = activation.data && task ? { ...activation.data, shelves: { ...activation.data.shelves, [projectRegion(task.project)]: 0.6 } } : null;
@@ -82,9 +83,9 @@ export function BrainView({ webgl = hasWebGL() }: { webgl?: boolean }) {
     <div>
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1">
-          <label htmlFor="brain-task" className="text-xs font-semibold text-ink-muted">Light up a task</label>
+          <label htmlFor="brain-task" className="text-xs font-semibold text-ink-muted">{t("Light up a task")}</label>
           <select id="brain-task" className="field-input mt-1" value={task ? `${task.project}|${task.ref}` : ""} onChange={(e) => { const [project, ref] = e.target.value.split("|"); setTask(ref ? { project, ref } : null); }}>
-            <option value="">No task: show everything</option>
+            <option value="">{t("No task: show everything")}</option>
             {projects.map((p) => {
               const own = openTasks.filter((t) => t.project_id === p.id);
               return own.length ? <optgroup key={p.id} label={p.name}>{own.map((t) => <option key={t.id} value={`${p.id}|${t.human_id}`}>{t.human_id} {t.title}</option>)}</optgroup> : null;
@@ -92,18 +93,18 @@ export function BrainView({ webgl = hasWebGL() }: { webgl?: boolean }) {
           </select>
         </div>
         <div className="min-w-0 flex-1">
-          <label htmlFor="brain-find" className="text-xs font-semibold text-ink-muted">Find a record</label>
-          <input id="brain-find" list="brain-records" className="field-input mt-1" value={find} onChange={(e) => findRecord(e.target.value)} placeholder="DEC-003, PB-12…" />
+          <label htmlFor="brain-find" className="text-xs font-semibold text-ink-muted">{t("Find a record")}</label>
+          <input id="brain-find" list="brain-records" className="field-input mt-1" value={find} onChange={(e) => findRecord(e.target.value)} placeholder={t("DEC-003, PB-12…")} />
           <datalist id="brain-records">{(brain.data?.nodes ?? []).slice(0, 3000).map((n) => <option key={n.key} value={n.label}>{projectNames.get(n.project_id)}: {n.title}</option>)}</datalist>
         </div>
-        <label className="flex items-center gap-2 pb-2 text-xs text-ink-muted"><input type="checkbox" checked={showGuesses} onChange={(e) => setShowGuesses(e.target.checked)} />Show guessed links</label>
+        <label className="flex items-center gap-2 pb-2 text-xs text-ink-muted"><input type="checkbox" checked={showGuesses} onChange={(e) => setShowGuesses(e.target.checked)} />{t("Show guessed links")}</label>
       </div>
 
-      {projects.length > 0 && <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Project regions">{projects.map((p) => chip(projectRegion(p.id), p.name))}</ul>}
-      {shelfChips.length > 0 && <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Shelf regions">{shelfChips.map((s) => chip(s.id, s.name))}</ul>}
+      {projects.length > 0 && <ul className="mt-3 flex flex-wrap gap-1.5" aria-label={t("Project regions")}>{projects.map((p) => chip(projectRegion(p.id), p.name))}</ul>}
+      {shelfChips.length > 0 && <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label={t("Shelf regions")}>{shelfChips.map((s) => chip(s.id, s.name))}</ul>}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="relative h-[36rem] overflow-hidden rounded-xl bg-[#03060d]" aria-label={`Brain view: ${brain.data?.nodes.length ?? 0} records in ${projects.length} projects and ${brain.data?.links.length ?? 0} links. Drag to turn, scroll to zoom, click a point to inspect it.`} role="img">
+        <div className="relative h-[36rem] overflow-hidden rounded-xl bg-[#03060d]" aria-label={t("Brain view: {items} items in {projects} projects and {links} links. Drag to turn, scroll to zoom, click a point to inspect it.", { items: brain.data?.nodes.length ?? 0, projects: projects.length, links: brain.data?.links.length ?? 0 })} role="img">
           {!webgl ? <Fallback />
             : data && layout ? <Suspense fallback={<Loading />}><BrainScene data={data} layout={layout} activation={lit} /></Suspense>
             : <Loading />}
@@ -117,18 +118,18 @@ export function BrainView({ webgl = hasWebGL() }: { webgl?: boolean }) {
 }
 
 function Loading() {
-  return <p role="status" className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">Growing the brain…</p>;
+  return <p role="status" className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">{t("Growing the brain…")}</p>;
 }
 
 function Fallback() {
-  return <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-slate-300">This computer could not start 3D graphics (WebGL), so the brain can't be drawn. Links still work from each project's Memory and Tasks tabs.</p>;
+  return <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-slate-300">{t("This computer could not start 3D graphics (WebGL), so the brain can't be drawn. Links still work from each project's Memory and Tasks tabs.")}</p>;
 }
 
 function Legend({ lit }: { lit: BrainActivation | null }) {
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-3 text-xs text-slate-300">
       {KINDS.map(({ kind, label }) => <span key={kind} className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: KIND_COLORS[kind] }} />{label}</span>)}
-      {lit && <span>Working as: {lit.operation}. Bright points made the context pack, sparks show the path that brought them.</span>}
+      {lit && <span>{t("Working as: {operation}. Bright points made the context pack, sparks show the path that brought them.", { operation: lit.operation })}</span>}
     </div>
   );
 }
@@ -141,25 +142,25 @@ function Inspector({ node, brain, lit, byKey, shelfNames, projectNames, onOpen }
 }) {
   if (!node) {
     return (
-      <aside aria-label="Inspector" className="rounded-xl border border-line bg-surface p-4 text-sm text-ink-muted shadow-card">
-        <p className="flex items-center gap-2 font-semibold text-ink"><Brain size={17} className="text-forest" aria-hidden="true" />Inspector</p>
-        <p className="mt-2 text-xs leading-5">Click a point to see what it is, what it links to and which shelves it sits on. Pick a task above to see what its context pack would pull in, and along which links.</p>
-        {brain && <p className="mt-3 text-xs text-ink-subtle">{brain.nodes.length} records, {brain.links.filter((l) => l.status !== "candidate").length} links, {brain.projects.length} projects, {brain.shelves.length} shelves.</p>}
-        <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-subtle">The picture is drawn from your records; changing it here never changes what agents get. <HelpTip label="brain view">Each project owns a region of the brain and its shelves sit inside it. Global rules sit in the middle. Records drift toward what they link to. Links never cross projects.</HelpTip></p>
+      <aside aria-label={t("Inspector")} className="rounded-xl border border-line bg-surface p-4 text-sm text-ink-muted shadow-card">
+        <p className="flex items-center gap-2 font-semibold text-ink"><Brain size={17} className="text-forest" aria-hidden="true" />{t("Inspector")}</p>
+        <p className="mt-2 text-xs leading-5">{t("Click a point to see what it is, what it links to and which shelves it sits on. Pick a task above to see what its context pack would pull in, and along which links.")}</p>
+        {brain && <p className="mt-3 text-xs text-ink-subtle">{t("Items: {items}, links: {links}, projects: {projects}, shelves: {shelves}.", { items: brain.nodes.length, links: brain.links.filter((l) => l.status !== "candidate").length, projects: brain.projects.length, shelves: brain.shelves.length })}</p>}
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-subtle">{t("The picture is drawn from your tasks, memory and files; changing it here never changes what agents get.")} <HelpTip label={t("brain view")}>{t("Each project owns a region of the brain and its shelves sit inside it. Global rules sit in the middle. Records drift toward what they link to. Links never cross projects.")}</HelpTip></p>
       </aside>
     );
   }
   const score = lit?.nodes[node.key];
   const path = lit?.paths.find((p) => p[p.length - 1] === node.key);
   return (
-    <aside aria-label="Inspector" className="max-h-[36rem] overflow-y-auto rounded-xl border border-line bg-surface p-4 shadow-card">
+    <aside aria-label={t("Inspector")} className="max-h-[36rem] overflow-y-auto rounded-xl border border-line bg-surface p-4 shadow-card">
       <p className="text-xs uppercase tracking-wide text-ink-subtle">{projectNames.get(node.project_id)} · {node.subtype ?? node.kind}{node.status ? ` · ${node.status}` : ""}</p>
       <h3 className="mt-1 text-sm font-semibold text-ink"><span className="text-forest">{node.label}</span>{node.title !== node.label && <> {node.title}</>}</h3>
-      {node.shelves.length > 0 && <p className="mt-2 text-xs text-ink-muted">On {node.shelves.map((id) => shelfNames.get(id) ?? id).join(", ")}</p>}
+      {node.shelves.length > 0 && <p className="mt-2 text-xs text-ink-muted">{t("On {shelves}", { shelves: node.shelves.map((id) => shelfNames.get(id) ?? id).join(", ") })}</p>}
       {lit && <p className="mt-2 text-xs text-ink-muted">
-        {lit.included.includes(node.key) ? "In the context pack" : score ? "Reached but left out of the pack" : "Not reached for this task"}
-        {score ? ` (score ${score.toFixed(2)})` : ""}
-        {path && <span className="mt-1 block text-ink-subtle">Came by: {path.map((k) => byKey.get(k)?.label ?? k).join(" → ")}</span>}
+        {lit.included.includes(node.key) ? t("In the context pack") : score ? t("Reached but left out of the pack") : t("Not reached for this task")}
+        {score ? ` ${t("(score {score})", { score: score.toFixed(2) })}` : ""}
+        {path && <span className="mt-1 block text-ink-subtle">{t("Came by: {path}", { path: path.map((k) => byKey.get(k)?.label ?? k).join(" → ") })}</span>}
       </p>}
       <div className="mt-3"><TypedLinks projectId={node.project_id} node={`${node.kind}:${node.id}`} readonly={false} onOpen={(n) => onOpen(`${n.kind}:${n.id}`)} /></div>
     </aside>

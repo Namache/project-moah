@@ -4,6 +4,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { Markdown } from "../components/help/Markdown";
 import { EmptyState, PageHeading } from "../components/ui";
 import { articles, categoryOrder, getArticle, searchArticles, type HelpArticle } from "../lib/help";
+import { t, tp, tx } from "../lib/i18n";
 
 const categoryIcons: Record<string, typeof BookOpen> = { "Getting started": Compass, "Core features": BookOpen, "Connect agents": Plug, Troubleshooting: Wrench };
 
@@ -21,15 +22,15 @@ export function HelpPage() {
   const results = searchArticles(query);
   return (
     <div>
-      <PageHeading title="How can we help?" />
-      <form role="search" aria-label="Help search" className="relative mt-6 max-w-xl" onSubmit={(e) => e.preventDefault()}>
+      <PageHeading title={t("How can we help?")} />
+      <form role="search" aria-label={t("Help search")} className="relative mt-6 max-w-xl" onSubmit={(e) => e.preventDefault()}>
         <Search size={16} className="pointer-events-none absolute left-3.5 top-3.5 text-ink-subtle" aria-hidden="true" />
-        <input type="search" aria-label="Search help" className="field-input !pl-10" placeholder="Search help: locked, codex, context, supersede…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input type="search" aria-label={t("Search help")} className="field-input !pl-10" placeholder={t("Search help: locked, codex, context, supersede…")} value={query} onChange={(e) => setQuery(e.target.value)} />
       </form>
       {query.trim() ? (
-        <section className="mt-8" aria-live="polite" aria-label="Search results">
-          {results.length === 0 ? <EmptyState icon={<Search size={26} />} title={`No help matches "${query.trim()}"`}>Try a shorter word, such as "task", "memory", "git" or "codex".</EmptyState>
-            : <><p className="mb-3 text-sm text-ink-muted">{results.length} {results.length === 1 ? "article" : "articles"}</p><div className="grid gap-4 md:grid-cols-2">{results.map((a) => <Card key={a.slug} article={a} />)}</div></>}
+        <section className="mt-8" aria-live="polite" aria-label={t("Search results")}>
+          {results.length === 0 ? <EmptyState icon={<Search size={26} />} title={t("No help matches \"{query}\"", { query: query.trim() })}>{t("Try a shorter word, such as \"task\", \"memory\", \"git\" or \"codex\".")}</EmptyState>
+            : <><p className="mb-3 text-sm text-ink-muted">{tp(results.length, "{count} article", "{count} articles")}</p><div className="grid gap-4 md:grid-cols-2">{results.map((a) => <Card key={a.slug} article={a} />)}</div></>}
         </section>
       ) : (
         <div className="mt-8 space-y-10">
@@ -43,7 +44,7 @@ export function HelpPage() {
               </section>
             ) : null;
           })}
-          <p className="flex items-center gap-2 text-sm text-ink-muted"><ClipboardCheck size={16} aria-hidden="true" />New here? <Link to="/help/getting-started" className="font-medium text-forest underline">Start with Getting started</Link>, or <Link to="/?tour=1" className="font-medium text-forest underline">take the guided tour</Link>.</p>
+          <p className="flex items-center gap-2 text-sm text-ink-muted"><ClipboardCheck size={16} aria-hidden="true" /><span>{tx("New here? <guide>Start with Getting started</guide>, or <tour>take the guided tour</tour>.", { guide: (text) => <Link to="/help/getting-started" className="font-medium text-forest underline">{text}</Link>, tour: (text) => <Link to="/?tour=1" className="font-medium text-forest underline">{text}</Link> })}</span></p>
         </div>
       )}
     </div>
@@ -57,11 +58,11 @@ export function HelpArticlePage() {
   const related = article.related.map(getArticle).filter((a): a is HelpArticle => Boolean(a));
   return (
     <article className="max-w-3xl">
-      <Link to="/help" className="inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-forest focus-visible:outline-2 focus-visible:outline-forest"><ArrowLeft size={16} aria-hidden="true" />All help</Link>
+      <Link to="/help" className="inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-forest focus-visible:outline-2 focus-visible:outline-forest"><ArrowLeft size={16} aria-hidden="true" />{t("All help")}</Link>
       <p className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-forest">{article.category}</p>
       <h1 className="mt-1 text-3xl font-semibold tracking-tight text-ink">{article.title}</h1>
       <Markdown source={article.body} />
-      {related.length > 0 && <aside aria-label="Related articles" className="mt-10 border-t border-line pt-6"><h2 className="text-sm font-semibold text-ink">Related</h2><ul className="mt-2 space-y-1">{related.map((a) => <li key={a.slug}><Link to={`/help/${a.slug}`} className="text-sm font-medium text-forest underline">{a.title}</Link></li>)}</ul></aside>}
+      {related.length > 0 && <aside aria-label={t("Related articles")} className="mt-10 border-t border-line pt-6"><h2 className="text-sm font-semibold text-ink">{t("Related")}</h2><ul className="mt-2 space-y-1">{related.map((a) => <li key={a.slug}><Link to={`/help/${a.slug}`} className="text-sm font-medium text-forest underline">{a.title}</Link></li>)}</ul></aside>}
     </article>
   );
 }

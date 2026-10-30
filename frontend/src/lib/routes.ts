@@ -1,10 +1,11 @@
+import { labels, msg } from "./i18n";
 /** The reserved scope for rules and memory shared by every project (backend GLOBAL_PROJECT_ID). */
 export const GLOBAL_ID = "global";
 
 export type ProjectSection = "" | "tasks" | "memory" | "context" | "review" | "files" | "activity";
 
 /** A project's sections in the order its tabs (and the command palette) show them. */
-export const projectSections: { label: string; path: ProjectSection }[] = [{ label: "Overview", path: "" }, { label: "Tasks", path: "tasks" }, { label: "Memory", path: "memory" }, { label: "AI context", path: "context" }, { label: "Inbox", path: "review" }, { label: "Files", path: "files" }, { label: "Activity", path: "activity" }];
+export const projectSections: { label: string; path: ProjectSection }[] = [labels({ label: msg("Overview"), path: "" }, ["label"]), labels({ label: msg("Tasks"), path: "tasks" }, ["label"]), labels({ label: msg("Memory"), path: "memory" }, ["label"]), labels({ label: msg("AI context"), path: "context" }, ["label"]), labels({ label: msg("Inbox"), path: "review" }, ["label"]), labels({ label: msg("Files"), path: "files" }, ["label"]), labels({ label: msg("Activity"), path: "activity" }, ["label"])];
 type Query = Record<string, string | null | undefined>;
 
 function withQuery(path: string, query: Query = {}): string {

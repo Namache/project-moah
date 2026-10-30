@@ -27,7 +27,7 @@ it("shows active memory linked to this task and opens it in the same project", a
   vi.stubGlobal("fetch", fetchMock);
   renderLinkedMemory();
 
-  expect(await screen.findByRole("link", { name: "Open Decision memory DEC-001: Keep saves compatible" })).toHaveAttribute("href", "/projects/project-1/memory?memory=DEC-001");
+  expect(await screen.findByRole("link", { name: "Open Decision DEC-001: Keep saves compatible" })).toHaveAttribute("href", "/projects/project-1/memory?memory=DEC-001");
   expect(screen.getByText("Decision")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/memory?status=active&task=task-1", expect.any(Object));
   expect(screen.getByRole("link", { name: "View task memory" })).toHaveAttribute("href", "/projects/project-1/memory?task=CAMP-001");

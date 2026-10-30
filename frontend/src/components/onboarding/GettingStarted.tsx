@@ -9,6 +9,7 @@ import { readPref, writePref } from "../../lib/prefs";
 import type { Project } from "../../types/project";
 import { Button } from "../ui";
 import { projectPath } from "../../lib/routes";
+import { t } from "../../lib/i18n";
 
 export const contextSeenKey = (projectId: string) => `pb-context-seen-${projectId}`;
 
@@ -22,12 +23,12 @@ export function GettingStarted({ project }: { project: Project }) {
   if (dismissed || project.status === "archived") return null;
 
   const items = [
-    { label: "Create project", done: true, to: null },
-    { label: "Connect repository", done: Boolean(project.root_path), to: projectPath(project.id, "files") },
-    { label: "Create first task", done: (tasks.data?.length ?? 0) > 0, to: projectPath(project.id, "tasks") },
-    { label: "Add first decision", done: (counts.data?.by_type?.decision ?? 0) > 0, to: projectPath(project.id, "memory", { new: "1" }) },
-    { label: "Connect Claude or Codex", done: (agent.data?.length ?? 0) > 0, to: "/help/claude" },
-    { label: "Preview your first Context Pack", done: readPref(contextSeenKey(project.id)) === "1", to: projectPath(project.id, "context") },
+    { label: t("Create project"), done: true, to: null },
+    { label: t("Connect repository"), done: Boolean(project.root_path), to: projectPath(project.id, "files") },
+    { label: t("Create first task"), done: (tasks.data?.length ?? 0) > 0, to: projectPath(project.id, "tasks") },
+    { label: t("Add first decision"), done: (counts.data?.by_type?.decision ?? 0) > 0, to: projectPath(project.id, "memory", { new: "1" }) },
+    { label: t("Connect Claude or Codex"), done: (agent.data?.length ?? 0) > 0, to: "/help/claude" },
+    { label: t("Preview your first Context Pack"), done: readPref(contextSeenKey(project.id)) === "1", to: projectPath(project.id, "context") },
   ];
   const finished = items.filter((i) => i.done).length;
   if (finished === items.length) return null;
@@ -37,14 +38,14 @@ export function GettingStarted({ project }: { project: Project }) {
     <section aria-labelledby="getting-started-title" className="rounded-xl border border-line bg-surface px-5 py-4 shadow-card">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <h2 id="getting-started-title" className="text-sm font-semibold tracking-tight">Getting started</h2>
-          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-line" role="progressbar" aria-label="Getting started progress" aria-valuenow={finished} aria-valuemin={0} aria-valuemax={items.length}><div className="h-full rounded-full bg-primary" style={{ width: `${(finished / items.length) * 100}%` }} /></div>
-          <p className="text-xs text-ink-muted">{finished} of {items.length} done</p>
+          <h2 id="getting-started-title" className="text-sm font-semibold tracking-tight">{t("Getting started")}</h2>
+          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-line" role="progressbar" aria-label={t("Getting started progress")} aria-valuenow={finished} aria-valuemin={0} aria-valuemax={items.length}><div className="h-full rounded-full bg-primary" style={{ width: `${(finished / items.length) * 100}%` }} /></div>
+          <p className="text-xs text-ink-muted">{t("{done} of {count} done", { done: finished, count: items.length })}</p>
         </div>
-        <Button variant="quiet" size="sm" onClick={() => { writePref(key, "1"); setDismissed(true); }}>Dismiss</Button>
+        <Button variant="quiet" size="sm" onClick={() => { writePref(key, "1"); setDismissed(true); }}>{t("Dismiss")}</Button>
       </div>
       {/* Finished steps drop out of the way; only what is left stays on screen. */}
-      <ul className="mt-2.5 flex flex-wrap gap-2" aria-label="Steps left">
+      <ul className="mt-2.5 flex flex-wrap gap-2" aria-label={t("Steps left")}>
         {remaining.map((item) => (
           <li key={item.label}>
             {item.to

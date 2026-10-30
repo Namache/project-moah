@@ -6,6 +6,7 @@ import { EmptyState, ErrorState, PageHeading, ProjectAvatar, SegmentedControl } 
 import { useWorkspaceTasks } from "../hooks/useTasks";
 import type { WorkspaceTask } from "../types/task";
 import { projectPath, taskPath } from "../lib/routes";
+import { t } from "../lib/i18n";
 
 export function AllTasksPage() {
   const query = useWorkspaceTasks();
@@ -15,11 +16,11 @@ export function AllTasksPage() {
   for (const task of (query.data ?? []).filter(matches)) groups.set(task.project_id, [...(groups.get(task.project_id) ?? []), task]);
   return (
     <div>
-      <PageHeading title="All tasks" className="mb-6" />
-      <SegmentedControl label="Task filter" value={filter} onChange={setFilter} className="mb-6" options={[{ value: "open", label: "Open" }, { value: "blocked", label: "Blocked" }, { value: "completed", label: "Done" }, { value: "all", label: "All" }]} />
-      {query.isPending ? <div role="status" aria-label="Loading tasks" className="h-48 animate-pulse rounded-xl bg-surface" />
-        : query.isError ? <ErrorState title="Tasks could not be loaded" message={query.error.message} onRetry={() => void query.refetch()} />
-        : groups.size === 0 ? <EmptyState icon={<ListTodo size={26} />} title="Nothing to show">{query.data.length ? "No tasks match this filter." : "Create a task inside a project and it will appear here, grouped under that project."}</EmptyState>
+      <PageHeading title={t("All tasks")} className="mb-6" />
+      <SegmentedControl label={t("Task filter")} value={filter} onChange={setFilter} className="mb-6" options={[{ value: "open", label: t("Open") }, { value: "blocked", label: t("Blocked") }, { value: "completed", label: t("Done") }, { value: "all", label: t("All") }]} />
+      {query.isPending ? <div role="status" aria-label={t("Loading tasks")} className="h-48 animate-pulse rounded-xl bg-surface" />
+        : query.isError ? <ErrorState title={t("Tasks could not be loaded")} message={query.error.message} onRetry={() => void query.refetch()} />
+        : groups.size === 0 ? <EmptyState icon={<ListTodo size={26} />} title={t("Nothing to show")}>{query.data.length ? t("No tasks match this filter.") : t("Create a task inside a project and it will appear here, grouped under that project.")}</EmptyState>
         : <div className="space-y-8">{[...groups.values()].map((tasks) => (
           <section key={tasks[0].project_id} aria-label={tasks[0].project_name}>
             <Link to={projectPath(tasks[0].project_id, "tasks")} className="mb-3 flex items-center gap-3 rounded-xl text-ink hover:text-forest"><ProjectAvatar project={{ name: tasks[0].project_name, icon: tasks[0].project_icon, accent: tasks[0].project_accent }} /><h2 className="text-base font-semibold tracking-tight">{tasks[0].project_name}</h2></Link>
