@@ -385,7 +385,7 @@ export const ru: Record<string, Translation> = {
   "Items: {items}, links: {links}, projects: {projects}, shelves: {shelves}.": "Элементов: {items}, связей: {links}, проектов: {projects}, полок: {shelves}.",
   "The picture is drawn from your tasks, memory and files; changing it here never changes what agents get.": "Картинка строится из ваших задач, записей и файлов; что бы вы здесь ни меняли, агенты получают то же самое.",
   "brain view": "вид мозга",
-  "Each project owns a region of the brain and its shelves sit inside it. Global rules sit in the middle. Records drift toward what they link to. Links never cross projects.": "У каждого проекта своя область мозга, и его полки лежат внутри неё. Общие правила находятся в центре. Записи тянутся к тому, с чем связаны. Связи никогда не пересекают границы проектов.",
+  "Each topic on your shelves is a region of the brain, shared by every project. Records on no shelf sit in their project's region, and global rules sit in the middle. Records drift toward what they link to. Links never cross projects.": "Каждая тема на ваших полках — область мозга, общая для всех проектов. Записи без полки лежат в области своего проекта, а общие правила — в центре. Записи тянутся к тому, с чем связаны. Связи никогда не пересекают границы проектов.",
   "On {shelves}": "На полках: {shelves}",
   "In the context pack": "В пакете контекста",
   "Reached but left out of the pack": "Найдено, но не вошло в пакет",
@@ -1262,7 +1262,7 @@ export const ru: Record<string, Translation> = {
   "Create a task inside a project and it will appear here, grouped under that project.": "Создайте задачу в проекте, и она появится здесь в группе этого проекта.",
 
   // Brain page
-  "Everything your agents know, across every project, drawn as one brain. Each project is a region, global rules sit in the middle.": "Всё, что знают ваши агенты, во всех проектах, нарисовано как один мозг. Каждый проект — область, общие правила в центре.",
+  "Everything your agents know, across every project, drawn as one brain. Each topic is a region, global rules sit in the middle.": "Всё, что знают ваши агенты, во всех проектах, нарисовано как один мозг. Каждая тема — область, общие правила в центре.",
 
   // Files page
   "Loading files": "Загрузка файлов",
