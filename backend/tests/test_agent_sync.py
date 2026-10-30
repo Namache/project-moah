@@ -2,7 +2,7 @@
 
 import json
 import sys
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 from httpx import AsyncClient
@@ -48,7 +48,7 @@ def logs(tmp_path: Path, monkeypatch) -> dict:
 
 
 def test_which_folders_count_as_projects(monkeypatch) -> None:
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path("/home/me")))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: PurePosixPath("/home/me")))
     assert project_folder("/home/me/Desktop/Game") == "/home/me/Desktop/Game"
     assert (
         project_folder("/home/me/Desktop/Game/.claude/worktrees/brave-x") == "/home/me/Desktop/Game"
