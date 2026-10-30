@@ -29,11 +29,15 @@ const KINDS: { kind: NodeKind; label: string }[] = [
   labels({ kind: "milestone", label: msg("Milestones") }, ["label"]),
 ];
 
-/** Turns the workspace payload into one graph: each project is a region, its shelves sit inside it. */
+/**
+ * Turns the workspace payload into one graph. The shared tree's topics are regions of their own,
+ * since every project files on them; a project's region holds its own shelves and whatever sits
+ * on no shelf. Global rules sit in the middle.
+ */
 export function workspaceGraph(brain: WorkspaceBrain): BrainGraph {
   const shelves: BrainShelf[] = [
     ...brain.projects.map((p) => ({ id: projectRegion(p.id), name: p.name, parent_id: null, core: p.global })),
-    ...brain.shelves.map((s) => ({ id: s.id, name: s.name, parent_id: s.parent_id ?? projectRegion(s.project_id) })),
+    ...brain.shelves.map((s) => ({ id: s.id, name: s.name, parent_id: s.parent_id ?? (s.shared ? null : projectRegion(s.project_id)), shared: s.shared })),
   ];
   const known = new Set(shelves.map((s) => s.id));
   const nodes = brain.nodes.map((n) => {
@@ -146,7 +150,7 @@ function Inspector({ node, brain, lit, byKey, shelfNames, projectNames, onOpen }
         <p className="flex items-center gap-2 font-semibold text-ink"><Brain size={17} className="text-forest" aria-hidden="true" />{t("Inspector")}</p>
         <p className="mt-2 text-xs leading-5">{t("Click a point to see what it is, what it links to and which shelves it sits on. Pick a task above to see what its context pack would pull in, and along which links.")}</p>
         {brain && <p className="mt-3 text-xs text-ink-subtle">{t("Items: {items}, links: {links}, projects: {projects}, shelves: {shelves}.", { items: brain.nodes.length, links: brain.links.filter((l) => l.status !== "candidate").length, projects: brain.projects.length, shelves: brain.shelves.length })}</p>}
-        <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-subtle">{t("The picture is drawn from your tasks, memory and files; changing it here never changes what agents get.")} <HelpTip label={t("brain view")}>{t("Each project owns a region of the brain and its shelves sit inside it. Global rules sit in the middle. Records drift toward what they link to. Links never cross projects.")}</HelpTip></p>
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-subtle">{t("The picture is drawn from your tasks, memory and files; changing it here never changes what agents get.")} <HelpTip label={t("brain view")}>{t("Each topic on your shelves is a region of the brain, shared by every project. Records on no shelf sit in their project's region, and global rules sit in the middle. Records drift toward what they link to. Links never cross projects.")}</HelpTip></p>
       </aside>
     );
   }

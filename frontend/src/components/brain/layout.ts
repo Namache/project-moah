@@ -78,13 +78,30 @@ export function buildBrainLayout(data: BrainGraph, iterations = 90): BrainLayout
     if (graph.hasNode(link.source) && graph.hasNode(link.target) && link.source !== link.target) graph.addEdge(link.source, link.target, link);
   }
 
-  // Regions: top-level shelves around the volume, sub-shelves near their parent.
+  // Regions: top-level shelves around the volume, sub-shelves near their parent. The shared tree
+  // usually starts from a single root (Knowledge > ...), so its lobes go to the first level with
+  // several shelves; the shelves above it sit between their branches.
   const regions: BrainLayout["regions"] = new Map();
   const known = new Set(data.shelves.map((s) => s.id));
   const isTop = (s: BrainShelf) => !s.parent_id || !known.has(s.parent_id);
+  const children = new Map<string, BrainShelf[]>();
+  for (const s of data.shelves) if (!isTop(s)) children.set(s.parent_id!, [...(children.get(s.parent_id!) ?? []), s]);
   const core = data.shelves.filter((s) => isTop(s) && s.core);
-  const tops = data.shelves.filter((s) => isTop(s) && !s.core).sort((a, b) => a.name.localeCompare(b.name));
+  let shared = data.shelves.filter((s) => isTop(s) && !s.core && s.shared);
+  const above: BrainShelf[] = [];
+  while (shared.length && shared.length < 3) {
+    const next = shared.flatMap((s) => children.get(s.id) ?? [s]);
+    if (next.length <= shared.length) break;
+    above.push(...shared.filter((s) => children.has(s.id)));
+    shared = next;
+  }
+  const tops = [...data.shelves.filter((s) => isTop(s) && !s.core && !s.shared), ...shared].sort((a, b) => a.name.localeCompare(b.name));
   tops.forEach((shelf, i) => regions.set(shelf.id, { name: shelf.name, center: regionCenter(i, tops.length), parent: null }));
+  for (const shelf of above.reverse()) {
+    const centers = children.get(shelf.id)!.map((s) => regions.get(s.id)!.center);
+    const center = [0, 1, 2].map((a) => centers.reduce((sum, c) => sum + c[a], 0) / centers.length) as Vec3;
+    regions.set(shelf.id, { name: shelf.name, center, parent: isTop(shelf) ? null : shelf.parent_id });
+  }
   for (const shelf of core) regions.set(shelf.id, { name: shelf.name, center: CORE, parent: null });
   let pending = data.shelves.filter((s) => !regions.has(s.id));
   for (let guard = 0; pending.length && guard < 8; guard++) {

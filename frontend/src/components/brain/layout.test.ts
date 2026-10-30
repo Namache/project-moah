@@ -29,6 +29,31 @@ it("gives each shelf its own region and keeps every record inside the brain", ()
   expect(distance(layout.regions.get("s-boss")!.center, layout.regions.get("s-combat")!.center)).toBeLessThan(0.45);
 });
 
+it("spreads one shared tree over several lobes instead of one corner", () => {
+  const tree: BrainGraph = {
+    shelves: [
+      { id: "k", name: "Knowledge", parent_id: null, shared: true },
+      { id: "games", name: "Game development", parent_id: "k", shared: true },
+      { id: "software", name: "Software", parent_id: "k", shared: true },
+      { id: "design", name: "Game design", parent_id: "games", shared: true },
+      { id: "engine", name: "Engine", parent_id: "games", shared: true },
+      { id: "ui", name: "User interface", parent_id: "software", shared: true },
+      { id: "combat", name: "Combat", parent_id: "design", shared: true },
+    ],
+    nodes: [...Array.from({ length: 8 }, (_, i) => node(`e${i}`, ["engine"])), ...Array.from({ length: 8 }, (_, i) => node(`u${i}`, ["ui"])), node("c0", ["combat"]), node("k0", ["k"])],
+    links: [],
+  };
+  const layout = buildBrainLayout(tree);
+  const center = (id: string) => layout.regions.get(id)!.center;
+  // Game design, Engine and User interface each get a lobe, far apart.
+  expect(distance(center("engine"), center("ui"))).toBeGreaterThan(0.6);
+  expect(distance(center("design"), center("engine"))).toBeGreaterThan(0.6);
+  // Shelves above sit between their branches; deeper ones stay near their parent.
+  expect(distance(center("games"), center("engine"))).toBeLessThan(distance(center("design"), center("engine")));
+  expect(distance(center("combat"), center("design"))).toBeLessThan(0.45);
+  for (const p of layout.positions.values()) expect(brainDepth(p)).toBeLessThanOrEqual(0.9 + 1e-9);
+});
+
 it("lays out the same graph the same way every time", () => {
   const a = buildBrainLayout(data);
   const b = buildBrainLayout(data);
