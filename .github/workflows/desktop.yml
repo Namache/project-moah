@@ -71,8 +71,76 @@ jobs:
           path: desktop/dist/*.flatpak
           if-no-files-found: error
 
+  linux-deb:
+    name: Build Debian/Ubuntu package
+    # The oldest supported base, so the package also runs on Debian 12 and Ubuntu 22.04.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install backend dependencies
+        run: python -m pip install -e './backend' pyinstaller
+
+      - name: Build frontend
+        run: |
+          npm ci --prefix frontend
+          npm run build --prefix frontend
+
+      - name: Build native backend sidecar
+        run: python scripts/build-backend-sidecar.py
+
+      - name: Build the .deb
+        run: |
+          npm ci --prefix desktop
+          npm run build:deb --prefix desktop
+
+      - name: Install it and check the agent connection and the window
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./desktop/dist/ProjectMoah-*.deb
+          python scripts/check-agent-launch.py project-moah-mcp
+          npm install --no-save --prefix "$RUNNER_TEMP/pw" playwright@1.63.0
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" xvfb-run -a node scripts/check-desktop-window.cjs "/opt/Project Moah/project-brain-desktop" deb "$RUNNER_TEMP/screens"
+
+      - name: Check it installs and connects on Debian 12
+        run: |
+          docker run --rm -v "$PWD:/w" debian:12 bash -c '
+            apt-get update -qq &&
+            apt-get install -y -qq /w/desktop/dist/ProjectMoah-*.deb python3 &&
+            python3 /w/scripts/check-agent-launch.py project-moah-mcp'
+
+      - name: Upload the .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-moah-linux-deb
+          path: desktop/dist/ProjectMoah-*.deb
+          if-no-files-found: error
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens-linux-deb
+          path: ${{ runner.temp }}/screens
+          if-no-files-found: ignore
+
   windows-exe:
-    name: Build Windows executables
+    name: Build Windows installer
     runs-on: windows-2025
     defaults:
       run:
@@ -114,34 +182,59 @@ jobs:
       - name: Build native backend sidecar
         run: python scripts/build-backend-sidecar.py
 
-      - name: Build Windows executables
+      - name: Build the Windows installer
         run: |
           npm ci --prefix desktop
           npm run build:windows --prefix desktop
 
-      - name: Upload Windows executables
+      - name: Install it silently
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem desktop/dist/ProjectMoah-Setup-*.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $app = Get-ChildItem "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Depth 1 -Filter 'Project Moah.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $app) { throw 'Project Moah.exe was not installed' }
+          "MOAH_APP=$($app.FullName)" >> $env:GITHUB_ENV
+          "MOAH_BACKEND=$(Join-Path $app.DirectoryName 'resources\bin\project-brain-backend.exe')" >> $env:GITHUB_ENV
+
+      - name: Check the agent connection and the window
+        run: |
+          python scripts/check-agent-launch.py "$MOAH_BACKEND" --mcp
+          npm install --no-save --prefix "$RUNNER_TEMP/pw" playwright@1.63.0
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node scripts/check-desktop-window.cjs "$MOAH_APP" windows "$RUNNER_TEMP/screens"
+
+      - name: Upload the Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: project-moah-windows-exe
-          path: desktop/dist/*.exe
+          path: desktop/dist/ProjectMoah-Setup-*.exe
           if-no-files-found: error
 
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens-windows
+          path: ${{ runner.temp }}/screens
+          if-no-files-found: ignore
+
   release:
-    name: Publish the Linux bundle to a GitHub Release
-    # Only for version tags. Windows files stay workflow artifacts until they have been tested.
+    name: Publish the packages to a GitHub Release
+    # Only for version tags, and only when every package built and passed its checks.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: linux-flatpak
+    needs: [linux-flatpak, linux-deb, windows-exe]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - name: Download the Flatpak bundle
+      - name: Download the packages
         uses: actions/download-artifact@v4
         with:
-          name: project-moah-linux-flatpak
+          pattern: project-moah-*
+          merge-multiple: true
           path: dist
 
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.flatpak --repo "$GITHUB_REPOSITORY" --title "Project Moah $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/*.flatpak dist/*.deb dist/*.exe --repo "$GITHUB_REPOSITORY" --title "Project Moah $GITHUB_REF_NAME" --generate-notes

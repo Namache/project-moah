@@ -4,15 +4,16 @@
   "version": "0.1.0",
   "private": true,
   "desktopName": "io.github.projectbrain.ProjectBrain.desktop",
-  "description": "Local desktop app for Project Moah",
+  "description": "One shared memory, task board and rule set for your AI coding agents. Everything stays on your computer.",
   "homepage": "https://github.com/Namache/project-moah",
+  "license": "MIT",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
     "pack:linux": "electron-builder --linux dir --x64",
     "build:linux": "npm run pack:linux && bash ../scripts/build-flatpak.sh",
     "build:deb": "electron-builder --linux deb --x64",
-    "build:windows": "electron-builder --win nsis portable --x64"
+    "build:windows": "electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "44.7.0",
@@ -22,6 +23,7 @@
     "appId": "io.github.projectbrain.ProjectBrain",
     "productName": "Project Moah",
     "asar": true,
+    "publish": null,
     "directories": {
       "output": "dist"
     },
@@ -40,15 +42,12 @@
     ],
     "win": {
       "icon": "assets/icon.ico",
-      "target": ["nsis", "portable"]
+      "target": ["nsis"]
     },
     "nsis": {
       "artifactName": "ProjectMoah-Setup-${version}-${arch}.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    },
-    "portable": {
-      "artifactName": "ProjectMoah-Portable-${version}-${arch}.exe"
     },
     "linux": {
       "executableName": "project-brain-desktop",

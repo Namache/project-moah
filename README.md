@@ -19,50 +19,68 @@ Claude Code and Codex forget everything between sessions. Project Moah gives the
 
 ## Private by design
 
-- Everything stays on your computer in one local database. No account, no cloud, no telemetry.
-- The app has no network permission. Agents talk to it through a local connection.
+- Everything stays on your computer in one local database. No account, no cloud, no telemetry, no automatic updates.
+- The app never goes online. Agents talk to it through a local connection. The Flatpak version has no network permission at all.
 - It reads your repository's file names, Git status and commit messages, and never changes your code.
 
 ## Install
 
-Download the file for your system from the [latest release](../../releases/latest).
+Download the one file for your system from the [latest release](../../releases/latest):
 
-### Linux (Fedora, Debian, Ubuntu and others), with Flatpak
+| Your system | File |
+| --- | --- |
+| Windows 10 or 11 | `ProjectMoah-Setup-<version>-x64.exe` |
+| Debian 12 or newer, Ubuntu 22.04 or newer, Linux Mint and similar | `ProjectMoah-<version>-amd64.deb` |
+| Fedora, Bazzite and any other Linux with Flatpak | `ProjectMoah-<version>-x86_64.flatpak` |
 
-1. Make sure Flatpak is installed. Fedora has it already. On Debian or Ubuntu:
-   ```bash
-   sudo apt install flatpak
-   ```
-2. Add Flathub, where the app's runtime comes from:
+### Windows
+
+1. Run `ProjectMoah-Setup-<version>-x64.exe` and follow the installer.
+2. Windows may say "Windows protected your PC", because the installer is not signed yet. Choose **More info**, then **Run anyway**.
+3. Open **Project Moah** from the Start menu.
+
+To show Git details for your repositories, also install [Git for Windows](https://git-scm.com/download/win). Everything else works without it.
+
+### Debian and Ubuntu
+
+Open a terminal in the folder you downloaded to (usually `cd ~/Downloads`), then run:
+
+```bash
+sudo apt install ./ProjectMoah-*.deb
+```
+
+Open **Project Moah** from your app menu. To remove it later: `sudo apt remove project-moah`.
+
+### Fedora, Bazzite and other Linux, with Flatpak
+
+Fedora and Bazzite already have Flatpak. On other systems, install it first from your package manager.
+
+1. Add Flathub, where the app's runtime comes from:
    ```bash
    flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
    ```
-3. Install the downloaded bundle, then open **Project Moah** from your app menu:
+2. Install the downloaded bundle, then open **Project Moah** from your app menu:
    ```bash
    flatpak install --user ProjectMoah-*.flatpak
    ```
 
 Or open the `.flatpak` file in your software center and choose **Install**.
 
-### Debian and Ubuntu, without Flatpak
-
-Coming soon: a `.deb` package.
-
-### Fedora, without Flatpak
-
-Coming soon: an `.rpm` package.
-
-### Windows
-
-Coming soon: an installer for Windows 10 and 11.
-
 ## Connect your AI agent
 
-Open the app and go to **Help → Connect Claude Code** (or **Connect Codex**). Copy the command shown there into a terminal once. From then on, every session can use Project Moah. No API key is needed.
+Open the app and go to **Help → Connect Claude Code** (or **Connect Codex**). The commands there are made for the way you installed the app, so copy them as they are, once. From then on, every session can use Project Moah. No API key is needed.
 
 ## Your data
 
-Your database is in `~/.var/app/io.github.projectbrain.ProjectBrain/data/project-brain/` (Flatpak). Make a copy any time with **Settings → Export Project Moah backup**.
+Your database stays in one folder, and uninstalling the app leaves it there:
+
+| Installed with | Folder |
+| --- | --- |
+| Windows installer | `%LOCALAPPDATA%\project-brain\` |
+| `.deb` | `~/.local/share/project-brain/` |
+| Flatpak | `~/.var/app/io.github.projectbrain.ProjectBrain/data/project-brain/` |
+
+**Settings → Data** shows the exact place. Make a copy any time with **Export Project Moah backup** there.
 
 ## License
 

@@ -117,6 +117,12 @@ describe("help pages", () => {
     expect(setup[1].text).toContain("--brief");
   });
 
+  it("shows screen names marked with stars as labels, never as stray stars", async () => {
+    renderAt("/help/data-and-backup");
+    const label = await screen.findByText("Settings", { selector: "em" });
+    expect(label.closest("p")?.textContent).not.toContain("*");
+  });
+
   it("shows a Windows user the Windows setup, never the Flatpak one", async () => {
     (window as { projectBrainDesktop?: unknown }).projectBrainDesktop = { apiToken: "", install: "windows" };
     const exe = "C:\\Users\\me\\AppData\\Local\\Programs\\Project Moah\\resources\\bin\\project-brain-backend.exe";

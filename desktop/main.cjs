@@ -278,6 +278,7 @@ async function openWindow(port) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: process.platform !== "linux",
     },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -313,6 +314,12 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("window-all-closed", () => app.quit());
   app.whenReady().then(async () => {
+    // On Linux, Chromium downloads spelling dictionaries from Google as soon as it starts. The app
+    // never goes online, so spell checking is off there; Windows and macOS use the system's checker.
+    if (process.platform === "linux") {
+      session.defaultSession.setSpellCheckerEnabled(false);
+      session.defaultSession.setSpellCheckerLanguages([]);
+    }
     const logDir = app.getPath("userData");
     mkdirSync(logDir, { recursive: true });
     logPath = path.join(logDir, "desktop.log");
