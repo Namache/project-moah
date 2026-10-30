@@ -1,4 +1,4 @@
-import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCorners, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCorners, useDroppable, useSensor, useSensors, type Announcements, type DragEndEvent, type DragStartEvent, type UniqueIdentifier } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronLeft, ChevronRight, MoreHorizontal, Plus } from "lucide-react";
@@ -103,6 +103,18 @@ export function TaskBoard({ tasks, selectedId, onOpen, onMove, onAdd, readOnly =
   const columns = useMemo(() => boardColumns.map((c) => ({ ...c, tasks: tasks.filter((t) => t.status === c.status).sort((a, b) => a.sort_order - b.sort_order) })), [tasks]);
   const active = tasks.find((t) => t.id === activeId) ?? null;
   const scroll = useScrollEdges();
+  // Screen reader announcements in the app's language; dnd-kit's own are English only.
+  const name = (id: UniqueIdentifier) => tasks.find((t) => t.id === id)?.human_id ?? String(id);
+  const where = (over: { id: UniqueIdentifier; data: { current?: Record<string, unknown> } } | null) => {
+    const status = (over?.data.current?.status as TaskStatus | undefined) ?? (over?.id as TaskStatus | undefined);
+    return boardColumns.find((c) => c.status === status)?.label ?? null;
+  };
+  const announcements: Announcements = {
+    onDragStart: ({ active: a }) => t("Picked up {task}.", { task: name(a.id) }),
+    onDragOver: ({ active: a, over }) => { const column = where(over); return column ? t("{task} is over {column}.", { task: name(a.id), column }) : t("{task} is not over a column.", { task: name(a.id) }); },
+    onDragEnd: ({ active: a, over }) => { const column = where(over); return column ? t("{task} was dropped in {column}.", { task: name(a.id), column }) : t("{task} was dropped where it started.", { task: name(a.id) }); },
+    onDragCancel: ({ active: a }) => t("Moving {task} was cancelled.", { task: name(a.id) }),
+  };
 
   function handleEnd(event: DragEndEvent) {
     setActiveId(null);
@@ -122,7 +134,7 @@ export function TaskBoard({ tasks, selectedId, onOpen, onMove, onAdd, readOnly =
   }
 
   return (
-    <DndContext accessibility={{ screenReaderInstructions: { draggable: t(DRAG_HINT) } }} sensors={readOnly ? [] : sensors} collisionDetection={closestCorners} onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))} onDragCancel={() => setActiveId(null)} onDragEnd={handleEnd}>
+    <DndContext accessibility={{ announcements, screenReaderInstructions: { draggable: t(DRAG_HINT) } }} sensors={readOnly ? [] : sensors} collisionDetection={closestCorners} onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))} onDragCancel={() => setActiveId(null)} onDragEnd={handleEnd}>
       {!readOnly && <p className="sr-only">{t("Drag cards to move them, or use the more button on a card. With a keyboard, focus a card and press Space, then the arrow keys.")}</p>}
       <div className="relative">
         {/* Six columns share the width down to a 148px minimum; below that the board scrolls, with fades marking the hidden side. */}

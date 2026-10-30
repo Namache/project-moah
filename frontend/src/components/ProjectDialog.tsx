@@ -96,7 +96,7 @@ export function ProjectDialog({ project, onClose, onSaved }: ProjectDialogProps)
               <FolderOpen size={17} className="pointer-events-none absolute left-3 top-3 text-ink-subtle" aria-hidden="true" />
               <input id="project-path" className="field-input !pl-10" value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder={t("/home/you/projects/trailhead")} autoComplete="off" />
             </div>
-            {window.projectBrainDesktop?.chooseFolder && <Button className="mt-2" onClick={async () => { const chosen = await window.projectBrainDesktop?.chooseFolder?.().catch(() => null); if (chosen) setRootPath(chosen); }}><FolderOpen size={16} aria-hidden="true" />{t("Choose folder")}</Button>}
+            {window.projectBrainDesktop?.chooseFolder && <Button className="mt-2" onClick={async () => { const chosen = await window.projectBrainDesktop?.chooseFolder?.(t("Choose the project's repository folder")).catch(() => null); if (chosen) setRootPath(chosen); }}><FolderOpen size={16} aria-hidden="true" />{t("Choose folder")}</Button>}
             <p className="mt-1.5 text-xs leading-5 text-ink-subtle">{t("You can add a path later. Project Moah reads only file names, Git status, and commit messages from this folder, and never changes it.")}</p>
           </div>
           {mutation.error && <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger-ink">{mutation.error.message}</p>}
