@@ -18,6 +18,6 @@ The pack is longer than you want.
 
 ## How to fix
 
-1. In *AI Context*, choose *Minimal* or a smaller size limit.
+1. In *AI context*, choose *Minimal* or a smaller size limit.
 2. Change rarely needed memory to *Relevant only*.
 3. Keep checkpoints short, and put long notes in files instead.

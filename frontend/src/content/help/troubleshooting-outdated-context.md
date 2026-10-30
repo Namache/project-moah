@@ -19,6 +19,6 @@ The agent was told something that is no longer true.
 ## How to fix
 
 1. Replace the decision under *Memory*, so the old one becomes history.
-2. Mark wrong memory as *wrong* or archive it.
+2. Use *Mark incorrect* on wrong memory, or archive it.
 3. On *Files*, review notes marked *Changed since review*.
-4. Check *AI Context* to preview what is sent.
+4. Check *AI context* to preview what is sent.

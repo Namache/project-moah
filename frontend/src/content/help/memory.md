@@ -31,3 +31,7 @@ Memory holds the knowledge that should survive between sessions.
 ## Replacing a decision
 
 Do not overwrite an old decision. Replace it: the old one is kept as history, marked as replaced, and agents only see the new one.
+
+## Links, shelves and images
+
+Memory can link to tasks, files and other memory. When an agent's context includes a memory, strong links bring the related ones along. Shelves group memory by topic, and the [[brain-health]] page shows what agents can find. You can also attach screenshots or diagrams to a memory; agents can look at them.

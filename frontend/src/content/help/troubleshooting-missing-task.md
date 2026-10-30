@@ -19,5 +19,5 @@ You cannot find a task you created.
 ## How to fix
 
 1. Use search, and turn on *Include archived and history*.
-2. Use *All Tasks* to look across projects.
+2. Use *All tasks* to look across projects.
 3. Clear the milestone filter on the Tasks page.

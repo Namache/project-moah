@@ -10,4 +10,4 @@ Project Moah stores everything in one local database file. Nothing is uploaded a
 
 *Settings*, under *Data*, shows where the file is and lets you export a backup. To restore, close Project Moah and replace the database file with your backup.
 
-Removing or reinstalling the app keeps your data. If you uninstall through Flatpak, leave the option to delete app data unselected if you want to keep it.
+Removing or reinstalling the app keeps your data, unless you choose to delete app data while uninstalling.
