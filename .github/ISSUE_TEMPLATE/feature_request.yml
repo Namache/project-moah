@@ -1,0 +1,24 @@
+name: Feature request
+description: An idea to make Project Moah better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Moah stays on the user's computer, so ideas that need an account, a cloud service or sending data online will be declined.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other ways you've considered
