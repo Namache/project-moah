@@ -19,4 +19,4 @@ A suggestion from an agent is wrong.
 
 1. Dismiss it, optionally with a note.
 2. Or choose *Edit and accept* and fix it before it is applied.
-3. If you already accepted it, edit or replace the record afterwards. Replaced and archived records are kept as history.
+3. If you already accepted it, edit or replace the memory afterwards. Replaced and archived memory is kept as history.

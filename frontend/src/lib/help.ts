@@ -1,7 +1,8 @@
-import { msg } from "./i18n";
+import { currentLanguage, locale, msg } from "./i18n";
 export interface HelpArticle { slug: string; title: string; category: string; summary: string; keywords: string[]; related: string[]; body: string }
 
-const files = import.meta.glob("../content/help/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+const english = import.meta.glob("../content/help/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+const russian = import.meta.glob("../content/help/ru/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 const list = (value: string | undefined) => (value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 export function parseArticle(slug: string, raw: string): HelpArticle {
@@ -14,15 +15,24 @@ export function parseArticle(slug: string, raw: string): HelpArticle {
   return { slug, title: meta.title ?? slug, category: meta.category ?? msg("Other"), summary: meta.summary ?? "", keywords: list(meta.keywords), related: list(meta.related), body: (match?.[2] ?? raw).trim() };
 }
 
-export const articles: HelpArticle[] = Object.entries(files)
-  .map(([path, raw]) => parseArticle(path.split("/").pop()!.replace(/\.md$/, ""), raw))
-  .sort((a, b) => a.title.localeCompare(b.title));
+const load = (files: Record<string, string>): Record<string, HelpArticle> =>
+  Object.fromEntries(Object.entries(files).map(([path, raw]) => { const slug = path.split("/").pop()!.replace(/\.md$/, ""); return [slug, parseArticle(slug, raw)]; }));
+
+/** Every article in English, and the Russian ones over them; an article not yet translated stays in English. */
+export const helpByLanguage = { en: load(english), ru: { ...load(english), ...load(russian) } };
+/** The Russian files alone, for the test that keeps them in step with the English ones. */
+export const russianArticles = load(russian);
+
+/** The help articles in the app's language. Categories stay English keys; show them with t(). */
+export function helpArticles(): HelpArticle[] {
+  return Object.values(helpByLanguage[currentLanguage()]).sort((a, b) => a.title.localeCompare(b.title, locale()));
+}
 
 export const categoryOrder = [msg("Getting started"), msg("Core features"), msg("Connect agents"), msg("Troubleshooting")];
-export const getArticle = (slug: string) => articles.find((a) => a.slug === slug);
+export const getArticle = (slug: string): HelpArticle | undefined => helpByLanguage[currentLanguage()][slug];
 
 /** Local, deterministic search. Every word must appear somewhere; title and keywords weigh most. */
-export function searchArticles(query: string, pool: HelpArticle[] = articles): HelpArticle[] {
+export function searchArticles(query: string, pool: HelpArticle[] = helpArticles()): HelpArticle[] {
   const terms = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   if (!terms.length) return [];
   const scored = pool.map((article) => {
@@ -35,5 +45,5 @@ export function searchArticles(query: string, pool: HelpArticle[] = articles): H
     }
     return { article, score };
   });
-  return scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.article.title.localeCompare(b.article.title)).map((s) => s.article);
+  return scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.article.title.localeCompare(b.article.title, locale())).map((s) => s.article);
 }

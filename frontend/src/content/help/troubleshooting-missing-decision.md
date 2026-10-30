@@ -20,5 +20,5 @@ A decision you expected is not in the context pack.
 ## How to fix
 
 1. Open the decision and link it to the task, or set visibility to *Always*.
-2. In *AI Context*, raise the detail level, or select manual-only memory to include it.
+2. In *AI context*, raise the detail level, or select manual-only memory to include it.
 3. Lock and pin decisions that must never be missed.

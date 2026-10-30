@@ -4,12 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { articles, parseArticle, searchArticles } from "./lib/help";
+import { helpArticles, helpByLanguage, parseArticle, russianArticles, searchArticles } from "./lib/help";
+import { setLanguage } from "./lib/i18n";
 import { snippetsFor } from "./content/integrations";
 
 const project = { id: "p1", name: "Trailhead", slug: "trailhead", description: null, icon: null, accent: null, root_path: null, status: "active", current_focus_task_id: null, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", last_opened_at: null, archived_at: null };
 const renderAt = (path: string) => { vi.stubGlobal("fetch", vi.fn(async (u: RequestInfo | URL) => Response.json(String(u).startsWith("/api/projects?") ? [project] : []))); return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>); };
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); setLanguage("system"); });
+const articles = helpArticles();
 
 describe("help content", () => {
   it("has every required guide and troubleshooting article with problem, causes and fixes", () => {
@@ -28,12 +30,34 @@ describe("help content", () => {
     expect(searchArticles("   ")).toEqual([]);
   });
 
+  it("has a Russian version of every article with the same links, snippets and sections", () => {
+    const shape = (body: string) => ({ links: [...body.matchAll(/\[\[[a-z0-9-]+\]\]|\{\{snippet:\w+\}\}|\]\(\/[^)]*\)/g)].map((m) => m[0]).sort(), sections: body.split("\n").filter((line) => line.startsWith("## ")).length, code: (body.match(/```/g) ?? []).length });
+    expect(Object.keys(russianArticles).sort()).toEqual(Object.keys(helpByLanguage.en).sort());
+    for (const [slug, english] of Object.entries(helpByLanguage.en)) {
+      const russian = russianArticles[slug];
+      expect({ category: russian.category, related: russian.related, ...shape(russian.body) }, slug).toEqual({ category: english.category, related: english.related, ...shape(english.body) });
+      expect(russian.title, slug).toMatch(/[а-яё]/i);
+    }
+    for (const article of Object.values(russianArticles).filter((a) => a.category === "Troubleshooting")) for (const heading of ["## Проблема", "## Вероятные причины", "## Как исправить"]) expect(article.body, article.slug).toContain(heading);
+  });
+
   it("never states a token saving it cannot promise", () => {
     expect(articles.find((a) => a.slug === "context-packs")!.body).toMatch(/does not promise a fixed saving/);
   });
 });
 
 describe("help pages", () => {
+  it("shows help in Russian and searches it in Russian", async () => {
+    setLanguage("ru");
+    const user = userEvent.setup();
+    renderAt("/help");
+    expect(screen.getByRole("heading", { name: "Чем помочь?" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "С чего начать" })).toBeInTheDocument();
+    await user.type(screen.getByRole("searchbox", { name: "Искать в справке" }), "защищённую");
+    await user.click(within(screen.getByRole("region", { name: "Результаты поиска" })).getByRole("link", { name: /Память/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Память" })).toBeInTheDocument();
+  });
+
   it("searches from the help home and opens an article with related links", async () => {
     const user = userEvent.setup();
     renderAt("/help");

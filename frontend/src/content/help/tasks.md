@@ -23,3 +23,11 @@ A task can depend on another, block it, be part of it, or simply relate to it. A
 ## Milestones
 
 Group tasks under milestones, such as "Demo 0.1.1". Progress is counted from the tasks inside.
+
+## Images
+
+Drop, paste or browse screenshots and sketches onto a task. Agents can look at them too.
+
+## Clearing out finished work
+
+Completed tasks stay until you archive them. To have them deleted automatically two weeks after they are done, turn it on in *Settings*, under *Tasks*.

@@ -11,7 +11,7 @@ A **project** keeps one product's tasks, memory, files and activity together. Pr
 ## Working with projects
 
 - **Create** a project from *Projects*. You can add a repository folder now or later.
-- **Switch** using the project picker at the top of the sidebar.
+- **Switch** from the project list in the sidebar. The most recently opened projects come first.
 - **Archive** a project you are not using. Archiving keeps all its data and never touches your source code. You can restore it at any time.
 
 ## Task IDs
