@@ -9,6 +9,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from httpx import AsyncClient
+from mcp.client.stdio import get_default_environment
 
 from app.core.resources import resource_path
 from tests.conftest import app_client
@@ -130,6 +131,7 @@ async def test_brief_and_global_rules_over_mcp(database_url: str, tmp_path: Path
         ).json()["id"]
         await rule(client, "global", "Ask before building")
         await rule(client, pid, "Use tabs in GDScript")
+        await rule(client, pid, "Menu text: «Главное меню» → Main menu")
 
     async with agent(database_url, "codex") as session:
         failed, brief = await call(session, "brain_brief", cwd=str(repo / "src"))
@@ -171,22 +173,27 @@ async def test_brief_and_global_rules_over_mcp(database_url: str, tmp_path: Path
         )
         assert not failed and linked["linked_to"] == [first["created"]]
 
-    # The command-line brief for start-up hooks, matched by folder.
-    output = subprocess.run(
+    # The command-line brief for start-up hooks, matched by folder. It is UTF-8 even where the
+    # pipe's own encoding cannot hold the text (a Windows code page; ASCII here).
+    result = subprocess.run(
         [sys.executable, "-m", "app.mcp", "--brief", "--cwd", str(repo)],
         cwd=BACKEND,
         env={
+            **get_default_environment(),  # Windows cannot start Python without SYSTEMROOT
             "PROJECT_BRAIN_DATABASE_URL": database_url,
             "PATH": "/usr/bin:/bin",
             "CLAUDE_CONFIG_DIR": "/nonexistent/claude",
             "CODEX_HOME": "/nonexistent/codex",
+            "PYTHONIOENCODING": "ascii",
         },
         capture_output=True,
-        text=True,
         timeout=60,
-        check=True,
-    ).stdout
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    output = result.stdout.decode("utf-8")
     assert output.startswith("PROJECT MOAH BRIEF") and "PROJECT: Game" in output
+    assert "«Главное меню» → Main menu" in output
 
 
 def test_global_migration_downgrades_cleanly(tmp_path: Path) -> None:

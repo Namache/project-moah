@@ -1180,6 +1180,10 @@ def main(argv: list[str] | None = None) -> int:
     upgrade_database(url)
     engine = make_engine(url)
     if args.brief:
+        # Hooks read the brief as UTF-8. A Windows pipe would use the ANSI code page and fail on
+        # the first title it cannot encode, so the agent would start without its rules.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
         try:
             with make_session_factory(engine)() as session:
                 sync_quietly(session)
