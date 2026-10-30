@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { ApiError, authHeaders, request } from "./client";
 
 export interface Diagnostics {
@@ -16,7 +17,7 @@ export const systemApi = {
   /** Fetches the backup with the app's own credentials, then hands it to the system's save flow. */
   async downloadBackup(): Promise<string> {
     const response = await fetch("/api/system/export", { headers: authHeaders() });
-    if (!response.ok) throw new ApiError("The backup could not be created. Please try again.", response.status);
+    if (!response.ok) throw new ApiError(t("The backup could not be created. Please try again."), response.status);
     const name = /filename="?([^";]+)"?/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "project-moah-backup.db";
     const url = URL.createObjectURL(await response.blob());
     const link = document.createElement("a");

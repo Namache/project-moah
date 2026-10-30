@@ -5,6 +5,7 @@ import type { TaskPriority, TaskStatus, TaskSummary } from "../../types/task";
 import { priorityLabels, statusLabels } from "../../types/task";
 import { taskStatusStyle } from "../../lib/tones";
 import { Badge } from "../ui";
+import { t, tp } from "../../lib/i18n";
 
 /** A task's status as a coloured label with its icon, the same everywhere a task is listed. */
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
@@ -38,16 +39,16 @@ export function TaskMeta({ task }: { task: TaskSummary }) {
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
       {task.priority !== "normal" && <PriorityBadge priority={task.priority} />}
-      <Progress done={task.criteria_completed} total={task.criteria_total} label={`${task.criteria_completed} of ${task.criteria_total} requirements complete`} />
-      {task.is_blocked_by_open_dependency && <span className="inline-flex items-center gap-1 text-xs font-semibold text-warning-ink"><Link2Off size={13} aria-hidden="true" />Waiting on a dependency</span>}
+      <Progress done={task.criteria_completed} total={task.criteria_total} label={tp(task.criteria_total, "{done} of {count} requirement complete", "{done} of {count} requirements complete", { done: task.criteria_completed })} />
+      {task.is_blocked_by_open_dependency && <span className="inline-flex items-center gap-1 text-xs font-semibold text-warning-ink"><Link2Off size={13} aria-hidden="true" />{t("Waiting on a dependency")}</span>}
       {task.tags.map((tag) => <span key={tag} className="rounded border border-line border-l-2 border-l-forest px-1.5 py-px text-xs font-medium text-ink-muted">{tag}</span>)}
     </div>
   );
 }
 
 export function FocusMark({ compact = false }: { compact?: boolean }) {
-  if (compact) return <span title="Current focus" className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-white"><Target size={12} aria-hidden="true" /><span className="sr-only">Focus</span></span>;
-  return <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-white"><Target size={12} aria-hidden="true" />Focus</span>;
+  if (compact) return <span title={t("Current focus")} className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-white"><Target size={12} aria-hidden="true" /><span className="sr-only">{t("Focus")}</span></span>;
+  return <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-white"><Target size={12} aria-hidden="true" />{t("Focus")}</span>;
 }
 
 /**
@@ -69,7 +70,7 @@ export function InlineText({ value, onSave, label, multiline = false, placeholde
     setSaveState("saving");
     result.then(
       () => { setSaveState("saved"); later(() => setSaveState((state) => (state === "saved" ? "idle" : state)), 2000); },
-      (error: unknown) => { setSaveState("error"); setSaveError(error instanceof Error ? error.message : "Please try again."); },
+      (error: unknown) => { setSaveState("error"); setSaveError(error instanceof Error ? error.message : t("Please try again.")); },
     );
   }
   const shared = {
@@ -90,10 +91,10 @@ export function InlineText({ value, onSave, label, multiline = false, placeholde
         : <input {...shared} onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); if (event.key === "Escape") { setDraft(value); (event.target as HTMLInputElement).blur(); } }} />}
       {!readOnly && saveState !== "saved" && saveState !== "saving" && <Pencil size={13} aria-hidden="true" className={`pointer-events-none absolute right-2 text-ink-subtle opacity-0 transition-opacity group-hover/inline:opacity-100 group-focus-within/inline:opacity-0 ${multiline ? "top-2.5" : "top-1/2 -translate-y-1/2"}`} />}
       {(saveState === "saved" || saveState === "saving") && <span className={`pointer-events-none absolute right-1.5 inline-flex items-center gap-1 rounded bg-surface/90 px-1 text-xs font-medium ${saveState === "saved" ? "text-forest" : "text-ink-subtle"} ${multiline ? "top-2" : "top-1/2 -translate-y-1/2"}`}>
-        {saveState === "saved" ? <><Check size={13} aria-hidden="true" />Saved</> : "Saving…"}
+        {saveState === "saved" ? <><Check size={13} aria-hidden="true" />{t("Saved")}</> : t("Saving…")}
       </span>}
-      <span role="status" className="sr-only">{saveState === "saved" ? `${label} saved` : ""}</span>
-      {saveState === "error" && <p role="alert" className="mt-1 text-xs text-danger-ink">{label} was not saved. {saveError}</p>}
+      <span role="status" className="sr-only">{saveState === "saved" ? t("{field} saved", { field: label }) : ""}</span>
+      {saveState === "error" && <p role="alert" className="mt-1 text-xs text-danger-ink">{t("{field} was not saved.", { field: label })} {saveError}</p>}
     </div>
   );
 }

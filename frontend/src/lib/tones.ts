@@ -2,6 +2,7 @@ import { BadgeCheck, Bug, Circle, CircleCheck, CircleDashed, CircleDot, CircleEl
 import type { Tone } from "../components/ui";
 import type { MemoryType } from "../types/memory";
 import type { TaskStatus } from "../types/task";
+import { labels, msg } from "./i18n";
 
 /** One colour and one icon per task status, used by the board, lists, Home and the palette (docs/DESIGN.md). */
 export const taskStatusStyle: Record<TaskStatus, { tone: Tone; icon: LucideIcon }> = {
@@ -16,11 +17,11 @@ export const taskStatusStyle: Record<TaskStatus, { tone: Tone; icon: LucideIcon 
 
 /** One colour, icon and short meaning per memory type. */
 export const memoryTypeStyle: Record<MemoryType, { tone: Tone; icon: LucideIcon; meaning: string }> = {
-  decision: { tone: "success", icon: BadgeCheck, meaning: "Chosen" },
-  rule: { tone: "special", icon: Scale, meaning: "Follow consistently" },
-  fact: { tone: "info", icon: Database, meaning: "Established" },
-  idea: { tone: "warning", icon: Lightbulb, meaning: "Considering, not a requirement" },
-  bug: { tone: "danger", icon: Bug, meaning: "Tracked problem" },
-  note: { tone: "neutral", icon: StickyNote, meaning: "For reference" },
-  warning: { tone: "warning", icon: TriangleAlert, meaning: "Caution" },
+  decision: labels({ tone: "success", icon: BadgeCheck, meaning: msg("Chosen") }, ["meaning"]),
+  rule: labels({ tone: "special", icon: Scale, meaning: msg("Follow consistently") }, ["meaning"]),
+  fact: labels({ tone: "info", icon: Database, meaning: msg("Established") }, ["meaning"]),
+  idea: labels({ tone: "warning", icon: Lightbulb, meaning: msg("Considering, not a requirement") }, ["meaning"]),
+  bug: labels({ tone: "danger", icon: Bug, meaning: msg("Tracked problem") }, ["meaning"]),
+  note: labels({ tone: "neutral", icon: StickyNote, meaning: msg("For reference") }, ["meaning"]),
+  warning: labels({ tone: "warning", icon: TriangleAlert, meaning: msg("Caution") }, ["meaning"]),
 };

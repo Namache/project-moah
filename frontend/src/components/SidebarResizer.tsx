@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { readPref, writePref } from "../lib/prefs";
+import { t } from "../lib/i18n";
 
 const KEY = "pb-sidebar-width";
 const SIDEBAR_MIN = 200;
@@ -33,12 +34,12 @@ export function SidebarResizer({ width, onResize }: { width: number; onResize: (
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize sidebar"
+      aria-label={t("Resize sidebar")}
       aria-valuemin={SIDEBAR_MIN}
       aria-valuemax={SIDEBAR_MAX}
       aria-valuenow={width}
       tabIndex={0}
-      title="Drag to resize. Double-click to reset."
+      title={t("Drag to resize. Double-click to reset.")}
       onPointerDown={(e) => { e.preventDefault(); setDragging(true); }}
       onDoubleClick={() => onResize(DEFAULT)}
       onKeyDown={(e) => {

@@ -57,7 +57,7 @@ describe("milestone management", () => {
     renderPage();
     await user.click(screen.getByRole("button", { name: "Manage milestones" }));
     await user.click(await screen.findByRole("button", { name: "Edit Prototype" }));
-    const form = screen.getByRole("form", { name: "Edit Prototype milestone" });
+    const form = screen.getByRole("form", { name: "Edit the Prototype milestone" });
     await user.clear(within(form).getByLabelText("Milestone name"));
     await user.type(within(form).getByLabelText("Milestone name"), "First playable");
     await user.type(within(form).getByLabelText("Description"), "A small playable build");

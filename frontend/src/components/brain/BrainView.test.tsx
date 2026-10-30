@@ -47,7 +47,7 @@ it("lights up a task from any project and explains why a record was reached", as
   render(<QueryClientProvider client={client}><BrainView webgl /></QueryClientProvider>);
 
   expect(await screen.findByTestId("scene")).toBeInTheDocument();
-  expect(screen.getByText(/4 records, 1 links, 3 projects, 1 shelves/)).toBeInTheDocument();
+  expect(screen.getByText(/Items: 4, links: 1, projects: 3, shelves: 1/)).toBeInTheDocument();
   await userEvent.selectOptions(await screen.findByLabelText("Light up a task"), "p1|INV-001");
   expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/projects/p1/graph/activation?task=INV-001"))).toBe(true);
   expect(await screen.findByRole("button", { name: "Inventory 80%" })).toBeInTheDocument();

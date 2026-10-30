@@ -1,5 +1,6 @@
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 import { dismissNotice, useNotices } from "../lib/notify";
+import { t } from "../lib/i18n";
 
 const icons = { success: CheckCircle2, danger: CircleAlert, neutral: Info };
 const iconTone = { success: "text-success", danger: "text-danger", neutral: "text-ink-subtle" };
@@ -15,7 +16,7 @@ export function Notices() {
           <div key={id} role={tone === "danger" ? "alert" : "status"} className="pointer-events-auto flex items-start gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-3 text-sm text-ink shadow-card-hover">
             <Icon size={17} className={`mt-px flex-none ${iconTone[tone]}`} aria-hidden="true" />
             <p className="min-w-0 flex-1">{message}</p>
-            <button type="button" onClick={() => dismissNotice(id)} aria-label="Close notice" className="-m-1 rounded p-1 text-ink-subtle hover:text-ink focus-visible:outline-2 focus-visible:outline-forest"><X size={14} aria-hidden="true" /></button>
+            <button type="button" onClick={() => dismissNotice(id)} aria-label={t("Close notice")} className="-m-1 rounded p-1 text-ink-subtle hover:text-ink focus-visible:outline-2 focus-visible:outline-forest"><X size={14} aria-hidden="true" /></button>
           </div>
         );
       })}

@@ -11,6 +11,8 @@
  *   Codex:       https://developers.openai.com/codex/mcp  (`codex mcp add ... -- command args`, `~/.codex/config.toml`)
  * Claude Code's connection was confirmed by hand on 2026-10-11; Codex's has not been yet.
  */
+import { msg } from "../lib/i18n";
+
 const APP_ID = "io.github.projectbrain.ProjectBrain";
 export const INTEGRATIONS_CHECKED = "2026-10-11";
 export type Agent = "claude" | "codex";
@@ -32,23 +34,22 @@ export function snippetsFor(agent: Agent): { setup: Snippet[]; verify: Snippet[]
   if (agent === "claude") {
     return {
       setup: [
-        { label: "1. Connect Claude Code once, for every project", language: "bash", text: `claude mcp add --transport stdio --scope user project-moah -- ${shell(command)}` },
-        { label: "2. Load your rules at the start of every session: add this to ~/.claude/settings.json", language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [{ type: "command", command: BRIEF_COMMAND, timeout: 20 }] }] } }, null, 2) },
-        { label: "3. For the Chat tab of the Claude desktop app, add this to ~/.config/Claude/claude_desktop_config.json and restart the app", language: "json", text: JSON.stringify({ mcpServers: { "project-moah": { command: command[0], args: command.slice(1) } } }, null, 2) },
+        { label: msg("1. Connect Claude Code once, for every project"), language: "bash", text: `claude mcp add --transport stdio --scope user project-moah -- ${shell(command)}` },
+        { label: msg("2. Load your rules at the start of every session: add this to ~/.claude/settings.json"), language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [{ type: "command", command: BRIEF_COMMAND, timeout: 20 }] }] } }, null, 2) },
       ],
-      verify: [{ label: "Check the connection", language: "bash", text: "claude mcp list" }],
-      sources: [{ label: "Claude Code MCP documentation", url: "https://code.claude.com/docs/en/mcp" }, { label: "Claude Code hooks", url: "https://code.claude.com/docs/en/hooks" }],
+      verify: [{ label: msg("Check the connection"), language: "bash", text: "claude mcp list" }],
+      sources: [{ label: msg("Claude Code MCP documentation"), url: "https://code.claude.com/docs/en/mcp" }, { label: msg("Claude Code hooks"), url: "https://code.claude.com/docs/en/hooks" }],
     };
   }
   const args = command.slice(1).map((a) => JSON.stringify(a)).join(", ");
   return {
     setup: [
-      { label: "1. Connect Codex once, for every project", language: "bash", text: `codex mcp add project-moah -- ${shell(command)}` },
-      { label: "Or add this to ~/.codex/config.toml", language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
-      { label: "2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md", language: "markdown", text: "Project Moah is the source of truth for my rules and memory. At the start of every session, call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it returns." },
+      { label: msg("1. Connect Codex once, for every project"), language: "bash", text: `codex mcp add project-moah -- ${shell(command)}` },
+      { label: msg("Or add this to ~/.codex/config.toml"), language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
+      { label: msg("2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md"), language: "markdown", text: "Project Moah is the source of truth for my rules and memory. At the start of every session, call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it returns." },
     ],
-    verify: [{ label: "Check the connection", language: "bash", text: "codex mcp list" }],
-    sources: [{ label: "Codex MCP documentation", url: "https://developers.openai.com/codex/mcp" }],
+    verify: [{ label: msg("Check the connection"), language: "bash", text: "codex mcp list" }],
+    sources: [{ label: msg("Codex MCP documentation"), url: "https://developers.openai.com/codex/mcp" }],
   };
 }
 

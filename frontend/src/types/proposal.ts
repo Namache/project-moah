@@ -1,16 +1,17 @@
+import { labels, msg } from "../lib/i18n";
 export type ProposalType = "create_memory" | "update_memory" | "supersede_memory" | "complete_task" | "update_task" | "add_acceptance_criterion" | "associate_file" | "create_bug";
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 
-export const proposalLabels: Record<ProposalType, string> = {
-  create_memory: "New memory",
-  update_memory: "Change memory",
-  supersede_memory: "Replace memory",
-  complete_task: "Complete task",
-  update_task: "Update task",
-  add_acceptance_criterion: "New requirement",
-  associate_file: "File notes",
-  create_bug: "New known issue",
-};
+export const proposalLabels: Record<ProposalType, string> = labels({
+  create_memory: msg("New memory"),
+  update_memory: msg("Change memory"),
+  supersede_memory: msg("Replace memory"),
+  complete_task: msg("Complete task"),
+  update_task: msg("Update task"),
+  add_acceptance_criterion: msg("New requirement"),
+  associate_file: msg("File notes"),
+  create_bug: msg("New known issue"),
+});
 
 export interface Proposal {
   id: string;

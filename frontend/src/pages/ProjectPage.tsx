@@ -22,6 +22,7 @@ import { useProject, useRestoreProject } from "../hooks/useProjects";
 import type { Project } from "../types/project";
 import { notify } from "../lib/notify";
 import { projectPath, projectSections, type ProjectSection } from "../lib/routes";
+import { t } from "../lib/i18n";
 
 const NAV = projectSections;
 const sectionIcons: Record<ProjectSection, LucideIcon> = { "": LayoutDashboard, tasks: ListTodo, memory: BookOpen, context: Bot, review: Inbox, files: FolderOpen, activity: Activity };
@@ -38,8 +39,8 @@ function Overview({ project }: { project: Project }) {
       <div className="space-y-4">
       <GettingStarted project={project} />
       <FocusCard projectId={project.id} task={focus} />
-      <Widget title="Tasks" icon={ListTodo} to={projectPath(project.id, "tasks")} linkLabel="Open the board" action={milestone && <span className="text-xs text-ink-muted">{milestone.name}: {percent}% done</span>}>
-        {milestone && <ProgressBar value={percent} label={`${milestone.name} progress`} />}
+      <Widget title={t("Tasks")} icon={ListTodo} to={projectPath(project.id, "tasks")} linkLabel={t("Open the board")} action={milestone && <span className="text-xs text-ink-muted">{t("{name}: {share} done", { name: milestone.name, share: `${percent}%` })}</span>}>
+        {milestone && <ProgressBar value={percent} label={t("{name} progress", { name: milestone.name })} />}
         <div className="@container mt-4">
           <ul className="grid grid-cols-3 gap-2 @lg:grid-cols-6">
             {boardColumns.map((c) => {
@@ -72,20 +73,20 @@ export function ProjectPage() {
   const [restoreError, setRestoreError] = useState("");
 
   if (section && !isSection(section)) return <Navigate to={`/projects/${projectId}`} replace />;
-  if (projectQuery.isPending) return <div role="status" className="space-y-4" aria-label="Loading project"><div className="h-20 w-2/3 animate-pulse rounded-xl bg-surface" /><div className="h-72 animate-pulse rounded-xl bg-surface" /></div>;
-  if (projectQuery.isError) return <ErrorState title="Project could not be opened" message={projectQuery.error.message} onRetry={() => void projectQuery.refetch()} />;
+  if (projectQuery.isPending) return <div role="status" className="space-y-4" aria-label={t("Loading project")}><div className="h-20 w-2/3 animate-pulse rounded-xl bg-surface" /><div className="h-72 animate-pulse rounded-xl bg-surface" /></div>;
+  if (projectQuery.isError) return <ErrorState title={t("Project could not be opened")} message={projectQuery.error.message} onRetry={() => void projectQuery.refetch()} />;
 
   const project = projectQuery.data;
-  const menuItems: MenuItem[] = [{ label: "Edit", icon: Pencil, onSelect: () => setEditing(true) }];
-  if (project.status !== "archived") menuItems.push({ label: "Archive", icon: Archive, onSelect: () => setArchiving(true) });
+  const menuItems: MenuItem[] = [{ label: t("Edit"), icon: Pencil, onSelect: () => setEditing(true) }];
+  if (project.status !== "archived") menuItems.push({ label: t("Archive"), icon: Archive, onSelect: () => setArchiving(true) });
 
   async function restore() {
     setRestoreError("");
     try {
       await restoreProject.mutateAsync(project.id);
-      notify(`${project.name} restored`);
+      notify(t("{name} restored", { name: project.name }));
     } catch (error) {
-      setRestoreError(error instanceof Error ? error.message : "The project could not be restored.");
+      setRestoreError(error instanceof Error ? error.message : t("The project could not be restored."));
     }
   }
 
@@ -104,15 +105,15 @@ export function ProjectPage() {
           </div>
         </div>
         <div className="flex flex-none items-center gap-1">
-          {project.status === "archived" && <Button variant="primary" size="sm" onClick={() => void restore()} disabled={restoreProject.isPending}><RotateCcw size={15} aria-hidden="true" />Restore</Button>}
-          <Menu label={`Actions for ${project.name}`} items={menuItems} />
+          {project.status === "archived" && <Button variant="primary" size="sm" onClick={() => void restore()} disabled={restoreProject.isPending}><RotateCcw size={15} aria-hidden="true" />{t("Restore")}</Button>}
+          <Menu label={t("Actions for {name}", { name: project.name })} items={menuItems} />
         </div>
       </header>
 
-      {project.status === "archived" && <div className="mt-4 rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning-ink">This project is archived. Restore it to bring it back to your active workspace.</div>}
-      {restoreError && <div className="mt-4"><ErrorState title="Could not restore project" message={restoreError} /></div>}
+      {project.status === "archived" && <div className="mt-4 rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning-ink">{t("This project is archived. Restore it to bring it back to your active workspace.")}</div>}
+      {restoreError && <div className="mt-4"><ErrorState title={t("Could not restore project")} message={restoreError} /></div>}
 
-      <nav aria-label="Project sections" className="mt-5 flex gap-1 overflow-x-auto border-b border-line">
+      <nav aria-label={t("Project sections")} className="mt-5 flex gap-1 overflow-x-auto border-b border-line">
         {NAV.map((item) => {
           const Icon = sectionIcons[item.path];
           return <Link
@@ -120,7 +121,7 @@ export function ProjectPage() {
             to={projectPath(project.id, item.path)}
             aria-current={(section ?? "") === item.path ? "page" : undefined}
             className={`section-tab inline-flex items-center gap-1.5 ${(section ?? "") === item.path ? "section-tab-active" : ""}`}
-          ><Icon size={15} aria-hidden="true" />{item.label}{item.path === "review" && pendingCount ? <span className="rounded-full bg-primary px-1.5 text-xs font-semibold leading-5 text-white" aria-label={`${pendingCount} waiting`}>{pendingCount}</span> : null}</Link>;
+          ><Icon size={15} aria-hidden="true" />{item.label}{item.path === "review" && pendingCount ? <span className="rounded-full bg-primary px-1.5 text-xs font-semibold leading-5 text-white" aria-label={t("{count} waiting", { count: pendingCount })}>{pendingCount}</span> : null}</Link>;
         })}
       </nav>
 

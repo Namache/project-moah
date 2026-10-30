@@ -15,14 +15,15 @@ function wrap(ui: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><MemoryRouter>{ui}</MemoryRouter></QueryClientProvider>);
 }
-function mockFetch() {
+function mockFetch(start: Partial<typeof settings> = {}) {
+  const current = { ...settings, ...start };
   const calls: { url: string; method: string; body?: unknown }[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
     const url = String(input);
     calls.push({ url, method: options?.method ?? "GET", body: options?.body ? JSON.parse(String(options.body)) : undefined });
     if (url.includes("/work-prompt")) return Response.json(url.includes("agent=claude") ? { ...prompt, agent: "claude", url: "claude://code/new?q=Work" } : prompt);
-    if (options?.method === "PATCH") return Response.json({ ...settings, ...JSON.parse(String(options.body)) });
-    return Response.json(settings);
+    if (options?.method === "PATCH") return Response.json(Object.assign(current, JSON.parse(String(options.body))));
+    return Response.json(current);
   }));
   return calls;
 }
@@ -65,9 +66,18 @@ describe("agent settings", () => {
     expect(calls.at(-1)?.body).toEqual({ second_opinion_enabled: true });
   });
 
+  it("shows the agent commands only when second opinions are on", async () => {
+    mockFetch();
+    wrap(<AgentSettingsCard />);
+    await screen.findByRole("checkbox", { name: /Allow second opinions/ });
+    expect(screen.queryByRole("textbox", { name: "Command for Codex" })).toBeNull();
+    await userEvent.click(screen.getByRole("checkbox", { name: /Allow second opinions/ }));
+    expect(await screen.findByRole("textbox", { name: "Command for Codex" })).toHaveValue("codex");
+  });
+
   it("keeps an unsaved command while another setting is saved, then saves it", async () => {
     const user = userEvent.setup();
-    const calls = mockFetch();
+    const calls = mockFetch({ second_opinion_enabled: true });
     wrap(<AgentSettingsCard />);
     const codex = await screen.findByRole("textbox", { name: "Command for Codex" });
     await user.clear(codex);

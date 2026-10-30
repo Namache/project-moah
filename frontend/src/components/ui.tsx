@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type Rea
 import { AlertCircle, ArrowRight, FolderKanban, MoreHorizontal, RefreshCw, type LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Project, ProjectStatus } from "../types/project";
+import { labels, locale, msg, t } from "../lib/i18n";
 
 type ButtonVariant = "primary" | "secondary" | "quiet" | "danger";
 
@@ -41,12 +42,12 @@ export function Button({ variant = "secondary", size = "md", className = "", typ
   return <button type={type} className={`${buttonCore} ${buttonSizes[size]} ${buttonClasses[variant]} ${className}`} {...props} />;
 }
 
-const statusLabels: Record<ProjectStatus, string> = {
-  active: "Active",
-  paused: "Paused",
-  completed: "Completed",
-  archived: "Archived",
-};
+const statusLabels: Record<ProjectStatus, string> = labels({
+  active: msg("Active"),
+  paused: msg("Paused"),
+  completed: msg("Completed"),
+  archived: msg("Archived"),
+});
 
 /** The status colours of docs/DESIGN.md. Colour is never the only signal: pair a tone with a word or an icon. */
 export type Tone = "neutral" | "info" | "success" | "warning" | "danger" | "special";
@@ -158,7 +159,7 @@ export function ConfirmDialog({ title, children, confirmLabel, onConfirm, onClos
       {children && <div className="mt-2 text-sm leading-6 text-ink-muted">{children}</div>}
       {error && <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-ink">{error}</p>}
       <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{t("Cancel")}</Button>
         <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} disabled={busy}>{confirmLabel}</Button>
       </div>
     </dialog>
@@ -239,7 +240,7 @@ export function ErrorState({ title, message, onRetry }: { title: string; message
         <div>
           <h2 className="font-semibold">{title}</h2>
           <p className="mt-1 text-sm leading-6">{message}</p>
-          {onRetry && <Button onClick={onRetry} className="mt-4"><RefreshCw size={16} />Try again</Button>}
+          {onRetry && <Button onClick={onRetry} className="mt-4"><RefreshCw size={16} />{t("Try again")}</Button>}
         </div>
       </div>
     </div>
@@ -257,7 +258,7 @@ export function EmptyState({ icon, title, children, action }: { icon: ReactNode;
   );
 }
 
-export function LoadingState({ label = "Loading projects" }: { label?: string }) {
+export function LoadingState({ label = t("Loading projects") }: { label?: string }) {
   return (
     <div role="status" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label={label}>
       {[0, 1, 2].map((item) => <div key={item} className="h-56 animate-pulse rounded-xl border border-line bg-surface p-6"><div className="h-12 w-12 rounded-xl bg-neutral-soft" /><div className="mt-5 h-5 w-1/2 rounded bg-neutral-soft" /><div className="mt-3 h-4 w-3/4 rounded bg-neutral-soft" /></div>)}
@@ -269,7 +270,7 @@ export function LoadingState({ label = "Loading projects" }: { label?: string })
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
+  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat(locale(), { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
 /** A small "?" that opens a short explanation. Keyboard and screen-reader friendly. */
@@ -278,7 +279,7 @@ export function HelpTip({ label, children }: { label: string; children: ReactNod
   const id = useId();
   return (
     <span className="relative inline-flex align-middle">
-      <button type="button" aria-label={`Help: ${label}`} aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
+      <button type="button" aria-label={t("Help: {topic}", { topic: label })} aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
         className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-line text-xs font-bold text-ink-muted hover:bg-sage-pale focus-visible:outline-2 focus-visible:outline-forest">?</button>
       {open && <span id={id} role="note" className="absolute left-0 top-7 z-20 w-72 rounded-xl border border-line bg-surface p-3 text-xs font-normal leading-5 text-ink shadow-dialog">{children}</span>}
     </span>

@@ -35,7 +35,7 @@ it("confirms and rejects guessed links and lists orphan memory", async () => {
   expect(posts).toEqual(["/api/projects/project-1/links/link-9/confirm", "/api/projects/project-1/links/link-9/reject"]);
 
   await userEvent.click(screen.getByRole("button", { name: "Look for links" }));
-  expect(await screen.findByText(/Checked 3 records: 1 links from names/)).toBeInTheDocument();
+  expect(await screen.findByText(/Checked 3 tasks and memories: 1 links from names/)).toBeInTheDocument();
 });
 
 it("hides review actions in an archived project", async () => {
