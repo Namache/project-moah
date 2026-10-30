@@ -237,4 +237,18 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.flatpak dist/*.deb dist/*.exe --repo "$GITHUB_REPOSITORY" --title "Project Moah $GITHUB_REF_NAME" --generate-notes
+        run: |
+          home="https://github.com/$GITHUB_REPOSITORY"
+          cat > notes.md <<EOF
+          | Your system | Download |
+          | --- | --- |
+          | Windows 10 or 11 | ProjectMoah-Setup-x64.exe |
+          | Debian 12+, Ubuntu 22.04+, Linux Mint | ProjectMoah-amd64.deb |
+          | Fedora, Bazzite and other Linux with Flatpak | ProjectMoah-x86_64.flatpak |
+
+          Install steps for each system are in the [README]($home#install). Everything stays on your computer: no account, no cloud, no telemetry.
+
+          The Windows installer is not code-signed yet, so Windows may say "Windows protected your PC". Choose **More info**, then **Run anyway**. See the [code signing policy]($home#code-signing-policy).
+
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/*.flatpak dist/*.deb dist/*.exe --repo "$GITHUB_REPOSITORY" --title "Project Moah $GITHUB_REF_NAME" --notes "$(cat notes.md)" --generate-notes

@@ -38,7 +38,7 @@ All files and release notes are on the [releases page](../../releases/latest).
 ### Windows
 
 1. [Download the installer](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-Setup-x64.exe) and run it.
-2. Windows may say "Windows protected your PC", because the installer is not signed yet. Choose **More info**, then **Run anyway**.
+2. Windows may say "Windows protected your PC", because the installer is not signed yet (see the [code signing policy](#code-signing-policy)). Choose **More info**, then **Run anyway**.
 3. Open **Project Moah** from the Start menu.
 
 To show Git details for your repositories, also install [Git for Windows](https://git-scm.com/download/win). Everything else works without it.
@@ -83,6 +83,15 @@ Your database stays in one folder, and uninstalling the app leaves it there:
 | Flatpak | `~/.var/app/io.github.projectbrain.ProjectBrain/data/project-brain/` |
 
 **Settings → Data** shows the exact place. Make a copy any time with **Export Project Moah backup** there.
+
+## Code signing policy
+
+The Windows installer is not code-signed yet. Signing through the [SignPath Foundation](https://signpath.org), which signs open-source projects for free, is planned.
+
+- **Builds:** only files built by this repository's public [GitHub Actions workflow](.github/workflows/desktop.yml) from its own source get signed. Nothing built on a personal computer is signed.
+- **Authors and reviewers:** the repository owner, [Namache](https://github.com/Namache). Every outside contribution (pull request) is reviewed by the owner before it is merged.
+- **Approvers:** the repository owner approves every signing request.
+- **Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
 ## License
 
