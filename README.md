@@ -1,98 +1,182 @@
-# Project Moah
+<p align="center">
+  <img alt="Project Moah" src="docs/logo.png" width="112">
+</p>
 
-**A shared memory and task board for your AI coding agents, that lives on your computer.**
+<h1 align="center">Project Moah</h1>
 
-Claude Code and Codex forget everything between sessions. Project Moah gives them one place to read and write what matters: your tasks, decisions, rules, known issues and where you left off. You see and steer all of it in a desktop app. *Moah* means "brain" in Hebrew.
+<p align="center">
+  <strong>An artificial brain for your AI coding agents.</strong><br>
+  <em>Moah</em> (מוח) is Hebrew for "brain": one shared, local memory for Claude Code, Codex and every agent you run.
+</p>
 
-![Project Moah home screen](docs/screenshot-home.png)
+<p align="center">
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Namache/project-moah?color=2f9e6e"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-yellow.svg"></a>
+  <img alt="Windows, Debian, Ubuntu, Fedora, Bazzite" src="https://img.shields.io/badge/runs%20on-Windows%20%C2%B7%20Debian%20%C2%B7%20Ubuntu%20%C2%B7%20Fedora%20%C2%B7%20Bazzite-555">
+  <img alt="100% local" src="https://img.shields.io/badge/100%25-local-2f9e6e">
+  <img alt="MCP server" src="https://img.shields.io/badge/MCP-server-6e56cf">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-Setup-x64.exe"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows-0078D4?style=for-the-badge"></a>
+  <a href="https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-amd64.deb"><img alt="Download for Debian and Ubuntu" src="https://img.shields.io/badge/Download-Debian%20%2F%20Ubuntu-A81D33?style=for-the-badge&logo=debian&logoColor=white"></a>
+  <a href="https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-x86_64.flatpak"><img alt="Download for Fedora and Bazzite (Flatpak)" src="https://img.shields.io/badge/Download-Fedora%20%2F%20Bazzite-51A2DA?style=for-the-badge&logo=flatpak&logoColor=white"></a>
+</p>
+
+<p align="center">
+  <img alt="A demo brain turning: records as points, links as lines" src="docs/brain.gif" width="640">
+</p>
+
+---
+
+> **Your agents forget everything between sessions. Moah doesn't.** One brain on your own computer that every agent reads from and writes to, so the next session starts where the last one stopped.
+
+---
 
 ## What it does
 
-- **Tasks** on a board or a list, with milestones, requirements and a "current focus" your agents start from.
-- **Memory**: decisions, rules, facts, ideas, known issues, notes and warnings. Lock what agents must not change.
-- **Context packs**: each agent session gets a short, ranked summary of what it needs, instead of your whole history.
-- **Inbox**: agents suggest changes to locked things; nothing changes until you accept.
-- **Checkpoints and handoffs**: pick up where the last session stopped, with any agent.
-- **Brain view**: see how your memory links together, and what agents never reach.
+| | What Moah does | Where |
+|---|---|---|
+| **Remembers** | Tasks, decisions, rules, facts, known issues and warnings, in one local database. Lock what agents must not change. | Tasks, Memory |
+| **Briefs** | Every agent session starts with your rules and a short, ranked pack for its task, instead of your whole history. | Context packs |
+| **Links** | Records are connected the way they relate: a bug *caused by* a decision, a task that *uses* a rule. | Brain |
+| **Learns** | Links that lead to useful records get stronger, unused ones fade. | Brain health |
+| **Asks first** | Agents suggest changes to locked things; nothing changes until you accept. | Inbox |
+| **Hands off** | Checkpoints let any agent, Claude Code or Codex, pick up where the last one stopped. | Checkpoints |
 
-![Task board](docs/screenshot-board.png)
+---
 
-## Private by design
+## How the brain works
 
-- Everything stays on your computer in one local database. No account, no cloud, no telemetry, no automatic updates.
-- The app never goes online. Agents talk to it through a local connection. The Flatpak version has no network permission at all.
-- It reads your repository's file names, Git status and commit messages, and never changes your code.
+**Memory is only useful when it is linked.** A pile of notes is just something to search. When an agent starts a task, Moah follows the links out from it and brings what is connected, not everything you ever wrote.
+
+**Shelves** sort everything into one tree of topics that all your projects share, from broad to narrow: Knowledge › Game development › Game design › Combat. Shelves that match the task wake up and the rest stay asleep, so unrelated knowledge stays out. New records are filed on shelves automatically.
+
+**How links decide what comes along:**
+
+- Each link has a weight from 0 to 1: how strong it is, times how sure Moah is of it. A link you made counts fully; one Moah only guessed waits until you or an agent confirm it.
+- Relevance flows out from the task. A record one link away scores the link's weight; every further hop is also multiplied by 0.85.
+- Several routes to the same record add up like independent chances: two routes of 50% give 75% (1 − 0.5 × 0.5), and nothing ever reaches 100%.
+- Records scoring under 20% stay out of the pack.
+
+**Links learn.** When an agent reports that a record helped, the links that led to it gain 0.08 for that kind of work, and lose 0.08 when it didn't. Links nobody uses fade slowly after a month. Each pack also draws link weights from their track record ([Thompson sampling](https://en.wikipedia.org/wiki/Thompson_sampling)), so a new link sometimes gets its chance while proven ones almost always win.
+
+---
+
+## Unlike a notes file
+
+| | A notes file (CLAUDE.md, AGENTS.md) | **Project Moah** |
+|---|---|---|
+| What the agent reads | The whole file, every session | Only what links to the task |
+| Across projects | One file per repository | One brain; topics shared by every project |
+| Across agents | A separate file for each agent | Claude Code and Codex share one memory |
+| Keeping it tidy | You, by hand | Shelves file new records; links learn what helps |
+| Changing a rule | Anyone edits it, silently | Locked memory changes only with your OK |
+
+---
 
 ## Install
 
-Pick your system. Each link always gets the newest version.
+Download your file with the buttons above (each always gets the newest version), or see the [releases page](../../releases/latest).
 
-| Your system | Download |
-| --- | --- |
-| Windows 10 or 11 | [ProjectMoah-Setup-x64.exe](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-Setup-x64.exe) |
-| Debian 12+, Ubuntu 22.04+, Linux Mint and similar | [ProjectMoah-amd64.deb](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-amd64.deb) |
-| Fedora, Bazzite and any other Linux with Flatpak | [ProjectMoah-x86_64.flatpak](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-x86_64.flatpak) |
+<details>
+<summary><strong>Windows 10 and 11</strong></summary>
 
-All files and release notes are on the [releases page](../../releases/latest).
-
-### Windows
+<br>
 
 1. [Download the installer](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-Setup-x64.exe) and run it.
-2. Windows may say "Windows protected your PC", because the installer is not signed yet (see the [code signing policy](#code-signing-policy)). Choose **More info**, then **Run anyway**.
+2. Windows may say "Windows protected your PC", because the installer is not signed yet (see the [code signing policy](CODE_SIGNING.md)). Choose **More info**, then **Run anyway**.
 3. Open **Project Moah** from the Start menu.
 
 To show Git details for your repositories, also install [Git for Windows](https://git-scm.com/download/win). Everything else works without it.
 
-### Debian and Ubuntu
+</details>
 
-Paste this into a terminal:
+<details>
+<summary><strong>Debian 12+, Ubuntu 22.04+, Linux Mint</strong></summary>
+
+<br>
+
+Paste this into a terminal, then open **Project Moah** from your app menu:
 
 ```bash
 cd /tmp && wget -O ProjectMoah-amd64.deb https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-amd64.deb && sudo apt install ./ProjectMoah-amd64.deb
 ```
 
-Then open **Project Moah** from your app menu. Or download the `.deb` from the table above and open it with your software center.
+Or open the downloaded `.deb` with your software center. To remove it later: `sudo apt remove project-moah`.
 
-To remove it later: `sudo apt remove project-moah`.
+</details>
 
-### Fedora, Bazzite and other Linux, with Flatpak
+<details>
+<summary><strong>Fedora, Bazzite and other Linux (Flatpak)</strong></summary>
 
-Fedora and Bazzite already have Flatpak. On other systems, install it from your package manager first. Then paste this into a terminal:
+<br>
+
+Fedora and Bazzite already have Flatpak; elsewhere, install it from your package manager first. Then paste this into a terminal and open **Project Moah** from your app menu:
 
 ```bash
 flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 cd /tmp && curl -LO https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-x86_64.flatpak && flatpak install --user ProjectMoah-x86_64.flatpak
 ```
 
-Then open **Project Moah** from your app menu. The first install also downloads the Flatpak runtime the app runs on, so it takes a little longer.
+The first install also downloads the Flatpak runtime, so it takes a little longer. To remove it later: `flatpak uninstall --user io.github.projectbrain.ProjectBrain`.
 
-To remove it later: `flatpak uninstall --user io.github.projectbrain.ProjectBrain`.
+</details>
 
-## Connect your AI agent
+**Connect your agent:** open the app and go to **Help → Connect Claude Code** (or **Connect Codex**). The commands there are made for the way you installed the app; copy them once. No API key is needed.
 
-Open the app and go to **Help → Connect Claude Code** (or **Connect Codex**). The commands there are made for the way you installed the app, so copy them as they are, once. From then on, every session can use Project Moah. No API key is needed.
+---
 
-## Your data
+## Private by design
 
-Your database stays in one folder, and uninstalling the app leaves it there:
+**Nothing leaves your computer.** No account, no cloud, no telemetry, no automatic updates. The app never goes online; agents talk to it through a local connection, and the Flatpak has no network permission at all.
+
+**Your code stays yours.** Moah reads your repository's file names, Git status and commit messages, and never changes your code.
+
+**Your data is one file.** Back it up any time with **Settings → Data → Export Project Moah backup**. Uninstalling the app leaves it where it is.
+
+<details>
+<summary><strong>Where your data lives</strong></summary>
+
+<br>
 
 | Installed with | Folder |
-| --- | --- |
+|---|---|
 | Windows installer | `%LOCALAPPDATA%\project-brain\` |
 | `.deb` | `~/.local/share/project-brain/` |
 | Flatpak | `~/.var/app/io.github.projectbrain.ProjectBrain/data/project-brain/` |
 
-**Settings → Data** shows the exact place. Make a copy any time with **Export Project Moah backup** there.
+</details>
 
-## Code signing policy
+<details>
+<summary><strong>Screenshots</strong></summary>
 
-The Windows installer is not code-signed yet. Signing through the [SignPath Foundation](https://signpath.org), which signs open-source projects for free, is planned.
+<br>
 
-- **Builds:** only files built by this repository's public [GitHub Actions workflow](.github/workflows/desktop.yml) from its own source get signed. Nothing built on a personal computer is signed.
-- **Authors and reviewers:** the repository owner, [Namache](https://github.com/Namache). Every outside contribution (pull request) is reviewed by the owner before it is merged.
-- **Approvers:** the repository owner approves every signing request.
-- **Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+![Project Moah home screen](docs/screenshot-home.png)
 
-## License
+![Task board](docs/screenshot-board.png)
 
-[MIT](LICENSE)
+</details>
+
+---
+
+## Contributing
+
+Contributions are welcome, from typo fixes to new features.
+
+- **Found a bug or have an idea?** [Open an issue](https://github.com/Namache/project-moah/issues/new/choose). Search the [existing ones](https://github.com/Namache/project-moah/issues) first.
+- **Want to change something?** Fork the repository, make your change on a branch and open a pull request. For anything big, open an issue first so we agree on the approach.
+- **Double-check before you send it:** run `./scripts/check.sh`, try the change in the app, and read every line of your diff, including code an AI wrote for you.
+
+Read the [contributing guide](CONTRIBUTING.md) for the details.
+
+---
+
+<p align="center">
+  <strong>⭐ Star the repo if Moah helps your agents remember</strong>
+</p>
+
+<p align="center">
+  <a href="LICENSE">MIT License</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="CODE_SIGNING.md">Code signing policy</a>
+</p>

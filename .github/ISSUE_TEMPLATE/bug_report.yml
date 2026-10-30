@@ -1,0 +1,55 @@
+name: Bug report
+description: Something doesn't work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Please [search existing issues](https://github.com/Namache/project-moah/issues) first, and remove anything personal before you submit.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Tasks
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install Project Moah?
+      options:
+        - Windows installer
+        - Debian/Ubuntu (.deb)
+        - Flatpak
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent were you using, if any?
+      options:
+        - None, only the app
+        - Claude Code
+        - Codex
+        - Other
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic report
+      description: In the app, go to Settings → Diagnostics → Copy diagnostic report, and paste it here. Replace your user name in the database path if you like.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, error messages, or what you already tried.

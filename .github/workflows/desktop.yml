@@ -248,7 +248,7 @@ jobs:
 
           Install steps for each system are in the [README]($home#install). Everything stays on your computer: no account, no cloud, no telemetry.
 
-          The Windows installer is not code-signed yet, so Windows may say "Windows protected your PC". Choose **More info**, then **Run anyway**. See the [code signing policy]($home#code-signing-policy).
+          The Windows installer is not code-signed yet, so Windows may say "Windows protected your PC". Choose **More info**, then **Run anyway**. See the [code signing policy]($home/blob/main/CODE_SIGNING.md).
 
           EOF
           gh release create "$GITHUB_REF_NAME" dist/*.flatpak dist/*.deb dist/*.exe --repo "$GITHUB_REPOSITORY" --title "Project Moah $GITHUB_REF_NAME" --notes "$(cat notes.md)" --generate-notes
