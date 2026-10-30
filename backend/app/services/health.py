@@ -432,6 +432,11 @@ class HealthService:
                         "parent": {"id": shelf_id, "name": where},
                         "members": sorted(members),
                         "size": len(members),
+                        "args": {
+                            "where": where,
+                            "topic": cluster["word"] or cluster["name"],
+                            "parent": shelves[shelf_id]["name"],
+                        },
                         "message": f"{len(members)} records on {where} link mostly to each "
                         f"other {about}. If they form a narrower category, add it under "
                         f"{shelves[shelf_id]['name']} and file them there.",
@@ -452,6 +457,7 @@ class HealthService:
                         "shelf": {"id": target.id, "name": target.path},
                         "members": sorted(members - on_shelf.get(target.id, set())),
                         "size": len(members),
+                        "args": {"topic": cluster["word"] or cluster["name"], "shelf": target.path},
                         "message": f"{len(members)} linked records {about} sit on no shelf. "
                         f"File them on {target.path}?",
                     }
@@ -466,6 +472,7 @@ class HealthService:
                         "parent": None,
                         "members": sorted(members),
                         "size": len(members),
+                        "args": {"topic": cluster["word"] or cluster["name"]},
                         "message": f"{len(members)} linked records {about} fit no shelf yet. "
                         "Add the category they belong to in the knowledge tree and file them "
                         "there.",
@@ -495,6 +502,11 @@ class HealthService:
                         "merge_from": {"id": fold, "name": shelves[fold]["name"]},
                         "members": sorted(on_shelf[fold] - on_shelf[keep]),
                         "size": len(union),
+                        "args": {
+                            "from": shelves[fold]["name"],
+                            "into": shelves[keep]["name"],
+                            "share": round(overlap * 100),
+                        },
                         "message": (
                             f"{shelves[fold]['name']} and {shelves[keep]['name']} hold mostly "
                             f"the same records ({round(overlap * 100)}%). Merge "
@@ -559,6 +571,7 @@ class HealthService:
                             "shelf": {"id": shelf_id, "name": shelf["name"]},
                             "members": [key],
                             "size": len(inside),
+                            "args": {"label": labels[key], "title": titles[key][:60]},
                             "message": f"{labels[key]} ({titles[key][:60]}) links mostly to "
                             f"records on {shelf['name']} but is not on it. Add it?",
                         }
@@ -582,6 +595,7 @@ class HealthService:
                                 "keywords": [w],
                                 "members": [],
                                 "size": n,
+                                "args": {"total": len(members), "word": w},
                                 "message": f"{n} of the {len(members)} records on "
                                 f"{shelf['name']} are about {w}. Let the shelf wake on '{w}'?",
                             }
@@ -597,6 +611,7 @@ class HealthService:
                             "shelf": {"id": shelf_id, "name": shelf["name"]},
                             "members": [key],
                             "size": 1,
+                            "args": {"label": labels.get(key, key), "times": NOISE_VERDICTS},
                             "message": f"Agents called {labels.get(key, key)} noise "
                             f"{NOISE_VERDICTS} or more times and never useful. Take it off "
                             f"{shelf['name']}?",
@@ -626,6 +641,7 @@ class HealthService:
                         "name": cluster["name"],
                         "members": sorted(issues),
                         "size": len(issues),
+                        "args": {"topic": cluster["word"]},
                         "message": f"{len(issues)} bugs and warnings cluster around "
                         f"{cluster['word']}, a recurring failure area. A rule could stop the "
                         "next one.",
@@ -675,6 +691,11 @@ class HealthService:
                         "size": 2,
                         "project_id": first.project_id,
                         "project_name": names[first.project_id],
+                        "args": {
+                            "first": f"{names[first.project_id]} {first.human_id}",
+                            "second": f"{names[second.project_id]} {second.human_id}",
+                            "title": first.title[:50],
+                        },
                         "message": f"{names[first.project_id]} {first.human_id} and "
                         f"{names[second.project_id]} {second.human_id} say the same thing "
                         f'("{first.title[:50]}"). Make it one Global {first.type} both '

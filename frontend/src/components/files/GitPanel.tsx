@@ -6,14 +6,30 @@ import type { GitStatus } from "../../types/files";
 import { shareFolderCommands } from "../../content/integrations";
 import { CodeBlock } from "../help/Markdown";
 import { formatDate } from "../ui";
-import { t, tp, tx } from "../../lib/i18n";
+import { labels, msg, t, tp, tx } from "../../lib/i18n";
+
+/** Why repository details are missing, by the backend's state; Git's own error text stays as Git wrote it. */
+const gitProblems: Record<string, string> = labels({
+  not_shared: msg("Project Moah runs in a sandbox and can only see folders you share with it, so it cannot see this one. Choose the folder again with Choose folder in the project settings, or share it read-only (see Help)."),
+  no_path: msg("This project has no repository folder yet. Add one in the project settings."),
+  path_missing: msg("The repository folder could not be found. It may have moved."),
+  git_missing: msg("Git is not available to Project Moah, so repository details can't be shown."),
+  not_repo: msg("This folder is not a Git repository."),
+  unsafe_repo: msg("Git refused to open this repository because of its folder ownership."),
+  timeout: msg("Git took too long to answer."),
+});
+
+function sharedFolder(warning: string): string {
+  const others = /^The same repository folder is also used by: (.+)\.$/.exec(warning);
+  return others ? t("The same repository folder is also used by: {names}.", { names: others[1] }) : warning;
+}
 
 export function GitBanner({ git }: { git: GitStatus }) {
   if (git.state !== "ok") {
     return (
       <div role="status" className="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning-ink">
         <AlertTriangle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
-        <div><p className="font-semibold">{t("Repository details are not available.")}</p><p className="mt-0.5">{git.message}</p>{git.root_path && <p className="mt-0.5 break-all text-xs">{t("Expected:")} {git.root_path}</p>}<p className="mt-1 text-xs">{t("Tasks, memory, and your file notes keep working normally.")}</p>
+        <div><p className="font-semibold">{t("Repository details are not available.")}</p><p className="mt-0.5">{gitProblems[git.state] ?? git.message}</p>{git.root_path && <p className="mt-0.5 break-all text-xs">{t("Expected:")} {git.root_path}</p>}<p className="mt-1 text-xs">{t("Tasks, memory, and your file notes keep working normally.")}</p>
           {git.state === "not_shared" && git.root_path && (() => { const cmd = shareFolderCommands(git.root_path); return (
             <div className="mt-3 text-sm">
               <p>{tx("The easiest fix is to open the project settings and use <b>Choose folder</b>. If you run your agent inside a container such as distrobox, you can instead share just this folder, read-only, with one command. It works from inside the container too.", { b: (text) => <strong>{text}</strong> })}</p>
@@ -29,7 +45,7 @@ export function GitBanner({ git }: { git: GitStatus }) {
       <span className="inline-flex items-center gap-1.5 font-semibold text-ink"><GitBranch size={15} aria-hidden="true" />{git.detached ? t("Detached HEAD") : git.branch ?? t("No commits yet")}</span>
       <span className="text-ink-muted">{git.clean ? t("Working tree is clean") : tp(git.changed_total, "{count} changed file", "{count} changed files")}</span>
       {git.head && <span className="min-w-0 truncate text-ink-muted"><span className="font-mono text-xs text-forest">{git.head.slice(0, 8)}</span> {git.head_subject}</span>}
-      {git.warnings.map((w) => <span key={w} className="text-xs text-warning-ink">{w}</span>)}
+      {git.warnings.map((w) => <span key={w} className="text-xs text-warning-ink">{sharedFolder(w)}</span>)}
     </div>
   );
 }

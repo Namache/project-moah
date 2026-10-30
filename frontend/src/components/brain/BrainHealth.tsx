@@ -92,8 +92,27 @@ const KIND: Record<ShelfSuggestion["kind"], { label: string; accept?: string; do
 const SUGGESTIONS_SHOWN = 5;
 
 function recordsLabel(shown: number, total: number): string {
-  if (total > shown) return tp(total, "Show the first {shown} of {count} memory", "Show the first {shown} of {count} memories", { shown });
-  return tp(shown, "Show the memory", "Show the {count} memories");
+  if (total > shown) return tp(total, "Show the first {shown} of {count} item", "Show the first {shown} of {count} items", { shown });
+  return tp(shown, "Show the item", "Show the {count} items");
+}
+
+/** The suggestion in the app's language; the backend's English message is the fallback for older data. */
+function suggestionText(s: ShelfSuggestion): string {
+  const a = s.args;
+  if (!a) return s.message;
+  const n = s.size;
+  switch (s.kind) {
+    case "place": return tp(n, "{count} linked item about {topic} sits on no shelf. File it on {shelf}?", "{count} linked items about {topic} sit on no shelf. File them on {shelf}?", a);
+    case "needs_category": return a.where
+      ? tp(n, "{count} item on {where} links mostly to others about {topic}. If they form a narrower category, add it under {parent} and file them there.", "{count} items on {where} link mostly to each other, about {topic}. If they form a narrower category, add it under {parent} and file them there.", a)
+      : tp(n, "{count} linked item about {topic} fits no shelf yet. Add the category it belongs to in the knowledge tree and file it there.", "{count} linked items about {topic} fit no shelf yet. Add the category they belong to in the knowledge tree and file them there.", a);
+    case "merge": return t("{from} and {into} hold mostly the same items ({share}%). Merge {from} into {into}?", a);
+    case "add_member": return t("{label} ({title}) links mostly to items on {shelf} but is not on it. Add it?", { ...a, shelf: s.name });
+    case "add_keyword": return t("{count} of the {total} items on {shelf} are about “{word}”. Let the shelf wake on that word?", { ...a, count: n, shelf: s.name });
+    case "remove_member": return t("Agents called {label} noise {times} or more times and never useful. Take it off {shelf}?", { ...a, shelf: s.name });
+    case "pattern": return tp(n, "{count} bug or warning clusters around {topic}, a recurring failure area. A rule could stop the next one.", "{count} bugs and warnings cluster around {topic}, a recurring failure area. A rule could stop the next one.", a);
+    case "share": return t("{first} and {second} say the same thing (“{title}”). Make it one Global memory both projects link to?", a);
+  }
 }
 
 /** Brain health: whether agents can find what was saved, whether they use it, and whether the
@@ -258,12 +277,13 @@ function Suggestions({ suggestions }: { suggestions: ShelfSuggestion[] }) {
       <ul className="mt-2 space-y-2">
         {shown.map((s) => {
           const kind = KIND[s.kind];
+          const text = suggestionText(s);
           return (
             <li key={`${s.project_id}|${s.key}`} className="rounded-xl border border-line bg-surface px-4 py-3 shadow-card">
               <div className="flex flex-wrap items-start gap-x-4 gap-y-2 sm:flex-nowrap">
                 <div className="min-w-0 flex-1 basis-64">
                   <p className="text-xs text-ink-subtle">{kind.label} · {s.project_name}</p>
-                  <p className="mt-0.5 text-sm leading-6 text-ink">{s.message}</p>
+                  <p className="mt-0.5 text-sm leading-6 text-ink">{text}</p>
                   {s.records && s.records.length > 0 && <details className="mt-1 text-xs">
                     <summary className="cursor-pointer text-forest">{recordsLabel(s.records.length, s.members.length)}</summary>
                     <ul className="mt-1.5 space-y-0.5 text-ink-muted">{s.records.map((r) => <li key={r.label} className="truncate"><span className="font-medium text-ink">{r.label}</span> {r.title}</li>)}</ul>
@@ -273,7 +293,7 @@ function Suggestions({ suggestions }: { suggestions: ShelfSuggestion[] }) {
                   {kind.accept
                     ? <Button size="sm" variant="secondary" onClick={() => void act(() => accept.mutateAsync({ projectId: s.project_id, key: s.key }), t(kind.done!, { name: s.name }))}>{kind.accept}</Button>
                     : <Link to={projectPath(s.project_id, "memory", { new: "1", type: "rule" })} className={`inline-flex min-h-8 items-center rounded-lg px-2.5 text-sm font-medium ${buttonClasses.secondary}`}>{t("Write a rule")}</Link>}
-                  <Button size="sm" variant="quiet" aria-label={t("Dismiss: {text}", { text: s.message })} onClick={() => void act(() => dismiss.mutateAsync({ projectId: s.project_id, key: s.key }), t("Dismissed. It won't be suggested again."))}>{t("Dismiss")}</Button>
+                  <Button size="sm" variant="quiet" aria-label={t("Dismiss: {text}", { text })} onClick={() => void act(() => dismiss.mutateAsync({ projectId: s.project_id, key: s.key }), t("Dismissed. It won't be suggested again."))}>{t("Dismiss")}</Button>
                 </div>
               </div>
             </li>
