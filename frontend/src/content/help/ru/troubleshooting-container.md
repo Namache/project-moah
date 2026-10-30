@@ -4,6 +4,7 @@ category: Troubleshooting
 summary: Почему файлы репозитория и Git могут пропадать, когда агент работает в distrobox или toolbox.
 keywords: контейнер, distrobox, toolbox, podman, bazzite, песочница, flatpak, папка, доступ, путь, container, sandbox
 related: troubleshooting-repository, troubleshooting-git, claude, codex
+only: flatpak
 ---
 
 ## Проблема

@@ -10,6 +10,7 @@ import { ErrorState, LoadingState } from "../ui";
 import { AGENT_COLORS, formatDuration, formatTokens, UsageChart } from "./UsageChart";
 import { projectPath } from "../../lib/routes";
 import { labels, locale, msg, t, tp } from "../../lib/i18n";
+import { useInstall } from "../../lib/install";
 
 const RANGES: { value: UsageRange; label: string }[] = [
   labels({ value: "today", label: msg("Today") }, ["label"]),
@@ -120,6 +121,8 @@ function Tips({ report }: { report: UsageReport }) {
 }
 
 export function EfficiencyDashboard() {
+  const install = useInstall();
+  const home = install === "windows" ? "%USERPROFILE%\\" : "~/";
   const [range, setRangeState] = useState<UsageRange>(() => {
     const saved = readPref(RANGE_KEY);
     return saved === "today" || saved === "30d" ? saved : "7d";
@@ -156,9 +159,9 @@ export function EfficiencyDashboard() {
         <>
           {(!report.sources.claude.found || !report.sources.codex.found) && (
             <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-muted">
-              {!report.sources.claude.found && `${t("Claude Code logs were not found (~/.claude/projects).")} `}
-              {!report.sources.codex.found && `${t("Codex logs were not found (~/.codex/sessions).")} `}
-              {t("If the agent is installed, Project Moah may need permission to read that folder; see Help.")}
+              {!report.sources.claude.found && `${t("Claude Code logs were not found ({path}).", { path: install === "windows" ? `${home}.claude\\projects` : `${home}.claude/projects` })} `}
+              {!report.sources.codex.found && `${t("Codex logs were not found ({path}).", { path: install === "windows" ? `${home}.codex\\sessions` : `${home}.codex/sessions` })} `}
+              {install === "flatpak" ? t("If the agent is installed, Project Moah may need permission to read that folder; see Help.") : t("They appear once the agent has run on this computer.")}
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

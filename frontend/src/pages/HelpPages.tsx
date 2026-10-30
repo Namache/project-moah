@@ -4,6 +4,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { Markdown } from "../components/help/Markdown";
 import { EmptyState, PageHeading } from "../components/ui";
 import { categoryOrder, getArticle, helpArticles, searchArticles, type HelpArticle } from "../lib/help";
+import { useInstall } from "../lib/install";
 import { t, tp, tx } from "../lib/i18n";
 
 const categoryIcons: Record<string, typeof BookOpen> = { "Getting started": Compass, "Core features": BookOpen, "Connect agents": Plug, Troubleshooting: Wrench };
@@ -19,7 +20,8 @@ function Card({ article }: { article: HelpArticle }) {
 
 export function HelpPage() {
   const [query, setQuery] = useState("");
-  const results = searchArticles(query);
+  const articles = helpArticles(useInstall());
+  const results = searchArticles(query, articles);
   return (
     <div>
       <PageHeading title={t("How can we help?")} />
@@ -35,7 +37,7 @@ export function HelpPage() {
       ) : (
         <div className="mt-8 space-y-10">
           {categoryOrder.map((category) => {
-            const group = helpArticles().filter((a) => a.category === category);
+            const group = articles.filter((a) => a.category === category);
             const Icon = categoryIcons[category] ?? BookOpen;
             return group.length ? (
               <section key={category} aria-labelledby={`cat-${category}`}>
@@ -53,9 +55,10 @@ export function HelpPage() {
 
 export function HelpArticlePage() {
   const { slug = "" } = useParams();
-  const article = getArticle(slug);
+  const install = useInstall();
+  const article = getArticle(slug, install);
   if (!article) return <Navigate to="/help" replace />;
-  const related = article.related.map(getArticle).filter((a): a is HelpArticle => Boolean(a));
+  const related = article.related.map((other) => getArticle(other, install)).filter((a): a is HelpArticle => Boolean(a));
   return (
     <article className="max-w-3xl">
       <Link to="/help" className="inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-forest focus-visible:outline-2 focus-visible:outline-forest"><ArrowLeft size={16} aria-hidden="true" />{t("All help")}</Link>

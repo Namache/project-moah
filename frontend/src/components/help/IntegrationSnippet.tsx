@@ -1,11 +1,16 @@
+import { useAgentLaunch, useInstall } from "../../lib/install";
 import { INTEGRATIONS_CHECKED, snippetsFor, type Agent } from "../../content/integrations";
 import { t } from "../../lib/i18n";
 import { CodeBlock } from "./Markdown";
 
-/** Setup commands for one agent. One connection covers every project. */
+/** Setup commands for one agent, for the way this copy of the app was installed. One connection covers every project. */
 export function IntegrationSnippet({ agent }: { agent: Agent }) {
-  const { setup, verify, sources } = snippetsFor(agent);
+  const launch = useAgentLaunch();
+  const install = useInstall();
   const name = agent === "claude" ? "Claude Code" : "Codex";
+  // The Flatpak commands are the fallback only on the Flatpak itself; elsewhere wait for the real ones.
+  if (!launch && install !== "flatpak") return <p role="status" className="my-4 text-sm text-ink-muted">{t("Loading…")}</p>;
+  const { setup, verify, sources } = snippetsFor(agent, launch);
   return (
     <section aria-label={t("Setup commands for {name}", { name })} className="my-4">
       {[...setup, ...verify].map((s) => <CodeBlock key={s.label} code={s.text} label={t(s.label)} />)}

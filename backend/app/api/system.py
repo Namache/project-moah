@@ -7,10 +7,16 @@ from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
 from app.db.session import get_session
-from app.services.system import diagnostics, export_backup
+from app.services.system import agent_launch, diagnostics, export_backup
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 DatabaseSession = Annotated[Session, Depends(get_session)]
+
+
+@router.get("/agent-command")
+def get_agent_command() -> dict[str, Any]:
+    """The command agents use to start this installation's MCP server."""
+    return agent_launch()
 
 
 @router.get("/diagnostics")

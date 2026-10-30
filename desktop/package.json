@@ -5,11 +5,13 @@
   "private": true,
   "desktopName": "io.github.projectbrain.ProjectBrain.desktop",
   "description": "Local desktop app for Project Moah",
+  "homepage": "https://github.com/Namache/project-moah",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
     "pack:linux": "electron-builder --linux dir --x64",
     "build:linux": "npm run pack:linux && bash ../scripts/build-flatpak.sh",
+    "build:deb": "electron-builder --linux deb --x64",
     "build:windows": "electron-builder --win nsis portable --x64"
   },
   "devDependencies": {
@@ -52,7 +54,15 @@
       "executableName": "project-brain-desktop",
       "icon": "assets/icon.png",
       "category": "Development",
+      "synopsis": "Shared memory and task board for your AI coding agents",
+      "maintainer": "Project Moah",
       "target": ["dir"]
+    },
+    "deb": {
+      "packageName": "project-moah",
+      "artifactName": "ProjectMoah-${version}-amd64.deb",
+      "recommends": ["git"],
+      "fpm": ["linux/project-moah-mcp=/usr/bin/project-moah-mcp"]
     }
   }
 }

@@ -17,3 +17,6 @@ Add a purpose, a summary, important symbols, and links to the tasks and decision
 Project Moah reads the branch, working tree status and recent commits. A task ID in a commit message is shown as a suggestion; it only becomes a link when you confirm it.
 
 If Git or the folder is unavailable you see why, and everything else keeps working.
+{{only windows}}
+Branch and commit details need Git for Windows. Without it, file notes still work.
+{{end}}
