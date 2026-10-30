@@ -124,6 +124,7 @@ The first install also downloads the Flatpak runtime, so it takes a little longe
 </details>
 
 **Connect your agent:** open the app and go to **Help -> Connect Claude Code/Codex**.
+
 ---
 
 ## Private by design
