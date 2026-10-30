@@ -58,6 +58,19 @@ function originOf(url) {
   }
 }
 
+/** Error texts in the computer's language. The app's own language choice lives in the window, which may not exist yet. */
+const RUSSIAN = {
+  "Project Moah stopped": "Project Moah остановился",
+  "Project Moah could not open": "Не удалось открыть Project Moah",
+  "Its local service stopped unexpectedly. Restart Project Moah to continue.": "Его локальная служба неожиданно остановилась. Перезапустите Project Moah, чтобы продолжить.",
+  "The local service stopped during startup ({reason}).": "Локальная служба остановилась при запуске ({reason}).",
+  "Details were saved to {path}": "Подробности сохранены в {path}",
+};
+function say(text, vars = {}) {
+  const chosen = app.getLocale().toLowerCase().startsWith("ru") ? RUSSIAN[text] ?? text : text;
+  return chosen.replace(/\{(\w+)\}/g, (whole, name) => (name in vars ? String(vars[name]) : whole));
+}
+
 /** Shows one error and quits. Later failures caused by the same problem are only logged. */
 function fatal(title, message) {
   writeLog(`[fatal] ${title}: ${message}`);
@@ -164,8 +177,8 @@ function startBackend() {
         clearTimeout(timeout);
         reject(new Error(`The local service exited before startup (${code ?? signal}).`));
       } else if (ready && !stopping) {
-        if (window) fatal("Project Moah stopped", "Its local service stopped unexpectedly. Restart Project Moah to continue.");
-        else fatal("Project Moah could not open", `The local service stopped during startup (${code ?? signal}).\n\nDetails were saved to ${logPath}`);
+        if (window) fatal(say("Project Moah stopped"), say("Its local service stopped unexpectedly. Restart Project Moah to continue."));
+        else fatal(say("Project Moah could not open"), `${say("The local service stopped during startup ({reason}).", { reason: code ?? signal })}\n\n${say("Details were saved to {path}", { path: logPath })}`);
       }
     });
   });
@@ -313,10 +326,11 @@ if (!app.requestSingleInstanceLock()) {
         return false;
       }
     });
-    ipcMain.handle("project-brain:choose-folder", async (event) => {
+    ipcMain.handle("project-brain:choose-folder", async (event, title) => {
       // Only the app's own window may open the chooser.
       if (event.sender !== window?.webContents) return null;
-      const result = await dialog.showOpenDialog(window, { title: "Choose the project's repository folder", properties: ["openDirectory"] });
+      const heading = typeof title === "string" && title.length > 0 && title.length <= 200 ? title : "Choose the project's repository folder";
+      const result = await dialog.showOpenDialog(window, { title: heading, properties: ["openDirectory"] });
       return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
     });
     try {
@@ -325,7 +339,7 @@ if (!app.requestSingleInstanceLock()) {
       await openWindow(port);
     } catch (error) {
       writeLog(`[startup error] ${error.stack ?? error.message}`);
-      fatal("Project Moah could not open", `${error.message}\n\nDetails were saved to ${logPath}`);
+      fatal(say("Project Moah could not open"), `${error.message}\n\n${say("Details were saved to {path}", { path: logPath })}`);
     }
   });
 }

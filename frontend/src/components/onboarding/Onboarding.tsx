@@ -68,7 +68,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
       {step === 3 && <>
         <p className="mt-4 text-sm leading-7 text-ink-muted">{t("Pick the folder your code lives in. Project Moah only reads file names, Git status and commit messages, and never changes your code. You can do this later.")}</p>
-        {canChoose && <Button className="mt-5" onClick={async () => { const chosen = await window.projectBrainDesktop?.chooseFolder?.().catch(() => null); if (chosen) setPath(chosen); }}>{t("Choose folder")}</Button>}
+        {canChoose && <Button className="mt-5" onClick={async () => { const chosen = await window.projectBrainDesktop?.chooseFolder?.(t("Choose the project's repository folder")).catch(() => null); if (chosen) setPath(chosen); }}>{t("Choose folder")}</Button>}
         <label htmlFor="onb-path" className="field-label mt-5">{t("Folder path")}</label>
         <input id="onb-path" data-onboarding-focus className="field-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder={t("/home/you/projects/trailhead")} />
         {error && <p role="alert" className="mt-3 text-sm text-danger-ink">{error}</p>}
