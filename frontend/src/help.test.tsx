@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { Markdown } from "./components/help/Markdown";
 import { helpArticles, helpByLanguage, parseArticle, russianArticles, searchArticles } from "./lib/help";
 import { setLanguage } from "./lib/i18n";
 import { INSTALLS, type Install } from "./lib/install";
@@ -26,6 +27,9 @@ describe("help content", () => {
 
   it("parses metadata and searches by keyword, requiring every word", () => {
     expect(parseArticle("x", "---\ntitle: T\ncategory: C\nkeywords: a, b\nrelated: y\n---\nBody")).toMatchObject({ title: "T", keywords: ["a", "b"], related: ["y"], body: "Body" });
+    // Windows line endings read the same, so {{only}} and {{snippet}} lines still match.
+    const windows = parseArticle("x", "---\r\ntitle: T\r\n---\r\n{{only windows}}\r\nWin\r\n{{end}}\r\n{{snippet:claude}}\r\n");
+    expect(windows).toMatchObject({ title: "T", body: "{{only windows}}\nWin\n{{end}}\n{{snippet:claude}}" });
     for (const [word, slug] of [["locked", "memory"], ["codex", "codex"], ["supersede", "memory"], ["dependency", "tasks"], ["git", "files-and-git"], ["handoff", "handoffs"]] as const) expect(searchArticles(word, articles).map((a) => a.slug), word).toContain(slug);
     expect(searchArticles("codex zzzzqq", articles)).toEqual([]);
     expect(searchArticles("   ", articles)).toEqual([]);
@@ -115,6 +119,12 @@ describe("help pages", () => {
     const { setup } = snippetsFor("claude");
     expect(setup[0].text).toContain("--scope user");
     expect(setup[1].text).toContain("--brief");
+  });
+
+  it("shows a line that only looks like a block as text instead of hanging", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Markdown source={"Intro\n{{snippet:other}}\nAfter"} /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByText(/\{\{snippet:other\}\}/)).toBeTruthy();
   });
 
   it("shows screen names marked with stars as labels, never as stray stars", async () => {

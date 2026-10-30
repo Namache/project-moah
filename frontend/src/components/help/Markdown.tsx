@@ -66,7 +66,8 @@ export function Markdown({ source }: { source: string }) {
       blocks.push(<Tag key={key++} className={`my-3 space-y-1.5 pl-6 text-sm leading-7 text-ink-muted ${ordered ? "list-decimal" : "list-disc"}`}>{items.map((item, n) => <li key={n}><Inline text={item} /></li>)}</Tag>);
       continue;
     }
-    const para: string[] = [];
+    // The first line is always taken, so a line that only looks like a block still moves on.
+    const para = [lines[i++]];
     while (i < lines.length && lines[i].trim() && !/^(#{1,3}\s|```|(-|\d+\.)\s|\{\{snippet)/.test(lines[i])) para.push(lines[i++]);
     blocks.push(<p key={key++} className="my-3 text-sm leading-7 text-ink-muted"><Inline text={para.join(" ")} /></p>);
   }

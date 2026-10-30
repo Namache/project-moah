@@ -7,7 +7,8 @@ const english = import.meta.glob("../content/help/*.md", { query: "?raw", import
 const russian = import.meta.glob("../content/help/ru/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 const list = (value: string | undefined) => (value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
-export function parseArticle(slug: string, raw: string): HelpArticle {
+export function parseArticle(slug: string, text: string): HelpArticle {
+  const raw = text.replace(/\r\n?/g, "\n"); // a Windows checkout may end lines with \r\n
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   const meta: Record<string, string> = {};
   for (const line of (match?.[1] ?? "").split("\n")) {

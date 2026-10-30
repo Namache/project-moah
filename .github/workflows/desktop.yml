@@ -2,6 +2,12 @@ name: Desktop packages
 
 on:
   workflow_dispatch:
+    inputs:
+      systems:
+        description: Which packages to build
+        type: choice
+        default: all
+        options: [all, windows, linux]
   push:
     tags:
       - 'v*'
@@ -12,6 +18,7 @@ permissions:
 jobs:
   linux-flatpak:
     name: Build Linux Flatpak
+    if: github.event_name != 'workflow_dispatch' || inputs.systems == 'all' || inputs.systems == 'linux'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
@@ -74,6 +81,7 @@ jobs:
   linux-deb:
     name: Build Debian/Ubuntu package
     # The oldest supported base, so the package also runs on Debian 12 and Ubuntu 22.04.
+    if: github.event_name != 'workflow_dispatch' || inputs.systems == 'all' || inputs.systems == 'linux'
     runs-on: ubuntu-22.04
     steps:
       - name: Check out source
@@ -141,6 +149,7 @@ jobs:
 
   windows-exe:
     name: Build Windows installer
+    if: github.event_name != 'workflow_dispatch' || inputs.systems == 'all' || inputs.systems == 'windows'
     runs-on: windows-2025
     defaults:
       run:
