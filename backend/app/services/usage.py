@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -113,9 +114,17 @@ def _int(value: object) -> int:
     return value if isinstance(value, int) and value > 0 else 0
 
 
+WINDOWS_FOLDER = re.compile(r"^[A-Za-z]:[\\/]")
+
+
 def normalize_folder(path: str) -> str:
-    """One spelling per folder: /var/home is /home, and a portal path names its host folder."""
-    if path.startswith(PORTAL_PREFIX) and "/doc/" in path:
+    """One spelling per folder: /var/home is /home, a portal path names its host folder, and a
+    Windows folder is written with forward slashes (C:/Users/me/game), so one comparison by "/"
+    fits every system."""
+    if WINDOWS_FOLDER.match(path):
+        path = (path[0].upper() + path[1:].replace("\\", "/")).rstrip("/")
+        return path if len(path) > 2 else path + "/"
+    if path.startswith(PORTAL_PREFIX) and "/doc/" in path and hasattr(os, "getxattr"):
         try:
             path = os.getxattr(path, PORTAL_XATTR).decode()
         except OSError:

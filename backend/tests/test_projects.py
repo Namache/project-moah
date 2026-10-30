@@ -9,7 +9,8 @@ from tests.conftest import app_client
 pytestmark = pytest.mark.anyio
 
 
-async def test_health_and_project_crud(client: AsyncClient) -> None:
+async def test_health_and_project_crud(client: AsyncClient, tmp_path: Path) -> None:
+    future = str(tmp_path / "future-repo")
     assert (await client.get("/api/health")).json() == {"status": "ok"}
     assert (await client.get("/api/projects")).json() == []
 
@@ -20,7 +21,7 @@ async def test_health_and_project_crud(client: AsyncClient) -> None:
             "description": "A game",
             "icon": "⛰️",
             "accent": "#D99A53",
-            "root_path": "/tmp/future-repo",
+            "root_path": future,
         },
     )
     assert created.status_code == 201
@@ -29,7 +30,7 @@ async def test_health_and_project_crud(client: AsyncClient) -> None:
     assert project["slug"] == "trailhead"
     assert project["status"] == "active"
     assert project["current_focus_task_id"] is None
-    assert project["root_path"] == "/tmp/future-repo"
+    assert project["root_path"] == future
     assert project["created_at"].endswith("Z")
     assert project["archived_at"] is None
     project_id = project["id"]

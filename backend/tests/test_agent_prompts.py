@@ -1,5 +1,6 @@
 """Agent settings, "Work on task" prompts and second opinions."""
 
+import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -10,9 +11,11 @@ from tests.conftest import app_client
 from tests.test_mcp import agent, call
 
 pytestmark = pytest.mark.anyio
+# An absolute folder on every system; Windows folders are written with forward slashes.
+ROOT = "C:/home/me/game" if sys.platform == "win32" else "/home/me/game"
 
 
-async def make_task(client: AsyncClient, root: str | None = "/home/me/game") -> tuple[str, dict]:
+async def make_task(client: AsyncClient, root: str | None = ROOT) -> tuple[str, dict]:
     body = {"name": "Game", **({"root_path": root} if root else {})}
     pid = (await client.post("/api/projects", json=body)).json()["id"]
     task = (
@@ -52,14 +55,14 @@ async def test_work_prompt_for_each_agent(client: AsyncClient) -> None:
     claude = (await client.get(f"/api/projects/{pid}/tasks/{task['human_id']}/work-prompt")).json()
     assert claude["agent"] == "claude" and claude["url"].startswith("claude://code/new?q=")
     prompt = claude["prompt"]
-    assert task["human_id"] in prompt and "Six members fit" in prompt and "/home/me/game" in prompt
+    assert task["human_id"] in prompt and "Six members fit" in prompt and ROOT in prompt
     assert "brain_context_pack" in prompt and "brain_create_checkpoint" in prompt
     assert parse_qs(urlsplit(claude["url"]).query)["q"] == [prompt]
 
     await client.patch("/api/settings/agents", json={"default_agent": "codex"})
     codex = (await client.get(f"/api/projects/{pid}/tasks/{task['human_id']}/work-prompt")).json()
     query = parse_qs(urlsplit(codex["url"]).query)
-    assert codex["url"].startswith("codex://new?") and query["path"] == ["/home/me/game"]
+    assert codex["url"].startswith("codex://new?") and query["path"] == [ROOT]
     assert query["prompt"] == [codex["prompt"]]
     # The agent can still be chosen per click.
     other = await client.get(
@@ -102,7 +105,7 @@ async def test_second_opinion_is_off_until_switched_on(database_url: str, tmp_pa
         assert not failed and result["other_agent"] == "codex"
         command = result["command"]
         assert command.startswith("distrobox-host-exec codex exec --sandbox read-only")
-        assert "-C /home/me/game" in command and "Is a camp limit of 6 right?" in command
+        assert f"-C {ROOT}" in command and "Is a camp limit of 6 right?" in command
         assert "Six members fit" in command and command.rstrip().endswith("PB_SECOND_OPINION")
         assert "side by side" in result["instructions"]
 
@@ -111,4 +114,4 @@ async def test_second_opinion_is_off_until_switched_on(database_url: str, tmp_pa
             session, "brain_second_opinion", question="Second look?", project=pid
         )
         assert not failed and result["other_agent"] == "claude"
-        assert result["command"].startswith("cd /home/me/game && claude -p --permission-mode plan")
+        assert result["command"].startswith(f"cd {ROOT} && claude -p --permission-mode plan")

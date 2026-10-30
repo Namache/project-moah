@@ -1,10 +1,12 @@
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
 
+from app.mcp.projects import _inside
 from app.services.usage import active_seconds, normalize_folder
 
 pytestmark = pytest.mark.anyio
@@ -88,6 +90,7 @@ def logs(tmp_path: Path, monkeypatch) -> dict[str, Path]:
     }
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux folder layout (/home, /var/home)")
 async def test_counts_both_agents_by_project_and_never_returns_text(
     client: AsyncClient, logs
 ) -> None:
@@ -178,6 +181,16 @@ def test_active_time_caps_long_gaps() -> None:
 
 def test_folder_spellings() -> None:
     assert normalize_folder("/var/home/me/game/") == "/home/me/game"
+    # Windows folders get forward slashes and a capital drive letter, so one comparison fits all.
+    assert normalize_folder("c:\\Users\\me\\game\\") == "C:/Users/me/game"
+    assert normalize_folder("C:/Users/me/game") == "C:/Users/me/game"
+    assert normalize_folder("C:\\") == "C:/"
+    assert _inside(
+        normalize_folder("C:\\Users\\me\\game\\src"), normalize_folder("C:\\Users\\me\\game")
+    )
+    assert not _inside(
+        normalize_folder("C:\\Users\\me\\gamer"), normalize_folder("C:\\Users\\me\\game")
+    )
     assert normalize_folder("/home/me/game") == "/home/me/game"
     assert normalize_folder("/run/user/1000/doc/missing/game") == "/run/user/1000/doc/missing/game"
 
