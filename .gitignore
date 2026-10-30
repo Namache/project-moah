@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.venv-flatpak/
+backend/.venv/
+
+# Node and frontend builds
+node_modules/
+frontend/dist/
+frontend/coverage/
+desktop/bin/
+desktop/dist/
+desktop/node_modules/
+desktop/build/
+desktop/.tmp/
+/build/
+.flatpak-builder/
+
+# Local app state and environment
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+data/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.projectbrain.ProjectBrain</id>
+  <name>Project Moah</name>
+  <summary>Local shared memory and task board for AI coding agents</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <description>
+    <p>Project Moah gives Claude Code and Codex one place on your computer to read and write tasks, decisions, rules, known issues and checkpoints. Everything stays in a local database: no account, no cloud, no telemetry.</p>
+  </description>
+  <launchable type="desktop-id">io.github.projectbrain.ProjectBrain.desktop</launchable>
+  <releases>
+    <release version="0.1.0" date="2026-10-10"/>
+  </releases>
+</component>

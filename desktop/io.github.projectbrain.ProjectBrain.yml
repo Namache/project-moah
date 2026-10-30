@@ -1,0 +1,66 @@
+id: io.github.projectbrain.ProjectBrain
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: project-brain
+branch: stable
+finish-args:
+  - --socket=wayland
+  - --socket=x11
+  - --share=ipc
+  - --device=dri
+  # Read-only, for the Efficiency dashboard: only token counts, times and folder paths are read.
+  - --filesystem=~/.claude/projects:ro
+  - --filesystem=~/.codex/sessions:ro
+modules:
+  - name: zypak
+    buildsystem: simple
+    build-commands:
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - make install
+    sources:
+      - type: git
+        url: https://github.com/refi64/zypak.git
+        tag: v2025.09
+        commit: 693a71c5ffa80ec9c9ce2ae03b1ccc493c698e53
+  - name: git
+    # The runtime has no Git. Project Moah reads repository status with it (read-only commands).
+    buildsystem: simple
+    build-commands:
+      - make -j${FLATPAK_BUILDER_N_JOBS} prefix=/app NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 NO_EXPAT=1 all
+      - make prefix=/app NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 NO_EXPAT=1 NO_INSTALL_HARDLINKS=1 install
+      # Project Moah only reads repositories. Drop the server-side commands and shrink the rest.
+      - rm -f /app/bin/git-cvsserver /app/bin/git-shell /app/bin/git-receive-pack /app/bin/git-upload-pack /app/bin/git-upload-archive /app/bin/scalar
+      - rm -rf /app/share/git-gui /app/share/gitweb
+      - strip --strip-unneeded /app/libexec/git-core/git /app/libexec/git-core/git-remote-http 2>/dev/null || true
+    sources:
+      - type: archive
+        url: https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.52.0.tar.xz
+        sha256: 3cd8fee86f69a949cb610fee8cd9264e6873d07fa58411f6060b3d62729ed7c5
+  - name: project-brain
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/project-brain
+      - cp -a --no-preserve=xattr electron/. /app/lib/project-brain/
+      - install -Dm755 project-brain.sh /app/bin/project-brain
+      - install -Dm755 project-brain-mcp.sh /app/bin/project-brain-mcp
+      # The new name; the old one stays so agents connected before the rename keep working.
+      - install -Dm755 project-brain-mcp.sh /app/bin/project-moah-mcp
+      - install -Dm644 io.github.projectbrain.ProjectBrain.desktop /app/share/applications/io.github.projectbrain.ProjectBrain.desktop
+      - install -Dm644 io.github.projectbrain.ProjectBrain.metainfo.xml /app/share/metainfo/io.github.projectbrain.ProjectBrain.metainfo.xml
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/io.github.projectbrain.ProjectBrain.png
+    sources:
+      - type: dir
+        path: dist/linux-unpacked
+        dest: electron
+      - type: file
+        path: flatpak/project-brain.sh
+      - type: file
+        path: flatpak/project-brain-mcp.sh
+      - type: file
+        path: flatpak/io.github.projectbrain.ProjectBrain.desktop
+      - type: file
+        path: flatpak/io.github.projectbrain.ProjectBrain.metainfo.xml
+      - type: file
+        path: assets/icon.png
+        dest-filename: icon.png
