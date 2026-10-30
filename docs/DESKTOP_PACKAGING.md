@@ -6,17 +6,17 @@ Project Moah's supported user experience is a desktop window. Each package carri
 
 | Platform | Package | Open the app |
 | --- | --- | --- |
-| Windows 10 and 11 (x64) | `ProjectMoah-Setup-0.1.0-x64.exe` | Run the installer, then choose **Project Moah** in the Start menu. It is not code-signed yet, so SmartScreen asks once (**More info**, **Run anyway**). |
-| Debian 12+, Ubuntu 22.04+ (x86-64) | `ProjectMoah-0.1.0-amd64.deb` | `sudo apt install ./ProjectMoah-0.1.0-amd64.deb`, then choose **Project Moah** in the application menu. |
-| Fedora, Bazzite, any Linux with Flatpak (x86-64) | `ProjectMoah-0.1.0-x86_64.flatpak` | Open the bundle in a Flatpak-capable software center, select **Install**, then choose **Project Moah** in the application menu. |
+| Windows 10 and 11 (x64) | `ProjectMoah-Setup-x64.exe` | Run the installer, then choose **Project Moah** in the Start menu. It is not code-signed yet, so SmartScreen asks once (**More info**, **Run anyway**). |
+| Debian 12+, Ubuntu 22.04+ (x86-64) | `ProjectMoah-amd64.deb` | `sudo apt install ./ProjectMoah-amd64.deb`, then choose **Project Moah** in the application menu. |
+| Fedora, Bazzite, any Linux with Flatpak (x86-64) | `ProjectMoah-x86_64.flatpak` | Open the bundle in a Flatpak-capable software center, select **Install**, then choose **Project Moah** in the application menu. |
 
-There is no portable Windows `.exe`: it unpacks itself to a temporary folder on every start, so the path agents use to start the MCP server would stop working whenever the app is closed.
+File names carry no version number, so the README can link straight to the newest release (`releases/latest/download/<file>`); the release title says the version. There is no portable Windows `.exe`: it unpacks itself to a temporary folder on every start, so the path agents use to start the MCP server would stop working whenever the app is closed.
 
 The app knows which package it came from (`installKind()` in `desktop/main.cjs` for the window, `agent_launch()` in `backend/app/services/system.py` for agents). Help pages and setup commands use that, so a Windows user never sees Flatpak steps. Help text marks system-specific parts with `{{only flatpak deb}}` … `{{end}}`.
 
 The Flatpak is one downloadable application bundle, but the Flatpak runtime is a separate dependency. The software center may download that runtime when installing the bundle. A runtime already present can be reused. [Flatpak's single-file bundle documentation](https://docs.flatpak.org/en/latest/single-file-bundles.html) explains this limitation. No terminal is needed to launch the installed app.
 
-Build artifacts are placed under `desktop/dist/`; the Linux bundle is `desktop/dist/ProjectMoah-0.1.0-x86_64.flatpak`. The desktop build workflow can also upload an artifact ZIP. Generated bundles are ignored by source control. The release identity currently uses `io.github.projectbrain.ProjectBrain` as its local Flatpak app ID; a public store submission must confirm ownership of the ID before publication.
+Build artifacts are placed under `desktop/dist/`; the Linux bundle is `desktop/dist/ProjectMoah-x86_64.flatpak`. The desktop build workflow can also upload an artifact ZIP. Generated bundles are ignored by source control. The release identity currently uses `io.github.projectbrain.ProjectBrain` as its local Flatpak app ID; a public store submission must confirm ownership of the ID before publication.
 
 ## Local data
 
@@ -66,7 +66,7 @@ npm ci --prefix desktop
 npm run build:linux --prefix desktop
 ```
 
-The Linux target is `desktop/dist/ProjectMoah-0.1.0-x86_64.flatpak`. The build stages an unpacked Electron app, compiles a pinned [Zypak](https://github.com/refi64/zypak) sandbox helper in the Flatpak SDK, and exports a single-file bundle. The installed app needs the declared Flatpak 25.08 runtime; it does not need a system Electron, Python, or Node.js installation. See [Flatpak's Electron guide](https://docs.flatpak.org/en/latest/electron.html) for the sandbox model.
+The Linux target is `desktop/dist/ProjectMoah-x86_64.flatpak`. The build stages an unpacked Electron app, compiles a pinned [Zypak](https://github.com/refi64/zypak) sandbox helper in the Flatpak SDK, and exports a single-file bundle. The installed app needs the declared Flatpak 25.08 runtime; it does not need a system Electron, Python, or Node.js installation. See [Flatpak's Electron guide](https://docs.flatpak.org/en/latest/electron.html) for the sandbox model.
 
 ### Debian and Ubuntu (.deb)
 
@@ -82,7 +82,7 @@ npm ci --prefix desktop
 npm run build:deb --prefix desktop
 ```
 
-The package is `desktop/dist/ProjectMoah-0.1.0-amd64.deb`. It installs the app to `/opt/Project Moah/`, adds `/usr/bin/project-moah-mcp` for agents (from `desktop/linux/project-moah-mcp`), and recommends `git`.
+The package is `desktop/dist/ProjectMoah-amd64.deb`. It installs the app to `/opt/Project Moah/`, adds `/usr/bin/project-moah-mcp` for agents (from `desktop/linux/project-moah-mcp`), and recommends `git`.
 
 ### Windows
 

@@ -45,7 +45,7 @@
       "target": ["nsis"]
     },
     "nsis": {
-      "artifactName": "ProjectMoah-Setup-${version}-${arch}.exe",
+      "artifactName": "ProjectMoah-Setup-${arch}.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
@@ -59,7 +59,7 @@
     },
     "deb": {
       "packageName": "project-moah",
-      "artifactName": "ProjectMoah-${version}-amd64.deb",
+      "artifactName": "ProjectMoah-amd64.deb",
       "recommends": ["git"],
       "fpm": ["linux/project-moah-mcp=/usr/bin/project-moah-mcp"]
     }

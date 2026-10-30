@@ -45,11 +45,11 @@ if ! flatpak info "org.freedesktop.Sdk//$runtime_version" >/dev/null 2>&1; then
   exit 1
 fi
 
-version="$(cd "$desktop_dir" && node -p "require('./package.json').version")"
 build_dir="$desktop_dir/build/flatpak-build"
 state_dir="$desktop_dir/build/flatpak-state"
 repo_output="$desktop_dir/build/flatpak-repo"
-bundle="$desktop_dir/dist/ProjectMoah-${version}-x86_64.flatpak"
+# No version in the name, so the README can link to the newest release directly.
+bundle="$desktop_dir/dist/ProjectMoah-x86_64.flatpak"
 
 mkdir -p "$desktop_dir/build" "$desktop_dir/dist"
 "${builder[@]}" \

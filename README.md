@@ -25,17 +25,19 @@ Claude Code and Codex forget everything between sessions. Project Moah gives the
 
 ## Install
 
-Download the one file for your system from the [latest release](../../releases/latest):
+Pick your system. Each link always gets the newest version.
 
-| Your system | File |
+| Your system | Download |
 | --- | --- |
-| Windows 10 or 11 | `ProjectMoah-Setup-<version>-x64.exe` |
-| Debian 12 or newer, Ubuntu 22.04 or newer, Linux Mint and similar | `ProjectMoah-<version>-amd64.deb` |
-| Fedora, Bazzite and any other Linux with Flatpak | `ProjectMoah-<version>-x86_64.flatpak` |
+| Windows 10 or 11 | [ProjectMoah-Setup-x64.exe](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-Setup-x64.exe) |
+| Debian 12+, Ubuntu 22.04+, Linux Mint and similar | [ProjectMoah-amd64.deb](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-amd64.deb) |
+| Fedora, Bazzite and any other Linux with Flatpak | [ProjectMoah-x86_64.flatpak](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-x86_64.flatpak) |
+
+All files and release notes are on the [releases page](../../releases/latest).
 
 ### Windows
 
-1. Run `ProjectMoah-Setup-<version>-x64.exe` and follow the installer.
+1. [Download the installer](https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-Setup-x64.exe) and run it.
 2. Windows may say "Windows protected your PC", because the installer is not signed yet. Choose **More info**, then **Run anyway**.
 3. Open **Project Moah** from the Start menu.
 
@@ -43,28 +45,28 @@ To show Git details for your repositories, also install [Git for Windows](https:
 
 ### Debian and Ubuntu
 
-Open a terminal in the folder you downloaded to (usually `cd ~/Downloads`), then run:
+Paste this into a terminal:
 
 ```bash
-sudo apt install ./ProjectMoah-*.deb
+cd /tmp && wget -O ProjectMoah-amd64.deb https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-amd64.deb && sudo apt install ./ProjectMoah-amd64.deb
 ```
 
-Open **Project Moah** from your app menu. To remove it later: `sudo apt remove project-moah`.
+Then open **Project Moah** from your app menu. Or download the `.deb` from the table above and open it with your software center.
+
+To remove it later: `sudo apt remove project-moah`.
 
 ### Fedora, Bazzite and other Linux, with Flatpak
 
-Fedora and Bazzite already have Flatpak. On other systems, install it first from your package manager.
+Fedora and Bazzite already have Flatpak. On other systems, install it from your package manager first. Then paste this into a terminal:
 
-1. Add Flathub, where the app's runtime comes from:
-   ```bash
-   flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-   ```
-2. Install the downloaded bundle, then open **Project Moah** from your app menu:
-   ```bash
-   flatpak install --user ProjectMoah-*.flatpak
-   ```
+```bash
+flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+cd /tmp && curl -LO https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-x86_64.flatpak && flatpak install --user ProjectMoah-x86_64.flatpak
+```
 
-Or open the `.flatpak` file in your software center and choose **Install**.
+Then open **Project Moah** from your app menu. The first install also downloads the Flatpak runtime the app runs on, so it takes a little longer.
+
+To remove it later: `flatpak uninstall --user io.github.projectbrain.ProjectBrain`.
 
 ## Connect your AI agent
 
