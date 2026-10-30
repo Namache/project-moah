@@ -62,7 +62,16 @@ const eventLabels: Record<string, string> = labels({
   SHELF_MEMBER_ADDED: msg("Added to a shelf"),
   SHELF_MEMBER_REMOVED: msg("Taken off a shelf"),
   TASK_CRITERION_UPDATED: msg("Requirement updated"),
+  TASK_CRITERION_ADDED: msg("Requirement added"),
+  TASK_CRITERION_REMOVED: msg("Requirement removed"),
   TASK_DELETED: msg("Task deleted"),
+  TASK_MOVED: msg("Task moved"),
+  TASK_REOPENED: msg("Task reopened"),
+  TASK_FOCUS_SET: msg("Focus set"),
+  TASK_FOCUS_CLEARED: msg("Focus cleared"),
+  TASK_RELATIONSHIP_ADDED: msg("Task link added"),
+  TASK_RELATIONSHIP_REMOVED: msg("Task link removed"),
+  FILE_ASSOCIATED: msg("File linked"),
 });
 
 function labelForEvent(type: string): string {

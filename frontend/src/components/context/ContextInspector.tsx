@@ -18,6 +18,24 @@ const levels: { value: DetailLevel; label: string; hint: string }[] = [
   labels({ value: "detailed", label: msg("Detailed"), hint: msg("Adds more decisions, earlier checkpoints, and replaced decisions.") }, ["label", "hint"]),
 ];
 const budgets = [labels({ label: msg("Default for this level"), value: 0 }, ["label"]), labels({ label: msg("About 750"), value: 750 }, ["label"]), labels({ label: msg("About 1,500"), value: 1500 }, ["label"]), labels({ label: msg("About 3,000"), value: 3000 }, ["label"])];
+/** The pack's section names, keyed as the backend names them; the pack text itself stays in English for agents. */
+const sectionLabels: Record<string, string> = labels({
+  project: msg("Project"), shelves: msg("Active shelves"), global: msg("Global rules"), milestone: msg("Milestone"), task: msg("Current task"),
+  status: msg("Status"), goal: msg("Goal"), criteria: msg("Acceptance criteria"), next: msg("Next action"), blockers: msg("Blockers"),
+  decisions: msg("Important decisions"), rules: msg("Project rules"), warnings: msg("Warnings"), issues: msg("Known issues"), facts: msg("Facts"),
+  routed: msg("From the global brain"), files: msg("Relevant files"), checkpoint: msg("Latest checkpoint"), dependencies: msg("Dependencies"),
+  related: msg("Related tasks"), ideas: msg("Ideas"), notes: msg("Notes"), history: msg("Earlier checkpoints"), superseded: msg("Replaced decisions"),
+  activity: msg("Recent activity"),
+});
+
+/** The backend's notes about which task the pack was built for. */
+function packNote(text: string): string {
+  const focus = /^No task was given, so the current focus (\S+) was used\.$/.exec(text);
+  if (focus) return t("No task was given, so the current focus {id} was used.", { id: focus[1] });
+  if (text === "No task was given and no current focus is set; this is a project overview.") return t("No task was given and no current focus is set; this is a project overview.");
+  return text;
+}
+
 const omittedLabels: Record<string, string> = labels({ hidden: msg("hidden from AI"), "manual only": msg("manual only, not selected"), "not related": msg("not related to this task"), "detail level": msg("left out at this detail level"), budget: msg("left out to stay within the size"), "excluded by you": msg("excluded by you") });
 
 export function ContextInspector({ projectId, focusTaskId }: { projectId: string; focusTaskId: string | null }) {
@@ -99,12 +117,12 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
                 </div>
               </div>
               {data.over_budget && <p role="status" className="mt-3 rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-ink">{t("The essential task details alone are larger than the limit, so they were kept anyway.")}</p>}
-              {data.warnings.map((w) => <p key={w} className="mt-3 rounded-xl bg-sage-pale px-3 py-2 text-sm text-ink">{w}</p>)}
+              {data.warnings.map((w) => <p key={w} className="mt-3 rounded-xl bg-sage-pale px-3 py-2 text-sm text-ink">{packNote(w)}</p>)}
               <h3 className="mt-6 text-sm font-semibold text-ink">{t("Included")}</h3>
               <ul className="mt-2 space-y-1.5">
                 {data.sections.map((s) => (
                   <li key={s.key} className="grid grid-cols-[minmax(0,9rem)_1fr_4rem] items-center gap-3 text-sm">
-                    <span className="truncate text-ink-muted" title={s.title}>{s.title}</span>
+                    <span className="truncate text-ink-muted" title={sectionLabels[s.key] ?? s.title}>{sectionLabels[s.key] ?? s.title}</span>
                     <span className="h-2 overflow-hidden rounded-full bg-neutral-soft" aria-hidden="true"><span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(4, (s.tokens / maxTokens) * 100)}%` }} /></span>
                     <span className="text-right text-xs font-medium text-ink-muted">~{s.tokens}</span>
                   </li>

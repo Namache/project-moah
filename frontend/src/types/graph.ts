@@ -225,7 +225,9 @@ export interface ShelfSuggestion {
    * (pattern, a notice only) and sharing a lesson as one Global record (share). */
   kind: "place" | "needs_category" | "merge" | "add_member" | "add_keyword" | "remove_member" | "pattern" | "share";
   name: string;
+  /** The suggestion in English, as agents read it. The app shows its own wording, built from kind, size and args. */
   message: string;
+  args?: Record<string, string | number>;
   size: number;
   members: string[];
   parent: { id: string; name: string } | null;

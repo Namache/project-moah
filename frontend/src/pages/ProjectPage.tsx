@@ -42,7 +42,7 @@ function Overview({ project }: { project: Project }) {
       <Widget title={t("Tasks")} icon={ListTodo} to={projectPath(project.id, "tasks")} linkLabel={t("Open the board")} action={milestone && <span className="text-xs text-ink-muted">{t("{name}: {share} done", { name: milestone.name, share: `${percent}%` })}</span>}>
         {milestone && <ProgressBar value={percent} label={t("{name} progress", { name: milestone.name })} />}
         <div className="@container mt-4">
-          <ul className="grid grid-cols-3 gap-2 @lg:grid-cols-6">
+          <ul className="grid grid-cols-3 gap-2 @3xl:grid-cols-6">
             {boardColumns.map((c) => {
               const { tone, icon: Icon } = taskStatusStyle[c.status];
               return <li key={c.status}><Link to={projectPath(project.id, "tasks")} className="flex flex-col gap-1 rounded-lg bg-canvas px-3 py-2.5 hover:bg-hover focus-visible:outline-2 focus-visible:outline-forest">

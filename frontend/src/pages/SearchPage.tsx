@@ -6,13 +6,20 @@ import { useProjects } from "../hooks/useProjects";
 import { useSearch } from "../hooks/useSearch";
 import { memoryTypes } from "../types/memory";
 import type { MemoryType } from "../types/memory";
-
-const memoryTypeLabels = Object.fromEntries(memoryTypes.map((t) => [t.value, t.label])) as Record<MemoryType, string>;
+import { statusLabels, type TaskStatus } from "../types/task";
 import type { SearchEntityType, SearchResult } from "../types/search";
 import { checkpointPath, memoryPath, projectPath, taskPath } from "../lib/routes";
 import { labels, msg, t, tp } from "../lib/i18n";
 
 const entityLabels: Record<SearchEntityType, string> = labels({ project: msg("Projects"), task: msg("Tasks"), memory: msg("Memory"), checkpoint: msg("Checkpoints"), file: msg("Files") });
+const entityKinds: Record<SearchEntityType, string> = labels({ project: msg("Project"), task: msg("Task"), memory: msg("Memory"), checkpoint: msg("Checkpoint"), file: msg("File") });
+/** Statuses of memory, projects and the rest; tasks use their board column names. */
+const otherStatuses: Record<string, string> = labels({ active: msg("Active"), paused: msg("Paused"), completed: msg("Completed"), archived: msg("Archived"), superseded: msg("Superseded"), invalidated: msg("Invalidated") });
+
+function statusText(r: SearchResult): string {
+  const known = r.entity_type === "task" ? statusLabels[r.status as TaskStatus] : otherStatuses[r.status];
+  return known ?? r.status.replace("_", " ");
+}
 const entityIcons = { project: FolderKanban, task: ListTodo, memory: Brain, checkpoint: CheckCircle2, file: FileText } as const;
 
 function resultHref(r: SearchResult): string {
@@ -25,14 +32,14 @@ function resultHref(r: SearchResult): string {
 
 function Row({ result, showProject, color }: { result: SearchResult; showProject: boolean; color?: { icon: string | null; accent: string | null } }) {
   const Icon = entityIcons[result.entity_type] ?? FileText;
-  const kind = result.memory_type ? memoryTypeLabels[result.memory_type as MemoryType] ?? result.memory_type : entityLabels[result.entity_type].replace(/s$/, "");
+  const kind = result.memory_type ? memoryTypes.find((m) => m.value === (result.memory_type as MemoryType))?.label ?? result.memory_type : entityKinds[result.entity_type];
   return (
     <li>
       <Link to={resultHref(result)} className="block rounded-xl border border-line bg-surface p-4 hover:border-forest/40 hover:shadow-card focus-visible:outline-2 focus-visible:outline-forest">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span className="inline-flex items-center gap-1.5 font-semibold text-forest"><Icon size={14} aria-hidden="true" />{kind}</span>
           {result.human_id && <span className="font-bold tracking-wide text-ink-muted">{result.human_id}</span>}
-          <span className="rounded-full bg-neutral-soft px-2 py-0.5 font-semibold capitalize text-ink-muted">{result.status.replace("_", " ")}</span>
+          <span className="rounded-full bg-neutral-soft px-2 py-0.5 font-semibold text-ink-muted">{statusText(result)}</span>
           {showProject && <span className="inline-flex items-center gap-1.5 font-semibold text-ink"><ProjectAvatar size="small" project={{ name: result.project_name, icon: color?.icon ?? null, accent: color?.accent ?? null }} />{result.project_name}</span>}
         </div>
         <h2 className="mt-2 text-sm font-semibold text-ink">{result.title}</h2>

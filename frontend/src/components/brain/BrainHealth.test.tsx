@@ -44,8 +44,8 @@ describe("readHealth", () => {
   });
 });
 
-const suggestion = { key: "place:s1:bubble", kind: "place", name: "Game design > Game mechanics", message: "5 linked records about bubble sit on no shelf. File them on Game design > Game mechanics?", size: 5, members: ["memory:a", "memory:b"], records: [{ label: "WARN-001", title: "Bubble shield pops" }, { label: "WARN-002", title: "Bubble timer drifts" }], parent: null, project_id: "p1", project_name: "Trailhead" };
-const pattern = { ...suggestion, key: "pattern:wyrm", kind: "pattern", name: "Wyrm", message: "5 bugs and warnings cluster around wyrm, a recurring failure area." };
+const suggestion = { key: "place:s1:bubble", kind: "place", name: "Game design > Game mechanics", message: "5 linked records about bubble sit on no shelf. File them on Game design > Game mechanics?", args: { topic: "bubble", shelf: "Game design > Game mechanics" }, size: 5, members: ["memory:a", "memory:b"], records: [{ label: "WARN-001", title: "Bubble shield pops" }, { label: "WARN-002", title: "Bubble timer drifts" }], parent: null, project_id: "p1", project_name: "Trailhead" };
+const pattern = { ...suggestion, key: "pattern:wyrm", kind: "pattern", name: "Wyrm", message: "5 bugs and warnings cluster around wyrm, a recurring failure area.", args: { topic: "wyrm" } };
 const health = {
   projects: [project({
     orphans: 25, checkpoints_recent: 14, retrieval: { ...retrieval, packs: 1, packs_recent: 1, through_links: 0, average_records: 9, average_tokens: 1404 },
@@ -81,7 +81,9 @@ it("lists what needs a look, opens a project's details and accepts a suggested s
   expect(within(screen.getByRole("list", { name: "Topics in Trailhead" })).getByText("Wyrm")).toBeInTheDocument();
   expect(screen.getByText("50% of 6")).toBeInTheDocument();
 
-  expect(screen.getAllByText("Show the 2 memories")).toHaveLength(2);
+  expect(screen.getByText("5 linked items about bubble sit on no shelf. File them on Game design > Game mechanics?")).toBeInTheDocument();
+  expect(screen.getByText(/5 bugs and warnings cluster around wyrm/)).toBeInTheDocument();
+  expect(screen.getAllByText("Show the 2 items")).toHaveLength(2);
   expect(screen.getByRole("link", { name: "Write a rule" })).toHaveAttribute("href", "/projects/p1/memory?new=1&type=rule");
   await userEvent.click(screen.getByRole("button", { name: "File them" }));
   expect(await screen.findByText("Filed on Game design > Game mechanics.")).toBeInTheDocument();
