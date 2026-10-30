@@ -30,7 +30,7 @@ from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.activity import acting_as
 from app.services.projects import ProjectService, name_key
-from app.services.usage import claude_home, codex_home, normalize_folder
+from app.services.usage import WINDOWS_FOLDER, claude_home, codex_home, normalize_folder
 
 SYNC_ACTOR = "Sync from agents"
 HEAD_LINES = 40
@@ -120,7 +120,8 @@ def session_folders(
 def project_folder(folder: str) -> str | None:
     """The project folder a session folder stands for, or None when it is not a project."""
     home = normalize_folder(str(Path.home()))
-    if not folder.startswith("/") or folder in ("/", home):
+    drive = WINDOWS_FOLDER.match(folder) is not None
+    if not (folder.startswith("/") or drive) or folder in ("/", home) or len(folder) <= 3:
         return None
     for marker in ("/.claude/worktrees/", "/.codex/worktrees/"):
         if marker in folder + "/":
@@ -136,6 +137,7 @@ def project_folder(folder: str) -> str | None:
         f"{home}/.var",
         f"{home}/.config",
         f"{home}/.local",
+        f"{home}/AppData",  # Windows: app data and temporary folders
     )
     if any(folder == root or folder.startswith(root + "/") for root in skipped):
         return None

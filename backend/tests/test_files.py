@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -226,7 +227,7 @@ async def test_commits_suggestions_confirmation_and_history_survives(
     ).status_code == 404
 
     # The repository goes away. Stored links remain, and every screen still answers.
-    shutil.rmtree(repo)
+    shutil.rmtree(repo, onexc=lambda remove, path, _: (os.chmod(path, stat.S_IWRITE), remove(path)))
     gone = (await client.get(f"{base}/git/commits")).json()
     assert gone["git"]["state"] == "path_missing"
     assert [(c["short_sha"], c["in_repository"]) for c in gone["commits"]] == [

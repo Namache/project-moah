@@ -1,14 +1,19 @@
 """Sync from agents: projects from the folders Claude Code and Codex sessions start in."""
 
 import json
-from pathlib import Path
+import sys
+from pathlib import Path, PureWindowsPath
 
 import pytest
 from httpx import AsyncClient
 
 from app.services.agent_sync import project_folder
+from app.services.usage import normalize_folder
 
 pytestmark = pytest.mark.anyio
+# These describe Linux folders (/home, /var/home on Fedora Atomic, /tmp), which a Windows
+# project cannot have; test_windows_folders_count_as_projects covers Windows.
+linux_folders = pytest.mark.skipif(sys.platform == "win32", reason="Linux folder layout")
 
 
 @pytest.fixture
@@ -43,7 +48,7 @@ def logs(tmp_path: Path, monkeypatch) -> dict:
 
 
 def test_which_folders_count_as_projects(monkeypatch) -> None:
-    monkeypatch.setenv("HOME", "/home/me")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path("/home/me")))
     assert project_folder("/home/me/Desktop/Game") == "/home/me/Desktop/Game"
     assert (
         project_folder("/home/me/Desktop/Game/.claude/worktrees/brave-x") == "/home/me/Desktop/Game"
@@ -54,6 +59,23 @@ def test_which_folders_count_as_projects(monkeypatch) -> None:
     assert project_folder("/home/me/.codex/worktrees/abc") is None
 
 
+def test_windows_folders_count_as_projects(monkeypatch) -> None:
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: PureWindowsPath(r"C:\Users\me")))
+
+    def folder(path: str) -> str | None:
+        return project_folder(normalize_folder(path))
+
+    assert folder(r"C:\Users\me\Desktop\Game") == "C:/Users/me/Desktop/Game"
+    assert (
+        folder(r"c:\Users\me\Desktop\Game\.claude\worktrees\brave-x") == "C:/Users/me/Desktop/Game"
+    )
+    assert folder(r"D:\Projects\Game") == "D:/Projects/Game"
+    assert folder(r"C:\Users\me") is None
+    assert folder("C:\\") is None
+    assert folder(r"C:\Users\me\AppData\Local\Temp\scratch") is None
+
+
+@linux_folders
 async def test_sync_creates_projects_and_never_guesses_a_match(client: AsyncClient, logs) -> None:
     climb = (await client.post("/api/projects", json={"name": "Trailhead"})).json()
     await client.post(
@@ -104,6 +126,7 @@ async def test_sync_creates_projects_and_never_guesses_a_match(client: AsyncClie
     ]
 
 
+@linux_folders
 async def test_ignored_and_archived_folders_stay_away(client: AsyncClient, logs) -> None:
     logs["session"]("claude", "/home/me/Desktop/Noise")
     logs["session"]("codex", "/home/me/Desktop/Old")
@@ -123,6 +146,7 @@ async def test_ignored_and_archived_folders_stay_away(client: AsyncClient, logs)
     ]  # existing, not recreated
 
 
+@linux_folders
 async def test_a_suggestion_can_become_its_own_project(client: AsyncClient, logs) -> None:
     await client.post("/api/projects", json={"name": "Trailhead"})
     logs["session"]("claude", "/home/me/Desktop/Trailhead Trailer")

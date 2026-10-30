@@ -1,10 +1,13 @@
+import sys
 from pathlib import Path
 
+import pytest
 from sqlalchemy.engine import make_url
 
 from app.core.config import get_database_url
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="XDG data folders are Linux only")
 def test_database_path_uses_user_data_directory_and_overrides(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("PROJECT_BRAIN_DATABASE_URL", raising=False)
     monkeypatch.delenv("PROJECT_BRAIN_DB_PATH", raising=False)
