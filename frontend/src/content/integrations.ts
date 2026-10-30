@@ -11,31 +11,37 @@
  *   Codex:       https://developers.openai.com/codex/mcp  (`codex mcp add ... -- command args`, `~/.codex/config.toml`)
  * Claude Code's connection was confirmed by hand on 2026-10-11; Codex's has not been yet.
  */
+import type { AgentLaunch } from "../api/system";
 import { msg } from "../lib/i18n";
 
 const APP_ID = "io.github.projectbrain.ProjectBrain";
 export const INTEGRATIONS_CHECKED = "2026-10-11";
 export type Agent = "claude" | "codex";
 
-/** The command an agent runs to start Project Moah's local MCP server. */
-function serverCommand(agent: Agent): string[] {
-  return ["flatpak", "run", "--command=project-moah-mcp", APP_ID, "--agent", agent];
+/** Until the app says how it was installed, show the Flatpak commands. */
+export const FLATPAK_LAUNCH: AgentLaunch = { install: "flatpak", command: ["flatpak", "run", "--command=project-moah-mcp", APP_ID] };
+
+/**
+ * Quotes for a terminal. Windows paths get double quotes, which PowerShell, cmd and Git Bash
+ * (where Claude Code runs hooks) all read the same way; elsewhere single quotes.
+ */
+function shell(parts: string[], windows: boolean): string {
+  return parts.map((p) => (/^[\w./:=@%+-]+$/.test(p) ? p : windows ? `"${p}"` : `'${p.replace(/'/g, "'\\''")}'`)).join(" ");
 }
-
-/** Prints the session brief (global rules, project rules, focus) for the folder Claude Code opened. */
-const BRIEF_COMMAND = `flatpak run --command=project-moah-mcp ${APP_ID} --brief --cwd "$CLAUDE_PROJECT_DIR"`;
-
-const shell = (parts: string[]) => parts.map((p) => (/^[\w./:=@%+-]+$/.test(p) ? p : `'${p.replace(/'/g, "'\\''")}'`)).join(" ");
 
 export interface Snippet { label: string; language: string; text: string }
 
-export function snippetsFor(agent: Agent): { setup: Snippet[]; verify: Snippet[]; sources: { label: string; url: string }[] } {
-  const command = serverCommand(agent);
+export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH): { setup: Snippet[]; verify: Snippet[]; sources: { label: string; url: string }[] } {
+  const windows = launch.install === "windows";
+  // The command an agent runs to start Project Moah's local MCP server.
+  const command = [...launch.command, "--agent", agent];
+  // Prints the session brief (global rules, project rules, focus) for the folder Claude Code opened.
+  const brief = `${shell([...launch.command, "--brief", "--cwd"], windows)} "$CLAUDE_PROJECT_DIR"`;
   if (agent === "claude") {
     return {
       setup: [
-        { label: msg("1. Connect Claude Code once, for every project"), language: "bash", text: `claude mcp add --transport stdio --scope user project-moah -- ${shell(command)}` },
-        { label: msg("2. Load your rules at the start of every session: add this to ~/.claude/settings.json"), language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [{ type: "command", command: BRIEF_COMMAND, timeout: 20 }] }] } }, null, 2) },
+        { label: msg("1. Connect Claude Code once, for every project"), language: "bash", text: `claude mcp add --transport stdio --scope user project-moah -- ${shell(command, windows)}` },
+        { label: msg("2. Load your rules at the start of every session: add this to ~/.claude/settings.json"), language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [{ type: "command", command: brief, timeout: 20 }] }] } }, null, 2) },
       ],
       verify: [{ label: msg("Check the connection"), language: "bash", text: "claude mcp list" }],
       sources: [{ label: msg("Claude Code MCP documentation"), url: "https://code.claude.com/docs/en/mcp" }, { label: msg("Claude Code hooks"), url: "https://code.claude.com/docs/en/hooks" }],
@@ -44,7 +50,7 @@ export function snippetsFor(agent: Agent): { setup: Snippet[]; verify: Snippet[]
   const args = command.slice(1).map((a) => JSON.stringify(a)).join(", ");
   return {
     setup: [
-      { label: msg("1. Connect Codex once, for every project"), language: "bash", text: `codex mcp add project-moah -- ${shell(command)}` },
+      { label: msg("1. Connect Codex once, for every project"), language: "bash", text: `codex mcp add project-moah -- ${shell(command, windows)}` },
       { label: msg("Or add this to ~/.codex/config.toml"), language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
       { label: msg("2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md"), language: "markdown", text: "Project Moah is the source of truth for my rules and memory. At the start of every session, call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it returns." },
     ],

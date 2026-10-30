@@ -19,4 +19,12 @@ Project Moah gives agents a local MCP server. It runs on your computer and needs
 
 Codex has no start-up hook, so the line in `~/.codex/AGENTS.md` asks it to call `brain_brief` first. The server's own instructions say the same.
 
+{{only flatpak}}
 Running your agent inside a container such as distrobox? The connection works as shown, because the `flatpak` command is forwarded to the host. To let Project Moah read your repository for Files and Git, see [[troubleshooting-container]].
+{{end}}
+{{only deb}}
+The `project-moah-mcp` command was installed with the app, so these commands work from any folder.
+{{end}}
+{{only windows}}
+Run these commands in PowerShell. They contain the folder Project Moah is installed in on this computer, so if you reinstall it somewhere else, copy them again.
+{{end}}

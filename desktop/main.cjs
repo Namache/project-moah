@@ -2,7 +2,7 @@
 
 const { app, BrowserWindow, dialog, ipcMain, screen, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
-const { createWriteStream, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { randomBytes } = require("node:crypto");
 const path = require("node:path");
 const readline = require("node:readline");
@@ -39,6 +39,16 @@ const CONTENT_SECURITY_POLICY = [
 ].join("; ");
 // Copy buttons use the clipboard; nothing else (camera, notifications, location and so on) is ever needed.
 const ALLOWED_PERMISSIONS = new Set(["clipboard-sanitized-write"]);
+
+/** How this copy was installed, so Help and setup commands match the person's system. */
+function installKind() {
+  if (process.platform === "win32") return "windows";
+  if (process.platform === "darwin") return "mac";
+  if (existsSync("/.flatpak-info")) return "flatpak";
+  // The .deb installs under /opt and adds the agent launcher next to the app's own command.
+  if (app.getAppPath().startsWith("/opt/") || existsSync("/usr/bin/project-moah-mcp")) return "deb";
+  return "linux";
+}
 
 function backendExecutable() {
   const filename = process.platform === "win32" ? "project-brain-backend.exe" : "project-brain-backend";
@@ -310,6 +320,10 @@ if (!app.requestSingleInstanceLock()) {
     apiToken = randomBytes(32).toString("hex");
     ipcMain.on("project-brain:get-token", (event) => {
       event.returnValue = event.sender === window?.webContents ? apiToken : "";
+    });
+    const install = installKind();
+    ipcMain.on("project-brain:get-install", (event) => {
+      event.returnValue = install;
     });
     // "Work on task": open an agent's desktop app with a prompt typed in. Only the two agents'
     // own link schemes are allowed, so the page cannot use this to open anything else.

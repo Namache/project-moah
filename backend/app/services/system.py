@@ -6,6 +6,7 @@ import platform
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_database_url
 
 APP_VERSION = "0.1.0"
+FLATPAK_ID = "io.github.projectbrain.ProjectBrain"
+# The .deb puts a small launcher here that starts the bundled backend with --mcp.
+DEB_LAUNCHER = Path("/usr/bin/project-moah-mcp")
 COUNT_TABLES = {
     "projects": "projects WHERE kind = 'project'",
     "tasks": "tasks",
@@ -43,6 +47,22 @@ def mcp_tool_count() -> int:
     from app.mcp.server import build_server  # imported here: the server imports the services
 
     return len(build_server(sessionmaker())._tool_manager.list_tools())
+
+
+def agent_launch() -> dict:
+    """How an agent starts this installation's MCP server, so Help shows commands that work."""
+    if Path("/.flatpak-info").exists():
+        return {
+            "install": "flatpak",
+            "command": ["flatpak", "run", "--command=project-moah-mcp", FLATPAK_ID],
+        }
+    if getattr(sys, "frozen", False):
+        if sys.platform == "win32":
+            return {"install": "windows", "command": [sys.executable, "--mcp"]}
+        if DEB_LAUNCHER.exists():
+            return {"install": "deb", "command": [DEB_LAUNCHER.name]}
+        return {"install": "linux", "command": [sys.executable, "--mcp"]}
+    return {"install": "source", "command": [sys.executable, "-m", "app.mcp.server"]}
 
 
 def diagnostics(session: Session) -> dict:
@@ -85,7 +105,7 @@ def diagnostics(session: Session) -> dict:
             for name, table in COUNT_TABLES.items()
         },
         "git": {"available": git is not None, "version": git_version},
-        "mcp": {"command": "project-moah-mcp", "tools": mcp_tool_count()},
+        "mcp": {"command": " ".join(agent_launch()["command"]), "tools": mcp_tool_count()},
     }
 
 

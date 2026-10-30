@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts Project Moah's local MCP server for a coding agent, over standard input and output.
+# It uses the same data as the app and needs no network. Example:
+#   project-moah-mcp --agent claude
+exec "/opt/Project Moah/resources/bin/project-brain-backend" --mcp "$@"

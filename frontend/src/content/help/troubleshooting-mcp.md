@@ -22,4 +22,7 @@ The agent cannot start or reach the Project Moah server.
 1. Check Project Moah is installed and has been opened once.
 2. Run the setup command again, from the Connect guide.
 3. Restart the agent, then run `claude mcp list` or `codex mcp list`.
+{{only windows}}
+1. If you reinstalled Project Moah in another folder, copy the setup commands again: they contain its location.
+{{end}}
 4. Project Moah itself keeps working even when the connection fails.

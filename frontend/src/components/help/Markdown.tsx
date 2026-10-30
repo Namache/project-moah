@@ -2,6 +2,7 @@ import { Check, Copy } from "lucide-react";
 import { Fragment, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { getArticle } from "../../lib/help";
+import { useInstall } from "../../lib/install";
 import { IntegrationSnippet } from "./IntegrationSnippet";
 import { useTimeout } from "../../hooks/useTimeout";
 import { t } from "../../lib/i18n";
@@ -13,10 +14,11 @@ import { t } from "../../lib/i18n";
 const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|\[\[[a-z0-9-]+\]\]|\[[^\]]+\]\([^)\s]+\))/g;
 
 function Inline({ text }: { text: string }) {
+  const install = useInstall();
   return <>{text.split(INLINE).map((part, i) => {
     if (part.startsWith("`") && part.endsWith("`")) return <code key={i} className="rounded bg-neutral-soft px-1.5 py-0.5 font-mono text-[0.85em]">{part.slice(1, -1)}</code>;
     if (part.startsWith("**") && part.endsWith("**")) return <strong key={i} className="font-semibold text-ink"><Inline text={part.slice(2, -2)} /></strong>;
-    if (part.startsWith("[[")) { const slug = part.slice(2, -2); const target = getArticle(slug); return target ? <Link key={i} to={`/help/${slug}`} className="font-medium text-forest underline">{target.title}</Link> : <Fragment key={i}>{slug}</Fragment>; }
+    if (part.startsWith("[[")) { const slug = part.slice(2, -2); const target = getArticle(slug, install); return target ? <Link key={i} to={`/help/${slug}`} className="font-medium text-forest underline">{target.title}</Link> : <Fragment key={i}>{slug}</Fragment>; }
     const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
     if (link) {
       const [, label, url] = link;

@@ -54,3 +54,43 @@ async def test_export_is_a_consistent_copy_that_opens_on_its_own(
     # A restored backup is a normal database: the app opens it and finds the same project.
     async with app_client(f"sqlite:///{backup}") as restored:
         assert [p["name"] for p in (await restored.get("/api/projects")).json()] == ["Trailhead"]
+
+
+async def test_agent_command_matches_how_the_app_was_installed(
+    client: AsyncClient, monkeypatch, tmp_path: Path
+) -> None:
+    import sys
+
+    from app.services import system
+
+    flatpak_info = tmp_path / ".flatpak-info"
+    real_path = Path
+
+    def fake_path(*parts):  # only the sandbox marker is redirected
+        return flatpak_info if parts == ("/.flatpak-info",) else real_path(*parts)
+
+    monkeypatch.setattr(system, "Path", fake_path)
+    assert (await client.get("/api/system/agent-command")).json()["install"] == "source"
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", "C:\\Moah\\resources\\bin\\project-brain-backend.exe")
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert (await client.get("/api/system/agent-command")).json() == {
+        "install": "windows",
+        "command": ["C:\\Moah\\resources\\bin\\project-brain-backend.exe", "--mcp"],
+    }
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    launcher = tmp_path / "project-moah-mcp"
+    launcher.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(system, "DEB_LAUNCHER", launcher)
+    assert (await client.get("/api/system/agent-command")).json() == {
+        "install": "deb",
+        "command": ["project-moah-mcp"],
+    }
+
+    flatpak_info.write_text("[Application]\n")
+    assert (await client.get("/api/system/agent-command")).json()["command"][:2] == [
+        "flatpak",
+        "run",
+    ]

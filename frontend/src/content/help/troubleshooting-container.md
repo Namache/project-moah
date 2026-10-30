@@ -4,6 +4,7 @@ category: Troubleshooting
 summary: Why repository files and Git can be missing when your agent runs in distrobox or toolbox.
 keywords: container, distrobox, toolbox, podman, bazzite, sandbox, flatpak, folder, share, filesystem, path
 related: troubleshooting-repository, troubleshooting-git, claude, codex
+only: flatpak
 ---
 
 ## Problem
