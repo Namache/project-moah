@@ -64,7 +64,39 @@ Sentence case everywhere ("Known issues", "AI context", "New task"), never Title
 | **Dismiss**: say no to a suggestion | skip, reject |
 | **Context pack**, **Checkpoint**, **Handoff**, **Shelf** | |
 
-Messages say what happened and what to do next: "Couldn't save. Check that Project Moah is still running, then try again." Write whole sentences with placeholders, never glue sentence pieces together, and use `Intl.PluralRules` for counts, so translation stays possible.
+Messages say what happened and what to do next: "Couldn't save. Check that Project Moah is still running, then try again."
+
+An item on a shelf or in a suggestion can be a memory, a task or a file: call those **items**.
+
+## Languages
+
+The app speaks English and Russian (*Settings > General > Language*; System follows the computer). Everything is bundled; nothing is fetched.
+
+- English text is the key. Interface text goes through `t()` (a sentence or label), `tp()` (a count, three Russian forms), `tx()` (a sentence with a link or bold inside, marked `<tag>…</tag>`) or `msg()` (text in a constant, translated where it is shown). See `frontend/src/lib/i18n.ts`.
+- Whole sentences with `{placeholders}`, never glued pieces. Dates and numbers use `locale()`.
+- Every key needs Russian in `frontend/src/locales/ru.ts`, with the same placeholders and tags. `src/i18n.test.ts` fails on untranslated text, missing or unused Russian, and placeholder mismatches.
+- Help articles: English in `content/help/`, Russian with the same file name in `content/help/ru/`, same links, snippets and sections (checked by `help.test.tsx`).
+- Text agents read stays English: context packs, MCP replies, brain suggestion `message`s. The app words suggestions itself from their `kind` and `args`.
+- The diagnostic report stays English so anyone can read it.
+
+Russian glossary (lowercase «вы», «ёлочки» quotes):
+
+| English | Russian |
+|---|---|
+| memory / Memory (section) | запись, записи / Память |
+| task, project, item | задача, проект, элемент |
+| Inbox, Suggestion | Входящие, предложение |
+| Review (task status) | На проверке |
+| Delete, Remove, Archive, Restore, Dismiss | Удалить, Убрать, В архив, Восстановить, Отклонить |
+| Lock / Locked, Pin / Pinned | Защитить / Защищена, Закрепить / Закреплена |
+| Context pack, Checkpoint, Handoff, Shelf, Link | пакет контекста, контрольная точка, передача, полка, связь |
+| Brain, Brain health, Global rules | Мозг, Здоровье мозга, Общие правила |
+| Known issue, Milestone, Requirement | Известная проблема, Этап, Требование |
+| AI context, AI visibility | Контекст для ИИ, Видимость для ИИ |
+| Usage, Activity, Settings, Help | Расход, Активность, Настройки, Справка |
+| Findable, Used lately, Learning | Достижимость, Использование, Обучение |
+| Backlog, To do, In progress, Blocked, Done | Бэклог, К выполнению, В работе, Заблокировано, Готово |
+| Active, Paused, Completed, Archived (statuses) | Активно, На паузе, Завершено, В архиве |
 
 ## Keyboard
 
