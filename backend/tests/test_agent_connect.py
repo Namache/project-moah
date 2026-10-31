@@ -116,7 +116,7 @@ ONE_RUN = "[Context]\nfilesystems=home;/home/me/game:ro;~/.claude/projects:ro;\n
 
 
 def test_the_sandboxed_flatpak_gives_the_one_command(
-    home: Path, monkeypatch: pytest.MonkeyPatch
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (home / ".codex").mkdir()
     (home / "flatpak-info").write_text(SANDBOX)
@@ -126,6 +126,10 @@ def test_the_sandboxed_flatpak_gives_the_one_command(
     assert agent_connect.FLATPAK_CONNECT in results[0]["detail"]
     assert "--filesystem=home" in agent_connect.FLATPAK_CONNECT
     assert not (home / ".codex/config.toml").exists()
+    monkeypatch.setattr(agent_connect, "agent_launch", lambda: FLATPAK)
+    assert agent_connect.main() == 1
+    printed = capsys.readouterr().out
+    assert agent_connect.FLATPAK_CONNECT in printed and "Help page" not in printed
 
 
 def test_the_flatpak_connects_when_run_with_home_access(

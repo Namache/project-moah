@@ -193,7 +193,8 @@ def main() -> int:
         else:
             print(f"{name}: could not connect: {result['detail']}")
     failed = any(result["status"] == "failed" for result in results)
-    if failed:
+    # The sandboxed Flatpak's answer already is the command to run; Help would only repeat it.
+    if failed and FLATPAK_CONNECT not in results[0]["detail"]:
         print("Open Project Moah and choose Connect on the Help page, or follow its manual steps.")
     if all(result["status"] == "not_found" for result in results):
         print("Install Claude Code or Codex, then run this again.")
