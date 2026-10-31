@@ -94,3 +94,56 @@ async def test_agent_command_matches_how_the_app_was_installed(
         "flatpak",
         "run",
     ]
+
+
+def test_agent_connecting_opens_the_app_on_each_install(monkeypatch, tmp_path):
+    import sys
+
+    from app.services import system
+
+    started = []
+    flatpak_info = tmp_path / "flatpak-info"
+    real_path = Path
+
+    def fake_path(*parts):
+        return flatpak_info if parts == ("/.flatpak-info",) else real_path(*parts)
+
+    def fake_popen(command, **options):
+        started.append((command, options))
+
+    monkeypatch.setattr(system, "Path", fake_path)
+    monkeypatch.setattr(system.subprocess, "Popen", fake_popen)
+    monkeypatch.delenv("PROJECT_BRAIN_DB_PATH", raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/tmp/_MEI123")
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", "/original")
+    monkeypatch.setenv("ELECTRON_RUN_AS_NODE", "1")
+
+    system.open_app_in_tray()
+    assert started == [], "a source checkout has no app to open"
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(system, "DEB_LAUNCHER", tmp_path / "missing")
+    system.open_app_in_tray()
+    assert started == [], "a plain Linux build has no known app path"
+
+    launcher = tmp_path / "project-moah-mcp"
+    launcher.write_text("#!/bin/sh\n")
+    app = tmp_path / "project-brain-desktop"
+    app.write_text("")
+    monkeypatch.setattr(system, "DEB_LAUNCHER", launcher)
+    monkeypatch.setattr(system, "DEB_APP", app)
+    system.open_app_in_tray()
+    command, options = started.pop()
+    assert command == [str(app), "--tray"]
+    assert options["start_new_session"] is True
+    assert options["env"]["LD_LIBRARY_PATH"] == "/original"
+    assert "ELECTRON_RUN_AS_NODE" not in options["env"]
+
+    flatpak_info.write_text("[Application]\n")
+    system.open_app_in_tray()
+    assert started.pop()[0] == ["flatpak-spawn", "/app/bin/project-brain", "--tray"]
+
+    monkeypatch.setenv("PROJECT_BRAIN_DB_PATH", "/tmp/check.db")
+    system.open_app_in_tray()
+    assert started == [], "a throwaway database means nobody is asking for the app"
