@@ -57,4 +57,4 @@ Some agents can't change their own settings or install apps from inside their sa
 If that isn't possible, ask the person to do just this, then restart you:
 
 1. Install Project Moah from the [latest release](https://github.com/Namache/project-moah/releases/latest), if it isn't installed yet.
-2. Open the app, go to **Help → Connect Claude Code/Codex**, and choose **Connect Claude Code and Codex**.
+2. Open the app, go to **Help → Connect Claude Code**, and choose **Connect Claude Code and Codex**.
