@@ -32,6 +32,10 @@ let tray = null;
 let stopping = false;
 let stopPromise = null;
 let backendStoppedForQuit = false;
+let quitting = false;
+// An agent starting on Windows opens the app with --tray: running, with no window in the way.
+const startInTray = process.argv.includes("--tray");
+let maximizeOnShow = false;
 let apiToken = "";
 let logStream = null;
 let logPath = "";
@@ -259,7 +263,7 @@ function saveWindowState() {
   if (!window || window.isDestroyed()) return;
   const bounds = window.getNormalBounds();
   try {
-    writeFileSync(windowStatePath(), JSON.stringify({ ...bounds, maximized: window.isMaximized() }));
+    writeFileSync(windowStatePath(), JSON.stringify({ ...bounds, maximized: maximizeOnShow || window.isMaximized() }));
   } catch (error) {
     writeLog(`[window state] ${error.message}`);
   }
@@ -308,16 +312,33 @@ async function openWindow(port) {
   window.webContents.on("will-navigate", stayInApp);
   window.webContents.on("will-redirect", stayInApp);
   window.once("ready-to-show", () => {
+    if (startInTray) {
+      maximizeOnShow = state.maximized;
+      return;
+    }
     if (state.maximized) window?.maximize();
     window?.show();
   });
-  window.on("close", saveWindowState);
+  // On Windows the X button hides the window to the tray and the app keeps running; Quit in the
+  // tray menu ends it. Without a tray icon there would be no way back, so it closes as usual.
+  window.on("close", (event) => {
+    saveWindowState();
+    if (process.platform !== "win32" || quitting || !tray) return;
+    event.preventDefault();
+    window.hide();
+  });
+  // Windows is shutting down or signing out: a hidden window must not hold that up.
+  window.on("session-end", () => {
+    quitting = true;
+  });
   await window.loadURL(origin);
 }
 
 function showWindow() {
   if (!window) return;
   if (window.isMinimized()) window.restore();
+  if (maximizeOnShow) window.maximize();
+  maximizeOnShow = false;
   window.show();
   window.focus();
 }
@@ -334,6 +355,7 @@ function createTray() {
   } catch (error) {
     // A Linux desktop without a tray (plain GNOME) still has the taskbar; never fail to start over it.
     writeLog(`[tray] ${error.message}`);
+    showWindow();
     return;
   }
   tray.setToolTip("Project Moah");
@@ -344,7 +366,7 @@ function createTray() {
   ]));
   tray.on("click", showWindow);
   // For scripts/check-desktop-window.cjs, which checks every build has its tray icon.
-  global.projectMoahTray = true;
+  global.projectMoahTray = !image.isEmpty();
 }
 
 const PROPOSAL_CHECK_MS = 15_000;
@@ -404,8 +426,12 @@ function watchProposals(port) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", showWindow);
+  app.on("second-instance", (event, argv) => {
+    // Another agent starting must not pull the window up; the person opening the app must.
+    if (!argv.includes("--tray")) showWindow();
+  });
   app.on("before-quit", (event) => {
+    quitting = true;
     if (backendStoppedForQuit) return;
     event.preventDefault();
     void stopBackend().finally(() => {

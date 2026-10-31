@@ -78,7 +78,10 @@ def main() -> int:
     if "--mcp" in sys.argv:
         # The same executable also serves agents over stdio: `project-brain-backend --mcp`.
         from app.mcp.server import main as mcp_main
+        from app.services.system import open_app_in_tray
 
+        if "--brief" not in sys.argv:
+            open_app_in_tray()
         return mcp_main([a for a in sys.argv[1:] if a != "--mcp"])
     try:
         return 0 if asyncio.run(serve()) else 1

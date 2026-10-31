@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import sqlite3
@@ -63,6 +64,46 @@ def agent_launch() -> dict:
             return {"install": "deb", "command": [DEB_LAUNCHER.name]}
         return {"install": "linux", "command": [sys.executable, "--mcp"]}
     return {"install": "source", "command": [sys.executable, "-m", "app.mcp.server"]}
+
+
+def open_app_in_tray() -> None:
+    """On Windows, an agent connecting also opens the installed app, hidden in the tray.
+
+    The app allows one copy of itself, so this does nothing visible when it is already running.
+    A throwaway database (the package checks) means nobody is asking for the app.
+    """
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return
+    if os.environ.get("PROJECT_BRAIN_DB_PATH"):
+        return
+    # The service sits at <install folder>\resources\bin.
+    app = Path(sys.executable).resolve().parents[2] / "Project Moah.exe"
+    if not app.exists():
+        return
+    # What this process inherited is not for the app: an Electron-based agent's run-as-Node
+    # switch would stop it opening, and PyInstaller's markers would confuse its own service.
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if name != "ELECTRON_RUN_AS_NODE" and not name.startswith(("_PYI_", "_MEIPASS"))
+    }
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    # Agents may end their children together; the app has to outlive this connection.
+    for flags in (detached | subprocess.CREATE_BREAKAWAY_FROM_JOB, detached):
+        try:
+            subprocess.Popen(  # noqa: S603 - fixed argument list, no shell
+                [str(app), "--tray"],
+                env=env,
+                creationflags=flags,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+            return
+        except OSError:
+            continue
 
 
 def diagnostics(session: Session) -> dict:

@@ -53,6 +53,17 @@ async function main([executable, expected, out]) {
     const page = await win.locator("main").innerText();
     if (expected !== "flatpak" && /flatpak|bazzite|distrobox/i.test(page)) throw new Error("Help mentions Flatpak on a non-Flatpak install");
     await win.screenshot({ path: path.join(out, "help-claude.png"), fullPage: true });
+
+    // On Windows the X button hides the window to the tray and the app stays alive; the tray brings it back.
+    if (expected === "windows") {
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+      await win.waitForTimeout(1_000);
+      const hidden = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => w.isVisible()));
+      if (hidden.length !== 1 || hidden[0]) throw new Error(`Closing did not hide to the tray: ${JSON.stringify(hidden)}`);
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].show());
+      await win.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 10_000 });
+      console.log("Close to tray: yes");
+    }
   } finally {
     await app.close();
     fs.rmSync(home, { recursive: true, force: true, maxRetries: 5 });
