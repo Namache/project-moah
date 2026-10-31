@@ -9,6 +9,8 @@ finish-args:
   - --socket=x11
   - --share=ipc
   - --device=dri
+  # The tray icon: KDE (Bazzite's desktop) and other trays show apps through this D-Bus name.
+  - --talk-name=org.kde.StatusNotifierWatcher
   # Read-only, for the Efficiency dashboard: only token counts, times and folder paths are read.
   - --filesystem=~/.claude/projects:ro
   - --filesystem=~/.codex/sessions:ro

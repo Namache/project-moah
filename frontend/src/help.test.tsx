@@ -148,8 +148,8 @@ describe("help pages", () => {
     const exe = "C:\\Users\\me\\AppData\\Local\\Programs\\Project Moah\\resources\\bin\\project-brain-backend.exe";
     const windows = snippetsFor("claude", { install: "windows", command: [exe, "--mcp"] });
     expect(windows.setup[0].text).toBe(`claude mcp add --transport stdio --scope user project-moah -- "${exe}" --mcp --agent claude`);
-    // No shell on Windows: the hook starts the app itself, whichever shell Claude Code would use.
-    expect(JSON.parse(windows.setup[1].text).hooks.SessionStart[0].hooks[0]).toEqual({ type: "command", command: exe, args: ["--mcp", "--brief", "--cwd", "${CLAUDE_PROJECT_DIR}"], timeout: 20 });
+    // cmd.exe and Git Bash both read this line; the brief finds the folder from CLAUDE_PROJECT_DIR.
+    expect(JSON.parse(windows.setup[1].text).hooks.SessionStart[0].hooks[0]).toEqual({ type: "command", command: `"${exe}" --mcp --brief`, timeout: 20 });
     expect(windows.setup[1].label).toContain("%USERPROFILE%\\.claude\\settings.json");
     const toml = snippetsFor("codex", { install: "windows", command: [exe, "--mcp"] }).setup[1].text;
     expect(toml).toContain(`command = ${JSON.stringify(exe)}`);

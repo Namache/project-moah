@@ -29,6 +29,9 @@ async function main([executable, expected, out]) {
     if (title !== "Project Moah") throw new Error(`Unexpected window title: ${title}`);
     if (install !== expected) throw new Error(`The app thinks it is a ${install} install, expected ${expected}`);
     await win.screenshot({ path: path.join(out, "home.png") });
+    // Every build puts an icon in the system tray, so a minimised window is easy to get back.
+    if (!(await app.evaluate(() => global.projectMoahTray === true))) throw new Error("No tray icon");
+    console.log("Tray icon: yes");
     // Typing is what wakes a spell checker, the usual culprit for a surprise download.
     await win.getByRole("button", { name: "Search or jump to…" }).click();
     await win.keyboard.type("helo wrold speling", { delay: 20 });
