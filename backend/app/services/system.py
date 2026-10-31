@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_database_url
 
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"
 FLATPAK_ID = "io.github.projectbrain.ProjectBrain"
 # The .deb puts a small launcher here that starts the bundled backend with --mcp.
 DEB_LAUNCHER = Path("/usr/bin/project-moah-mcp")
