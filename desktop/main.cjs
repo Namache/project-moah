@@ -4,12 +4,25 @@ const { app, BrowserWindow, dialog, ipcMain, screen, session, shell } = require(
 const { spawn } = require("node:child_process");
 const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { randomBytes } = require("node:crypto");
+const { homedir } = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 
 // The app was renamed to Project Moah; keep its settings folder (window state, logs, saved
 // layout) where Project Brain put it, so the rename doesn't reset anything.
-app.setPath("userData", path.join(app.getPath("appData"), "Project Brain"));
+// A missing AppData folder makes getPath throw, which would stop the app before it can say why.
+function settingsParent() {
+  try {
+    return app.getPath("appData");
+  } catch {
+    return homedir();
+  }
+}
+app.setPath("userData", path.join(settingsParent(), "Project Brain"));
+
+// The window only ever talks to the local service. Without this, Chromium on Windows looks for
+// a "wpad" proxy on the network as soon as it loads a page.
+app.commandLine.appendSwitch("no-proxy-server");
 
 const READY_PREFIX = "PROJECT_BRAIN_READY ";
 const STARTUP_TIMEOUT_MS = 45_000;

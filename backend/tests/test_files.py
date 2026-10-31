@@ -275,7 +275,10 @@ async def test_file_hash_never_follows_a_link_out_of_the_repository(
     repo, outside = tmp_path / "repo", tmp_path / "outside.txt"
     repo.mkdir()
     outside.write_text("secret")
-    (repo / "link.txt").symlink_to(outside)
+    try:
+        (repo / "link.txt").symlink_to(outside)
+    except OSError:
+        pytest.skip("Windows needs Developer Mode or admin rights to create symlinks")
     pid = await project(client, "Linked", repo)
     note = (await client.post(f"/api/projects/{pid}/files", json={"path": "link.txt"})).json()
     assert note["last_seen_hash"] is None and note["stale"] is None

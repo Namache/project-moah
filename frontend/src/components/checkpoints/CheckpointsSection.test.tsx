@@ -81,8 +81,8 @@ describe("checkpoint UI", () => {
       remaining_work: "Migrate old saves", problems: "Legacy data has no capacity", next_steps: "Add a fallback value",
     }));
     expect(calls.some((call) => call.url.includes("/checkpoints/latest?task=t1"))).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("checkpoint=c2"));
     expect(screen.getByTestId("location")).toHaveTextContent("task=CAMP-001");
-    expect(screen.getByTestId("location")).toHaveTextContent("checkpoint=c2");
   });
 
   it("rejects a checkpoint linked to another task and preserves the open task on close", async () => {
