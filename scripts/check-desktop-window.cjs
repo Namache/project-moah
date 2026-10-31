@@ -35,6 +35,13 @@ async function main([executable, expected, out]) {
     await win.keyboard.press("Escape");
 
     await win.evaluate(() => { history.pushState({}, "", "/help/claude"); dispatchEvent(new PopStateEvent("popstate")); });
+    // The .deb and Windows offer a Connect button and fold the commands away; unfold them to check them too.
+    const byHand = win.getByText("Set it up by hand instead");
+    if (expected !== "flatpak") {
+      await byHand.waitFor({ timeout: 30_000 });
+      await win.getByRole("button", { name: /^Connect/ }).first().waitFor({ timeout: 5_000 });
+    }
+    if (await byHand.count()) await byHand.click();
     const first = win.locator("pre").first();
     await first.waitFor({ timeout: 30_000 });
     const command = (await first.innerText()).trim();
