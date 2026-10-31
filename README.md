@@ -131,7 +131,7 @@ The first install also downloads the Flatpak runtime, so it takes a little longe
 
 </details>
 
-**Connect your agent:** open the app, go to **Help -> Connect Claude Code/Codex**, and choose **Connect Claude Code and Codex**.
+**Connect your agent:** open the app, go to **Help -> Connect Claude Code/Codex**, and choose **Connect Claude Code and Codex**. On the Flatpak, Help gives you one command to paste instead.
 
 ---
 

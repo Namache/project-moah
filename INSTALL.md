@@ -20,7 +20,7 @@ Start-Process $setup -ArgumentList '/S' -Wait
 cd /tmp && curl -LO https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-amd64.deb && sudo apt install -y ./ProjectMoah-amd64.deb
 ```
 
-**Fedora, Bazzite and other Flatpak systems:** install it with the steps in the [README](README.md#install). A Flatpak can't change agent settings, so tell the person to open **Help → Connect** in the app and follow it.
+**Fedora, Bazzite and other Flatpak systems:** install it with the steps in the [README](README.md#install).
 
 ## 2. Connect
 
@@ -36,6 +36,12 @@ This connects Claude Code and Codex, whichever are on the computer. It is safe t
 
 ```bash
 project-moah-mcp --connect
+```
+
+**Flatpak** (the sandbox can't change agent settings itself, so this one run may write the home folder):
+
+```bash
+flatpak run --filesystem=home --command=project-moah-mcp io.github.projectbrain.ProjectBrain --connect
 ```
 
 It prints one line per agent and exits with 0 when nothing more is needed.

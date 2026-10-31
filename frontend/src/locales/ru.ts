@@ -1231,6 +1231,7 @@ export const ru: Record<string, Translation> = {
   "Project Moah couldn't connect your agents. Please try again.": "Project Moah не удалось подключить агентов. Попробуйте ещё раз.",
   "Connecting…": "Подключение…",
   "Connect Claude Code and Codex": "Подключить Claude Code и Codex",
+  "Connect Claude Code and Codex in one step: paste this into a terminal once, then restart them. It lets Project Moah into your home folder for this one run only.": "Подключите Claude Code и Codex за один шаг: вставьте эту команду в терминал один раз, затем перезапустите их. Она открывает Project Moah доступ к домашней папке только на этот запуск.",
   "Your other agent settings stay as they are, and a backup is saved next to each file that changes.": "Остальные настройки агентов не изменятся, а рядом с каждым изменённым файлом сохранится резервная копия.",
   "Set it up by hand instead": "Настроить вручную",
   "1. Connect Codex once, for every project":"1. Подключите Codex один раз для всех проектов",
