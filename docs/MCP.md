@@ -24,7 +24,7 @@ From source: `python -m app.mcp --agent codex --project trailhead` inside `backe
 
 ## One connection per agent (2026-10-11)
 
-Each agent is connected once, for every project, without `--project`:
+Each agent is connected once, for every project, without `--project`. The Connect button in Help and `project-brain-backend --connect` (`backend/app/services/agent_connect.py`, also reached through `project-moah-mcp --connect`) write all of this in one step; they keep other settings, save a `.moah-backup` of each file they first change, and can be run again. An agent following [INSTALL.md](../INSTALL.md) uses them.
 
 - Claude Code: user scope (`claude mcp add --scope user project-moah -- flatpak run --command=project-moah-mcp io.github.projectbrain.ProjectBrain --agent claude`), plus a `SessionStart` hook in `~/.claude/settings.json` that runs `project-brain-mcp --brief --cwd "$CLAUDE_PROJECT_DIR"`. Hook output becomes session context, so the brief costs no tool call.
 - Codex: `[mcp_servers.project-moah]` in `~/.codex/config.toml`, and a line in `~/.codex/AGENTS.md` asking it to call `brain_brief` first.

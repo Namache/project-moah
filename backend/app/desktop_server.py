@@ -71,6 +71,10 @@ async def serve() -> bool:
 
 
 def main() -> int:
+    if "--connect" in sys.argv:
+        from app.services.agent_connect import main as connect_main
+
+        return connect_main()
     if "--mcp" in sys.argv:
         # The same executable also serves agents over stdio: `project-brain-backend --mcp`.
         from app.mcp.server import main as mcp_main
