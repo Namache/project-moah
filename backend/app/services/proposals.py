@@ -25,6 +25,7 @@ from app.schemas.memory import MemoryCreate, MemorySupersede, MemoryUpdate
 from app.schemas.proposal import (
     AcceptAllResult,
     PendingCount,
+    PendingProposal,
     ProposalAccept,
     ProposalCreate,
     ProposalRead,
@@ -38,6 +39,16 @@ from app.services.projects import ProjectService
 from app.services.tasks import CLOSED_STATUSES, TaskService
 
 MEMORY_TARGETS = {"update_memory", "supersede_memory"}
+NEWEST_PENDING = 10
+
+
+def _summary(proposal: Proposal) -> str:
+    """One line for a notification: the proposed title, else the agent's reason, else the kind."""
+    title = proposal.payload.get("title") if isinstance(proposal.payload, dict) else None
+    text = " ".join(str(title or proposal.reason or proposal.proposal_type).split())
+    return text if len(text) <= 120 else text[:119] + "…"
+
+
 TASK_TARGETS = {"complete_task", "update_task", "add_acceptance_criterion"}
 
 
@@ -128,7 +139,28 @@ class ProposalService:
             .group_by(Proposal.project_id)
         ).all()
         by_project = {pid: count for pid, count in rows}
-        return PendingCount(total=sum(by_project.values()), by_project=by_project)
+        newest = self.session.execute(
+            select(Proposal, Project.name)
+            .join(Project, Project.id == Proposal.project_id)
+            .where(Proposal.status == "pending", Project.status != "archived")
+            .order_by(Proposal.created_at.desc())
+            .limit(NEWEST_PENDING)
+        ).all()
+        return PendingCount(
+            total=sum(by_project.values()),
+            by_project=by_project,
+            newest=[
+                PendingProposal(
+                    id=proposal.id,
+                    project_id=proposal.project_id,
+                    project_name=name,
+                    human_id=proposal.human_id,
+                    agent=proposal.agent,
+                    summary=_summary(proposal),
+                )
+                for proposal, name in newest
+            ],
+        )
 
     # ---- create -----------------------------------------------------------------------
 
