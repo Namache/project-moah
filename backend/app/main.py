@@ -71,7 +71,7 @@ def create_app(
             stop_sync.set()
             engine.dispose()
 
-    application = FastAPI(title="Project Moah API", version="0.1.2", lifespan=lifespan)
+    application = FastAPI(title="Project Moah API", version="0.1.3", lifespan=lifespan)
     if desktop_token:
         application.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1"])
 
