@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Namache/project-moah?color=2f9e6e"></a>
+  <a href="https://github.com/Namache/project-moah/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Namache/project-moah?color=2f9e6e"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-yellow.svg"></a>
   <img alt="Windows, Debian, Ubuntu, Fedora, Bazzite" src="https://img.shields.io/badge/runs%20on-Windows%20%C2%B7%20Debian%20%C2%B7%20Ubuntu%20%C2%B7%20Fedora%20%C2%B7%20Bazzite-555">
   <img alt="100% local" src="https://img.shields.io/badge/100%25-local-2f9e6e">
@@ -85,7 +85,7 @@ Install and connect https://github.com/Namache/project-moah
 
 Your agent follows [INSTALL.md](INSTALL.md) and does the rest. Agents: start there.
 
-Or download your file with the buttons above (each always gets the newest version), or see the [releases page](../../releases/latest).
+Or download your file with the buttons above (each always gets the newest version), or pick one from the [latest release](https://github.com/Namache/project-moah/releases/latest), which also lists what changed.
 
 <details>
 <summary><strong>Windows 10 and 11</strong></summary>
@@ -124,14 +124,16 @@ Fedora and Bazzite already have Flatpak; elsewhere, install it from your package
 
 ```bash
 flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-cd /tmp && curl -LO https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-x86_64.flatpak && flatpak install --user ProjectMoah-x86_64.flatpak
+cd /tmp && curl -LO https://github.com/Namache/project-moah/releases/latest/download/ProjectMoah-x86_64.flatpak && flatpak install --user --or-update ProjectMoah-x86_64.flatpak
 ```
 
 The first install also downloads the Flatpak runtime, so it takes a little longer. To remove it later: `flatpak uninstall --user io.github.projectbrain.ProjectBrain`.
 
 </details>
 
-**Connect your agent:** open the app, go to **Help -> Connect Claude Code/Codex**, and choose **Connect Claude Code and Codex**. On the Flatpak, Help gives you one command to paste instead.
+**Connect your agent:** open the app, go to **Help → Connect Claude Code**, and choose **Connect Claude Code and Codex**. On the Flatpak, Help gives you one command to paste instead. Then restart your agent.
+
+**Update:** there are no automatic updates, so nothing goes online behind your back. To update, run the same download and install again: the Windows installer, the `.deb` command or the Flatpak command above. Your data stays where it is.
 
 ---
 
@@ -186,5 +188,5 @@ Read the [contributing guide](CONTRIBUTING.md) for the details.
 </p>
 
 <p align="center">
-  <a href="LICENSE">MIT License</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="CODE_SIGNING.md">Code signing policy</a>
+  <a href="LICENSE">MIT License</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a> · <a href="CODE_SIGNING.md">Code signing policy</a>
 </p>
