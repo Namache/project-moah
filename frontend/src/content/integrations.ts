@@ -54,8 +54,9 @@ export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH):
   const args = command.slice(1).map((a) => JSON.stringify(a)).join(", ");
   return {
     setup: [
-      { label: msg("1. Connect Codex once, for every project"), language: "bash", text: `codex mcp add project-moah -- ${shell(command, windows)}` },
-      { label: windows ? msg("Or add this to %USERPROFILE%\\.codex\\config.toml") : msg("Or add this to ~/.codex/config.toml"), language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
+      // Codex's sandbox can't write its own settings on Windows, and the desktop app comes without the codex command.
+      { label: windows ? msg("1. Connect Codex once, for every project: run this in PowerShell, not in Codex's chat") : msg("1. Connect Codex once, for every project"), language: "bash", text: `codex mcp add project-moah -- ${shell(command, windows)}` },
+      { label: windows ? msg("Or, if PowerShell can't find codex, add this to %USERPROFILE%\\.codex\\config.toml and restart Codex") : msg("Or add this to ~/.codex/config.toml"), language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
       { label: windows ? msg("2. Tell Codex to start every session from Project Moah: add this to %USERPROFILE%\\.codex\\AGENTS.md") : msg("2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md"), language: "markdown", text: "Project Moah is the source of truth for my rules and memory. At the start of every session, call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it returns." },
     ],
     verify: [{ label: msg("Check the connection"), language: "bash", text: "codex mcp list" }],
