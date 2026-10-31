@@ -8,6 +8,10 @@ on:
         type: choice
         default: all
         options: [all, windows, linux]
+      release:
+        description: Version to publish after every package passes, such as v0.1.0 (needs systems = all)
+        type: string
+        default: ''
   push:
     tags:
       - 'v*'
@@ -229,8 +233,8 @@ jobs:
 
   release:
     name: Publish the packages to a GitHub Release
-    # Only for version tags, and only when every package built and passed its checks.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Only for version tags (pushed, or named when started by hand), and only when every package built and passed its checks.
+    if: startsWith(github.ref, 'refs/tags/v') || (inputs.systems == 'all' && startsWith(inputs.release, 'v'))
     needs: [linux-flatpak, linux-deb, windows-exe]
     runs-on: ubuntu-24.04
     permissions:
@@ -246,6 +250,7 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release || github.ref_name }}
         run: |
           home="https://github.com/$GITHUB_REPOSITORY"
           cat > notes.md <<EOF
@@ -260,4 +265,4 @@ jobs:
           The Windows installer is not code-signed yet, so Windows may say "Windows protected your PC". Choose **More info**, then **Run anyway**. See the [code signing policy]($home/blob/main/CODE_SIGNING.md).
 
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/*.flatpak dist/*.deb dist/*.exe --repo "$GITHUB_REPOSITORY" --title "Project Moah $GITHUB_REF_NAME" --notes "$(cat notes.md)" --generate-notes
+          gh release create "$TAG" dist/*.flatpak dist/*.deb dist/*.exe --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Project Moah $TAG" --notes "$(cat notes.md)" --generate-notes
