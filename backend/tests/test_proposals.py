@@ -284,6 +284,10 @@ async def test_invalid_stale_and_cross_project_proposals(
 
     pending = (await client.get("/api/proposals/pending")).json()
     assert pending["total"] == 1 and pending["by_project"] == {a: 1}
+    # What the desktop app's OS notification shows for it.
+    [waiting] = pending["newest"]
+    assert waiting["id"] == proposal["id"] and waiting["human_id"] == proposal["human_id"]
+    assert waiting["project_id"] == a and waiting["project_name"] and waiting["summary"]
     await client.post(f"/api/projects/{a}/archive")
     assert (await client.get("/api/proposals/pending")).json()["total"] == 0
 

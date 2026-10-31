@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, screen, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, screen, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { randomBytes } = require("node:crypto");
@@ -89,6 +89,12 @@ const RUSSIAN = {
   "Its local service stopped unexpectedly. Restart Project Moah to continue.": "Его локальная служба неожиданно остановилась. Перезапустите Project Moah, чтобы продолжить.",
   "The local service stopped during startup ({reason}).": "Локальная служба остановилась при запуске ({reason}).",
   "Details were saved to {path}": "Подробности сохранены в {path}",
+  "Open Project Moah": "Открыть Project Moah",
+  "Quit": "Выйти",
+  "A proposal needs your decision": "Предложение ждёт вашего решения",
+  "{count} proposals need your decision": "Предложений, ждущих вашего решения: {count}",
+  "{agent} in {project}: {summary}": "{agent} в «{project}»: {summary}",
+  "Open the Inbox to accept or reject them.": "Откройте «Входящие», чтобы принять или отклонить их.",
 };
 function say(text, vars = {}) {
   const chosen = app.getLocale().toLowerCase().startsWith("ru") ? RUSSIAN[text] ?? text : text;
@@ -332,13 +338,67 @@ function createTray() {
   }
   tray.setToolTip("Project Moah");
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Open Project Moah", click: showWindow },
+    { label: say("Open Project Moah"), click: showWindow },
     { type: "separator" },
-    { label: "Quit", click: () => app.quit() },
+    { label: say("Quit"), click: () => app.quit() },
   ]));
   tray.on("click", showWindow);
   // For scripts/check-desktop-window.cjs, which checks every build has its tray icon.
   global.projectMoahTray = true;
+}
+
+const PROPOSAL_CHECK_MS = 15_000;
+// Pending proposals already notified about (or waiting when the app opened and summed up once).
+let notifiedProposals = null;
+
+function openReview() {
+  showWindow();
+  // The page is a single-page app: change its route without reloading what the person had open.
+  void window?.webContents.executeJavaScript(
+    'history.pushState({}, "", "/review"); dispatchEvent(new PopStateEvent("popstate"));',
+  ).catch((error) => writeLog(`[review] ${error.message}`));
+}
+
+function notify(title, body) {
+  const note = new Notification({ title, body, icon: path.join(__dirname, "assets", "icon.png") });
+  note.on("click", openReview);
+  note.show();
+}
+
+/** OS notifications (like an agent asking for permission) when proposals wait for a person's decision. */
+async function checkProposals(port) {
+  let pending;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/proposals/pending`, {
+      headers: { "X-Project-Brain-Token": apiToken },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return;
+    pending = await response.json();
+  } catch {
+    return; // The service is busy or stopping; the next check tries again.
+  }
+  const newest = pending.newest ?? [];
+  const first = notifiedProposals === null;
+  const fresh = first ? [] : newest.filter((proposal) => !notifiedProposals.has(proposal.id));
+  notifiedProposals = new Set(newest.map((proposal) => proposal.id));
+  if (!Notification.isSupported()) return;
+  if (first && pending.total > 0) {
+    notify(
+      pending.total === 1 ? say("A proposal needs your decision") : say("{count} proposals need your decision", { count: pending.total }),
+      say("Open the Inbox to accept or reject them."),
+    );
+  } else if (fresh.length === 1) {
+    const [proposal] = fresh;
+    notify(say("A proposal needs your decision"), say("{agent} in {project}: {summary}", { agent: proposal.agent, project: proposal.project_name, summary: proposal.summary }));
+  } else if (fresh.length > 1) {
+    notify(say("{count} proposals need your decision", { count: fresh.length }), say("Open the Inbox to accept or reject them."));
+  }
+}
+
+function watchProposals(port) {
+  void checkProposals(port);
+  setInterval(() => void checkProposals(port), PROPOSAL_CHECK_MS).unref();
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -354,6 +414,8 @@ if (!app.requestSingleInstanceLock()) {
     });
   });
   app.on("window-all-closed", () => app.quit());
+  // Windows shows notifications only for the app ID its Start menu shortcut carries.
+  if (process.platform === "win32") app.setAppUserModelId("io.github.projectbrain.ProjectBrain");
   app.whenReady().then(async () => {
     // On Linux, Chromium downloads spelling dictionaries from Google as soon as it starts. The app
     // never goes online, so spell checking is off there; Windows and macOS use the system's checker.
@@ -400,6 +462,7 @@ if (!app.requestSingleInstanceLock()) {
       await waitForHealth(port);
       await openWindow(port);
       createTray();
+      watchProposals(port);
     } catch (error) {
       writeLog(`[startup error] ${error.stack ?? error.message}`);
       fatal(say("Project Moah could not open"), `${error.message}\n\n${say("Details were saved to {path}", { path: logPath })}`);

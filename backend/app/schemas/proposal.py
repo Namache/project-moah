@@ -74,6 +74,19 @@ class AcceptAllResult(BaseModel):
     failed: list[ProposalRead]
 
 
+class PendingProposal(BaseModel):
+    """Enough to tell a person, in an OS notification, what waits for their decision."""
+
+    id: str
+    project_id: str
+    project_name: str
+    human_id: str
+    agent: str
+    summary: str
+
+
 class PendingCount(BaseModel):
     total: int
     by_project: dict[str, int]
+    # The newest pending proposals first, so the desktop app can notify about new ones.
+    newest: list[PendingProposal] = Field(default_factory=list)
