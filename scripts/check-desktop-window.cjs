@@ -14,6 +14,8 @@ async function main([executable, expected, out]) {
   fs.mkdirSync(out, { recursive: true });
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "moah-check-"));
   const env = { ...process.env, HOME: home, USERPROFILE: home, LOCALAPPDATA: path.join(home, "AppData", "Local"), APPDATA: path.join(home, "AppData", "Roaming"), XDG_DATA_HOME: path.join(home, ".local", "share"), XDG_CONFIG_HOME: path.join(home, ".config") };
+  // A real Windows profile always has these folders, so the check should too.
+  for (const folder of [env.LOCALAPPDATA, env.APPDATA]) fs.mkdirSync(folder, { recursive: true });
   const netLog = path.join(out, "net-log.json");
   // Chromium refuses to run as root with its sandbox on; CI runners and containers sometimes are root.
   const args = [`--log-net-log=${netLog}`, ...(process.getuid?.() === 0 ? ["--no-sandbox"] : [])];

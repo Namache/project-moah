@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from threading import Lock
 from uuid import uuid4
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, String, Text
@@ -10,8 +11,18 @@ from app.db.base import Base
 GLOBAL_PROJECT_ID = "global"
 
 
+_clock_lock = Lock()
+_last_now = datetime.min.replace(tzinfo=UTC)
+
+
 def utc_now() -> datetime:
-    return datetime.now(UTC)
+    """Always later than the previous call: Windows' clock can return the same time for
+    several quick writes, and timelines sort by time."""
+    global _last_now
+    with _clock_lock:
+        now = datetime.now(UTC)
+        _last_now = now if now > _last_now else _last_now + timedelta(microseconds=1)
+        return _last_now
 
 
 class Project(Base):
