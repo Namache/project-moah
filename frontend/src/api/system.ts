@@ -15,9 +15,12 @@ export interface Diagnostics {
 /** How agents start this installation's MCP server: the Flatpak, the .deb launcher, the Windows executable, or source. */
 export interface AgentLaunch { install: "flatpak" | "deb" | "linux" | "windows" | "source"; command: string[] }
 
+export interface AgentConnection { agent: "claude" | "codex"; status: "connected" | "not_found" | "failed"; detail: string }
+
 export const systemApi = {
   diagnostics: (signal?: AbortSignal) => request<Diagnostics>("/system/diagnostics", { signal }),
   agentCommand: (signal?: AbortSignal) => request<AgentLaunch>("/system/agent-command", { signal }),
+  connectAgents: () => request<{ results: AgentConnection[] }>("/system/connect-agents", { method: "POST" }),
   /** Fetches the backup with the app's own credentials, then hands it to the system's save flow. */
   async downloadBackup(): Promise<string> {
     const response = await fetch("/api/system/export", { headers: authHeaders() });

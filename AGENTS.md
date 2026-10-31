@@ -1,5 +1,7 @@
 # Agent guidance
 
+Asked to install or connect Project Moah? Follow [INSTALL.md](INSTALL.md).
+
 This repository uses Project Moah as the canonical source for task state, project decisions, checkpoints and durable development memory.
 
 When the Project Moah MCP server is connected (Codex: see `docs/MCP.md`):

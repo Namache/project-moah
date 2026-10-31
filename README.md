@@ -77,7 +77,15 @@
 
 ## Install
 
-Download your file with the buttons above (each always gets the newest version), or see the [releases page](../../releases/latest).
+**The easy way:** tell Claude Code or Codex:
+
+```text
+Install and connect https://github.com/Namache/project-moah
+```
+
+Your agent follows [INSTALL.md](INSTALL.md) and does the rest. Agents: start there.
+
+Or download your file with the buttons above (each always gets the newest version), or see the [releases page](../../releases/latest).
 
 <details>
 <summary><strong>Windows 10 and 11</strong></summary>
@@ -123,7 +131,7 @@ The first install also downloads the Flatpak runtime, so it takes a little longe
 
 </details>
 
-**Connect your agent:** open the app and go to **Help -> Connect Claude Code/Codex**.
+**Connect your agent:** open the app, go to **Help -> Connect Claude Code/Codex**, and choose **Connect Claude Code and Codex**.
 
 ---
 
