@@ -18,6 +18,8 @@ export const ru: Record<string, Translation> = {
   "The command each agent is started with. Change it only if yours is installed under another name.": "Команда, которой запускается каждый агент. Меняйте её, только если агент установлен под другим именем.",
   "Command for Codex": "Команда для Codex",
   "Command for Claude Code": "Команда для Claude Code",
+  "Make it yours": "Настройте под себя",
+  "Choose how Project Moah works for you. You can change any of this later in Settings.": "Выберите, как Project Moah будет работать для вас. Всё это можно изменить позже в настройках.",
   "Automatically check for updates": "Автоматически проверять обновления",
   "Once a day, at the start of a session, your agent looks up the newest Project Moah release on GitHub and asks you before updating. Project Moah itself never goes online.": "Раз в день, в начале сессии, ваш агент проверяет на GitHub, не вышла ли новая версия Project Moah, и спрашивает вас, прежде чем обновлять. Сам Project Moah никогда не выходит в интернет.",
   "Saving…": "Сохранение…",

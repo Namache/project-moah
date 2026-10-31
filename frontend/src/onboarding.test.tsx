@@ -7,6 +7,8 @@ import { App } from "./App";
 
 const project = { id: "p1", name: "Trailhead", slug: "trailhead", description: null, icon: null, accent: null, root_path: null, status: "active", current_focus_task_id: null, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", last_opened_at: null, archived_at: null };
 
+const agentSettings = { default_agent: "claude", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude", update_check_enabled: true };
+
 function setup(existing: unknown[] = []) {
   const calls: { url: string; method: string; body?: unknown }[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
@@ -15,6 +17,8 @@ function setup(existing: unknown[] = []) {
     if (url === "/api/projects" && method === "POST") return Response.json(project, { status: 201 });
     if (url.startsWith("/api/projects?")) return Response.json(existing);
     if (url === "/api/projects/p1") return Response.json(project);
+    if (url === "/api/settings/agents") return Response.json({ ...agentSettings, ...(method === "PATCH" ? JSON.parse(String(options?.body)) : {}) });
+    if (url === "/api/settings/tasks") return Response.json({ auto_delete_done: false, auto_delete_done_since: null });
     if (url === "/api/projects/p1/tasks" && method === "POST") return Response.json({ id: "t1", human_id: "TRAI-001", title: "x", status: "todo" }, { status: 201 });
     return Response.json([]);
   }));
@@ -25,13 +29,20 @@ beforeEach(() => localStorage.clear());
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("first-run onboarding", () => {
-  it("walks through all five steps and ends at the AI setup guide", async () => {
+  it("walks through all six steps and ends at the AI setup guide", async () => {
     const calls = setup();
     const user = userEvent.setup();
     renderAt("/");
     expect(await screen.findByRole("heading", { name: /Welcome to Project Moah/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Get started" }));
-    await user.type(screen.getByLabelText("Project name"), "Trailhead");
+    expect(await screen.findByRole("heading", { name: "Make it yours" })).toBeInTheDocument();
+    const updates = await screen.findByRole("checkbox", { name: /Automatically check for updates/ });
+    expect(updates).toBeChecked();
+    await user.click(updates);
+    expect(calls.find((c) => c.url === "/api/settings/agents" && c.method === "PATCH")?.body).toEqual({ update_check_enabled: false });
+    expect(screen.getByRole("checkbox", { name: /Delete completed tasks/ })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByLabelText("Project name"), "Trailhead");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByRole("heading", { name: "Connect a repository" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Skip for now" }));
