@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, ipcMain, screen, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, screen, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { randomBytes } = require("node:crypto");
@@ -28,6 +28,7 @@ const READY_PREFIX = "PROJECT_BRAIN_READY ";
 const STARTUP_TIMEOUT_MS = 45_000;
 let backend = null;
 let window = null;
+let tray = null;
 let stopping = false;
 let stopPromise = null;
 let backendStoppedForQuit = false;
@@ -308,15 +309,42 @@ async function openWindow(port) {
   await window.loadURL(origin);
 }
 
+function showWindow() {
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
+/** An icon in the system tray (notification area) for every build, so a minimised window is easy to find. */
+function createTray() {
+  if (tray) return;
+  // Windows draws its tray from a multi-size .ico; Linux trays want a small picture.
+  const image = process.platform === "win32"
+    ? nativeImage.createFromPath(path.join(__dirname, "assets", "icon.ico"))
+    : nativeImage.createFromPath(path.join(__dirname, "assets", "icon.png")).resize({ width: 22, height: 22 });
+  try {
+    tray = new Tray(image);
+  } catch (error) {
+    // A Linux desktop without a tray (plain GNOME) still has the taskbar; never fail to start over it.
+    writeLog(`[tray] ${error.message}`);
+    return;
+  }
+  tray.setToolTip("Project Moah");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "Open Project Moah", click: showWindow },
+    { type: "separator" },
+    { label: "Quit", click: () => app.quit() },
+  ]));
+  tray.on("click", showWindow);
+  // For scripts/check-desktop-window.cjs, which checks every build has its tray icon.
+  global.projectMoahTray = true;
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
-    if (window) {
-      if (window.isMinimized()) window.restore();
-      window.focus();
-    }
-  });
+  app.on("second-instance", showWindow);
   app.on("before-quit", (event) => {
     if (backendStoppedForQuit) return;
     event.preventDefault();
@@ -371,6 +399,7 @@ if (!app.requestSingleInstanceLock()) {
       const port = await startBackend();
       await waitForHealth(port);
       await openWindow(port);
+      createTray();
     } catch (error) {
       writeLog(`[startup error] ${error.stack ?? error.message}`);
       fatal(say("Project Moah could not open"), `${error.message}\n\n${say("Details were saved to {path}", { path: logPath })}`);

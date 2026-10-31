@@ -86,6 +86,16 @@ def test_connects_claude_and_keeps_other_servers_and_hooks(home: Path) -> None:
     assert "--brief" in str(groups[1]["hooks"][0])
 
 
+def test_windows_brief_hook_is_one_line_that_cmd_and_git_bash_both_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent_connect.sys, "platform", "win32")
+    hook = agent_connect._brief_hook(LAUNCH["command"])
+    # Claude Code has no "args" field: anything outside "command" is dropped and the bare path,
+    # cut at its first space, fails. The brief reads CLAUDE_PROJECT_DIR itself.
+    assert hook == {"type": "command", "command": f'"{EXE}" --mcp --brief', "timeout": 20}
+
+
 def test_a_damaged_settings_file_is_reported_and_left_alone(home: Path) -> None:
     (home / ".claude").mkdir()
     (home / ".claude.json").write_text("{ not json")

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import os
 import sys
 from collections.abc import Callable
 from functools import wraps
@@ -1174,7 +1175,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print the session brief for --cwd and exit (for agent start-up hooks)",
     )
-    parser.add_argument("--cwd", default=None, help="working folder used to find the project")
+    parser.add_argument(
+        "--cwd",
+        default=None,
+        help="working folder used to find the project (--brief: defaults to Claude Code's "
+        "project folder, then the current folder)",
+    )
     args = parser.parse_args(argv)
     url = get_database_url()
     upgrade_database(url)
@@ -1187,8 +1193,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             with make_session_factory(engine)() as session:
                 sync_quietly(session)
+                # Hooks on Windows can't pass the folder portably: cmd.exe and Git Bash spell
+                # variables differently, so read Claude Code's own variable here instead.
+                cwd = args.cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
                 try:
-                    found, _ = resolve_project(session, args.project, args.cwd)
+                    found, _ = resolve_project(session, args.project, cwd)
                     note = None
                 except ProjectChoiceError as error:
                     found, note = None, str(error)

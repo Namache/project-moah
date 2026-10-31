@@ -42,10 +42,10 @@ export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH):
   // The command an agent runs to start Project Moah's local MCP server.
   const command = [...launch.command, "--agent", agent];
   // Prints the session brief (global rules, project rules, focus) for the folder Claude Code opened.
-  // On Windows the hook starts the app directly (exec form, no shell), because Claude Code runs
-  // shell hooks in Git Bash or, without it, PowerShell, and the two read "$VAR" differently.
+  // Claude Code runs hooks through a shell and has no "args" field. On Windows that shell is cmd.exe
+  // or Git Bash, which spell "$VAR" differently, so there the brief reads CLAUDE_PROJECT_DIR itself.
   const hook = windows
-    ? { type: "command", command: launch.command[0], args: [...launch.command.slice(1), "--brief", "--cwd", "${CLAUDE_PROJECT_DIR}"], timeout: 20 }
+    ? { type: "command", command: shell([...launch.command, "--brief"], windows), timeout: 20 }
     : { type: "command", command: `${shell([...launch.command, "--brief", "--cwd"], windows)} "$CLAUDE_PROJECT_DIR"`, timeout: 20 };
   if (agent === "claude") {
     return {

@@ -84,10 +84,11 @@ def _read_json(path: Path) -> dict:
 
 
 def _brief_hook(command: list[str]) -> dict:
-    # Windows starts the app directly: Claude Code's shells there read "$VAR" differently.
+    # Claude Code runs hooks through a shell and has no "args" field. On Windows that shell is
+    # cmd.exe or Git Bash, which spell "$VAR" differently, so the brief reads the folder itself.
     if sys.platform == "win32":
-        args = [*command[1:], "--brief", "--cwd", "${CLAUDE_PROJECT_DIR}"]
-        return {"type": "command", "command": command[0], "args": args, "timeout": 20}
+        line = " ".join(f'"{part}"' if " " in part else part for part in [*command, "--brief"])
+        return {"type": "command", "command": line, "timeout": 20}
     line = f'{shlex.join([*command, "--brief", "--cwd"])} "$CLAUDE_PROJECT_DIR"'
     return {"type": "command", "command": line, "timeout": 20}
 

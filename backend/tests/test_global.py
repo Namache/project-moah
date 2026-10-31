@@ -174,26 +174,32 @@ async def test_brief_and_global_rules_over_mcp(database_url: str, tmp_path: Path
         assert not failed and linked["linked_to"] == [first["created"]]
 
     # The command-line brief for start-up hooks, matched by folder. It is UTF-8 even where the
-    # pipe's own encoding cannot hold the text (a Windows code page; ASCII here).
-    result = subprocess.run(
-        [sys.executable, "-m", "app.mcp", "--brief", "--cwd", str(repo)],
-        cwd=BACKEND,
-        env={
-            **get_default_environment(),  # Windows cannot start Python without SYSTEMROOT
-            "PROJECT_BRAIN_DATABASE_URL": database_url,
-            "PATH": "/usr/bin:/bin",
-            "CLAUDE_CONFIG_DIR": "/nonexistent/claude",
-            "CODEX_HOME": "/nonexistent/codex",
-            "PYTHONIOENCODING": "ascii",
-        },
-        capture_output=True,
-        timeout=60,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr.decode(errors="replace")
-    output = result.stdout.decode("utf-8")
-    assert output.startswith("PROJECT MOAH BRIEF") and "PROJECT: Game" in output
-    assert "«Главное меню» → Main menu" in output
+    # pipe's own encoding cannot hold the text (a Windows code page; ASCII here). The Windows hook
+    # passes no --cwd and the brief reads Claude Code's CLAUDE_PROJECT_DIR instead.
+    for extra_args, extra_env in (
+        (["--cwd", str(repo)], {}),
+        ([], {"CLAUDE_PROJECT_DIR": str(repo)}),
+    ):
+        result = subprocess.run(
+            [sys.executable, "-m", "app.mcp", "--brief", *extra_args],
+            cwd=BACKEND,
+            env={
+                **get_default_environment(),  # Windows cannot start Python without SYSTEMROOT
+                "PROJECT_BRAIN_DATABASE_URL": database_url,
+                "PATH": "/usr/bin:/bin",
+                "CLAUDE_CONFIG_DIR": "/nonexistent/claude",
+                "CODEX_HOME": "/nonexistent/codex",
+                "PYTHONIOENCODING": "ascii",
+                **extra_env,
+            },
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr.decode(errors="replace")
+        output = result.stdout.decode("utf-8")
+        assert output.startswith("PROJECT MOAH BRIEF") and "PROJECT: Game" in output
+        assert "«Главное меню» → Main menu" in output
 
 
 def test_global_migration_downgrades_cleanly(tmp_path: Path) -> None:
