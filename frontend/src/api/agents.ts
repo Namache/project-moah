@@ -1,7 +1,7 @@
 import { request } from "./client";
 
 export type AgentName = "claude" | "codex";
-export interface AgentSettings { default_agent: AgentName; second_opinion_enabled: boolean; codex_command: string; claude_command: string }
+export interface AgentSettings { default_agent: AgentName; second_opinion_enabled: boolean; codex_command: string; claude_command: string; update_check_enabled: boolean }
 export interface WorkPrompt { agent: AgentName; task: string; prompt: string; url: string; folder: string | null }
 
 export const agentsApi = {

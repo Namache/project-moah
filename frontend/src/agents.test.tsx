@@ -8,7 +8,7 @@ import { ProjectsNav } from "./components/ProjectsNav";
 import { WorkOnTaskButton } from "./components/tasks/WorkOnTaskButton";
 import type { Project } from "./types/project";
 
-const settings = { default_agent: "codex", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude" };
+const settings = { default_agent: "codex", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude", update_check_enabled: true };
 const prompt = { agent: "codex", task: "CAMP-001", prompt: "Work on task CAMP-001", url: "codex://new?prompt=Work", folder: "/home/me/game" };
 
 function wrap(ui: React.ReactNode) {
@@ -64,6 +64,15 @@ describe("agent settings", () => {
     expect(calls.at(-1)).toMatchObject({ method: "PATCH", body: { default_agent: "claude" } });
     await userEvent.click(screen.getByRole("checkbox", { name: /Allow second opinions/ }));
     expect(calls.at(-1)?.body).toEqual({ second_opinion_enabled: true });
+  });
+
+  it("turns the daily update check off", async () => {
+    const calls = mockFetch();
+    wrap(<AgentSettingsCard />);
+    const box = await screen.findByRole("checkbox", { name: /Automatically check for updates/ });
+    expect(box).toBeChecked();
+    await userEvent.click(box);
+    expect(calls.at(-1)?.body).toEqual({ update_check_enabled: false });
   });
 
   it("shows the agent commands only when second opinions are on", async () => {

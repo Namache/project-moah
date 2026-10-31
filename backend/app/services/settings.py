@@ -25,6 +25,9 @@ class AgentSettings(BaseModel):
     # Project Moah adds the read-only options and the prompt.
     codex_command: str = Field(default="codex", min_length=1, max_length=500)
     claude_command: str = Field(default="claude", min_length=1, max_length=500)
+    # On by default: once a day the agent looks up the latest release with its own tools and asks
+    # before updating. Project Moah itself never goes online either way.
+    update_check_enabled: bool = True
 
 
 class AgentSettingsUpdate(BaseModel):
@@ -34,6 +37,7 @@ class AgentSettingsUpdate(BaseModel):
     second_opinion_enabled: bool | None = None
     codex_command: str | None = Field(default=None, min_length=1, max_length=500)
     claude_command: str | None = Field(default=None, min_length=1, max_length=500)
+    update_check_enabled: bool | None = None
 
 
 def get_agent_settings(session: Session) -> AgentSettings:

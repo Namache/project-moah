@@ -7,7 +7,7 @@ import { Button } from "./ui";
 
 type Commands = Pick<AgentSettings, "codex_command" | "claude_command">;
 
-/** Default agent for "Work on task", the second-opinion switch, and, while it is on, how each agent is started. */
+/** Default agent for "Work on task", the second-opinion switch (and, while it is on, how each agent is started), and the daily update check. */
 export function AgentSettingsCard() {
   const client = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.agentSettings, queryFn: ({ signal }) => agentsApi.settings(signal), retry: false });
@@ -46,6 +46,10 @@ export function AgentSettingsCard() {
           </form>
         )}
       </div>
+      <label className="flex items-start gap-3 text-sm text-ink">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" checked={s.update_check_enabled !== false} onChange={(e) => save.mutate({ update_check_enabled: e.target.checked })} />
+        <span><strong>{t("Automatically check for updates")}</strong><br /><span className="text-ink-muted">{t("Once a day, at the start of a session, your agent looks up the newest Project Moah release on GitHub and asks you before updating. Project Moah itself never goes online.")}</span></span>
+      </label>
       {save.isError && <p role="alert" className="text-sm text-danger-ink">{save.error.message}</p>}
     </div>
   );

@@ -56,6 +56,7 @@ from app.services.search import SearchService
 from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
 from app.services.tasks import TaskService
+from app.services.update_check import take_daily_check
 
 INSTRUCTIONS = """\
 Project Moah is the person's source of truth for rules, decisions, tasks, checkpoints and memory,
@@ -92,6 +93,16 @@ def refuse_global_rule(project: Project, memory: Memory) -> None:
     """Agents may not change a global rule or decision directly; it must be proposed."""
     if project.kind == "global" and memory.type in GLOBAL_PERSON_TYPES:
         raise ValueError(GLOBAL_RULE_MESSAGE.format(kind="update_memory"))
+
+
+def with_update_check(session: Session, brief: str) -> str:
+    """The brief, plus the day's update check if it is on and has not been given today."""
+    try:
+        check = take_daily_check(session)
+    except Exception:  # noqa: BLE001 - a busy database must never cost the agent its rules
+        session.rollback()
+        return brief
+    return f"{brief}\n\n{check}" if check else brief
 
 
 def _message(error: Exception) -> str:
@@ -199,7 +210,7 @@ def build_server(
             note = None
         except ProjectChoiceError as error:
             found, note = None, str(error)
-        return build_brief(session, found, note)
+        return with_update_check(session, build_brief(session, found, note))
 
     @tool(READ)
     def brain_second_opinion(
@@ -332,6 +343,9 @@ def build_server(
             )
         if current := session_task(session, found.id):
             after.append(f"This session's task is {current}: what you write now is linked to it.")
+        if check := take_daily_check(session):
+            # The day's check had not been given yet: this session started without a brief.
+            after.append("\n" + check)
         text = pack.text
         if explain:
             why = [
@@ -1201,7 +1215,7 @@ def main(argv: list[str] | None = None) -> int:
                     note = None
                 except ProjectChoiceError as error:
                     found, note = None, str(error)
-                print(build_brief(session, found, note), flush=True)
+                print(with_update_check(session, build_brief(session, found, note)), flush=True)
         finally:
             engine.dispose()
         return 0
