@@ -8,7 +8,7 @@ import { LanguageRoot, setLanguage } from "./lib/i18n";
 import { diagnosticReport } from "./pages/SettingsPage";
 
 const diag = { app_version: "0.1.0", python: "3.13.1", platform: "Linux", sqlite_version: "3.51.2", database: { path: "/home/u/.var/app/x/data/project-brain/project-brain.db", size_bytes: 204800, migration: "0007_proposals", integrity: "ok", foreign_key_problems: 0, search_index_ready: true }, counts: { projects: 2, tasks: 5, pending_proposals: 1 }, git: { available: false, version: null }, mcp: { command: "project-brain-mcp", tools: 15 } };
-const agentSettings = { default_agent: "claude", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude" };
+const agentSettings = { default_agent: "claude", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude", update_check_enabled: true };
 const taskSettings = { auto_delete_done: false, auto_delete_done_since: null };
 const respond = (u: string) => Response.json(u === "/api/system/diagnostics" ? diag : u === "/api/settings/agents" ? agentSettings : u === "/api/settings/tasks" ? taskSettings : []);
 const renderAt = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/settings"]}><LanguageRoot><App /></LanguageRoot></MemoryRouter></QueryClientProvider>);

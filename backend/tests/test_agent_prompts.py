@@ -40,6 +40,7 @@ async def test_agent_settings_defaults_and_changes(client: AsyncClient) -> None:
         "second_opinion_enabled": False,
         "codex_command": "codex",
         "claude_command": "claude",
+        "update_check_enabled": True,
     }
     changed = await client.patch(
         "/api/settings/agents",
