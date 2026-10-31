@@ -108,11 +108,60 @@ def test_a_write_the_system_refuses_is_reported(
     assert "denied" in results["codex"]["detail"]
 
 
-def test_sandboxed_installs_are_sent_to_help(home: Path) -> None:
+FLATPAK = {"install": "flatpak", "command": ["flatpak", "run", "--command=project-moah-mcp", "x"]}
+# The [Context] Flatpak writes for the app, as on a real Bazzite install, without and with
+# the one-run home access. A shared folder under /home is not the home folder.
+SANDBOX = "[Context]\nfilesystems=/home/me/game:ro;~/.claude/projects:ro;~/.codex/sessions:ro;\n"
+ONE_RUN = "[Context]\nfilesystems=home;/home/me/game:ro;~/.claude/projects:ro;\n"
+
+
+def test_the_sandboxed_flatpak_gives_the_one_command(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     (home / ".codex").mkdir()
-    results = agent_connect.connect_agents({"install": "flatpak", "command": ["flatpak"]})
+    (home / "flatpak-info").write_text(SANDBOX)
+    monkeypatch.setattr(agent_connect, "FLATPAK_INFO", home / "flatpak-info")
+    results = agent_connect.connect_agents(FLATPAK)
     assert {result["status"] for result in results} == {"failed"}
+    assert agent_connect.FLATPAK_CONNECT in results[0]["detail"]
+    assert "--filesystem=home" in agent_connect.FLATPAK_CONNECT
     assert not (home / ".codex/config.toml").exists()
+
+
+def test_the_flatpak_connects_when_run_with_home_access(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (home / ".codex").mkdir()
+    (home / "flatpak-info").write_text(ONE_RUN)
+    monkeypatch.setattr(agent_connect, "FLATPAK_INFO", home / "flatpak-info")
+    assert statuses(agent_connect.connect_agents(FLATPAK))["codex"] == "connected"
+    saved = tomllib.loads((home / ".codex/config.toml").read_text(encoding="utf-8"))
+    assert saved["mcp_servers"]["project-moah"]["command"] == "flatpak"
+
+
+def test_replaces_the_old_project_brain_connection(home: Path) -> None:
+    (home / ".claude").mkdir()
+    old = {"command": "flatpak", "args": ["run", "--command=project-brain-mcp"]}
+    other = {"command": "someone-elses-brain"}
+    (home / ".claude.json").write_text(json.dumps({"mcpServers": {"project-brain": old}}))
+    agent_connect.connect_claude(LAUNCH["command"])
+    servers = json.loads((home / ".claude.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert list(servers) == ["project-moah"]
+    # A server that only shares the old name is someone else's, and stays.
+    (home / ".claude.json").write_text(json.dumps({"mcpServers": {"project-brain": other}}))
+    agent_connect.connect_claude(LAUNCH["command"])
+    servers = json.loads((home / ".claude.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert servers["project-brain"] == other
+
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(
+        '[mcp_servers.project-brain]\ncommand = "flatpak"\nargs = ["--command=project-brain-mcp"]\n'
+        '\n[windows]\nsandbox = "elevated"\n'
+    )
+    agent_connect.connect_codex(LAUNCH["command"])
+    saved = tomllib.loads((home / ".codex/config.toml").read_text(encoding="utf-8"))
+    assert list(saved["mcp_servers"]) == ["project-moah"]
+    assert saved["windows"]["sandbox"] == "elevated"
 
 
 def test_exit_code_says_when_a_person_is_needed(

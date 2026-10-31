@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { systemApi, type AgentConnection } from "../../api/system";
+import { FLATPAK_CONNECT } from "../../content/integrations";
 import { t } from "../../lib/i18n";
 import { Button } from "../ui";
+import { CodeBlock } from "./Markdown";
 
 const NAMES = { claude: "Claude Code", codex: "Codex" };
 
@@ -35,6 +37,17 @@ export function ConnectAgents() {
       <p className="mt-2 text-sm text-ink-muted">{t("Your other agent settings stay as they are, and a backup is saved next to each file that changes.")}</p>
       {results && <ul role="status" className="mt-2 text-sm">{results.map((result) => <li key={result.agent}>{outcome(result)}</li>)}</ul>}
       {error && <p role="alert" className="mt-2 text-sm text-danger-ink">{error}</p>}
+    </div>
+  );
+}
+
+/** The Flatpak's one step: one command, because its sandbox can't change agent settings itself. */
+export function ConnectByCommand() {
+  return (
+    <div className="my-4">
+      <p className="text-sm text-ink-muted">{t("Connect Claude Code and Codex in one step: paste this into a terminal once, then restart them. It lets Project Moah into your home folder for this one run only.")}</p>
+      <CodeBlock code={FLATPAK_CONNECT} label={t("Connect Claude Code and Codex")} />
+      <p className="text-sm text-ink-muted">{t("Your other agent settings stay as they are, and a backup is saved next to each file that changes.")}</p>
     </div>
   );
 }

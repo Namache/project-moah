@@ -6,6 +6,7 @@ backup is saved next to each changed file, and running it again changes nothing 
 
 from __future__ import annotations
 
+import configparser
 import json
 import os
 import re
@@ -15,17 +16,48 @@ import sys
 import tomllib
 from pathlib import Path
 
-from app.services.system import agent_launch
+from app.services.system import FLATPAK_ID, agent_launch
 from app.services.usage import claude_home, codex_home
 
 SERVER_NAME = "project-moah"
-UNSUPPORTED_INSTALLS = {"flatpak", "source"}
+OLD_SERVER_NAME = "project-brain"  # this app's earlier name: replaced, so agents don't get two
+FLATPAK_INFO = Path("/.flatpak-info")
+# The Flatpak's sandbox keeps it out of agents' settings; this one run may write the home folder.
+FLATPAK_CONNECT = f"flatpak run --filesystem=home --command=project-moah-mcp {FLATPAK_ID} --connect"
 CODEX_SECTION = re.compile(rf"^\[mcp_servers\.{SERVER_NAME}\].*\n?(?:(?!\[).*\n?)*", re.MULTILINE)
+OLD_CODEX_SECTION = re.compile(
+    rf"^\[mcp_servers\.{OLD_SERVER_NAME}\].*\n?(?:(?!\[).*\n?)*", re.MULTILINE
+)
 CODEX_BRIEF = (
     "Project Moah is the source of truth for my rules and memory. At the start of every session, "
     "call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it "
     "returns.\n"
 )
+
+
+def flatpak_home_access() -> bool:
+    """Whether this Flatpak run may write the home folder, as FLATPAK_CONNECT allows."""
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(FLATPAK_INFO.read_text(encoding="utf-8"))
+    except (OSError, configparser.Error):
+        return False
+    granted = parser.get("Context", "filesystems", fallback="").split(";")
+    return any(entry in ("home", "home:rw", "host", "host:rw") for entry in granted)
+
+
+def blocked_reason(launch: dict) -> str | None:
+    """Why this install can't change agent settings, or None when it can."""
+    if launch["install"] == "source":
+        return "This install can't change agent settings. Use the commands in Help."
+    if launch["install"] == "flatpak" and not flatpak_home_access():
+        return f"The Flatpak's sandbox keeps it out. Run this in a terminal: {FLATPAK_CONNECT}"
+    return None
+
+
+def _ours(text: str) -> bool:
+    """Whether an agent's server entry starts Project Moah (under any of its names)."""
+    return re.search(r"projectbrain|project-brain|project-moah", text, re.IGNORECASE) is not None
 
 
 def _read(path: Path) -> str:
@@ -78,7 +110,10 @@ def connect_claude(command: list[str]) -> bool:
     if not home.exists() and not config.exists():
         return False
     data = _read_json(config)
-    data.setdefault("mcpServers", {})[SERVER_NAME] = {
+    servers = data.setdefault("mcpServers", {})
+    if _ours(json.dumps(servers.get(OLD_SERVER_NAME, ""))):
+        del servers[OLD_SERVER_NAME]
+    servers[SERVER_NAME] = {
         "type": "stdio",
         "command": command[0],
         "args": [*command[1:], "--agent", "claude"],
@@ -101,6 +136,7 @@ def _with_codex_server(config: str, command: list[str]) -> str:
         f"args = [{args}]\n"
         "startup_timeout_sec = 20\n"
     )
+    config = OLD_CODEX_SECTION.sub(lambda m: "" if _ours(m[0].split("\n", 1)[-1]) else m[0], config)
     if CODEX_SECTION.search(config):
         updated = CODEX_SECTION.sub(lambda _: section + "\n", config, count=1)
     else:
@@ -128,16 +164,11 @@ def connect_codex(command: list[str]) -> bool:
 def connect_agents(launch: dict | None = None) -> list[dict]:
     """Connect every agent found here. Each result is connected, not_found or failed."""
     launch = launch or agent_launch()
+    blocked = blocked_reason(launch)
     results = []
     for agent, connect in (("claude", connect_claude), ("codex", connect_codex)):
-        if launch["install"] in UNSUPPORTED_INSTALLS:
-            results.append(
-                {
-                    "agent": agent,
-                    "status": "failed",
-                    "detail": "This install can't change agent settings. Use the commands in Help.",
-                }
-            )
+        if blocked:
+            results.append({"agent": agent, "status": "failed", "detail": blocked})
             continue
         try:
             found = connect(launch["command"])

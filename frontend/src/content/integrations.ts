@@ -18,6 +18,12 @@ const APP_ID = "io.github.projectbrain.ProjectBrain";
 export const INTEGRATIONS_CHECKED = "2026-10-11";
 export type Agent = "claude" | "codex";
 
+/**
+ * The Flatpak's one-step connect. Its sandbox can't change agent settings, so the person runs
+ * this once in a terminal; --filesystem=home lets that one run write them, and nothing after.
+ */
+export const FLATPAK_CONNECT = `flatpak run --filesystem=home --command=project-moah-mcp ${APP_ID} --connect`;
+
 /** Until the app says how it was installed, show the Flatpak commands. */
 export const FLATPAK_LAUNCH: AgentLaunch = { install: "flatpak", command: ["flatpak", "run", "--command=project-moah-mcp", APP_ID] };
 
