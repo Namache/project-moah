@@ -133,7 +133,7 @@ The first install also downloads the Flatpak runtime, so it takes a little longe
 
 **Connect your agent:** open the app, go to **Help → Connect Claude Code**, and choose **Connect Claude Code and Codex**. On the Flatpak, Help gives you one command to paste instead. Then restart your agent.
 
-**Update:** there are no automatic updates, so nothing goes online behind your back. To update, run the same download and install again: the Windows installer, the `.deb` command or the Flatpak command above. Your data stays where it is.
+**Update:** there are no automatic updates, so nothing goes online behind your back. To update, run the same download and install again: the Windows installer, the `.deb` command or the Flatpak command above. Your data stays where it is. If you say yes when your agent offers an update, it does this for you, restarts Project Moah and tells you when it is ready.
 
 ---
 

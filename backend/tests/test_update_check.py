@@ -10,7 +10,7 @@ from app.db.migrate import upgrade_database
 from app.db.session import make_engine, make_session_factory
 from app.services.settings import AgentSettingsUpdate, update_agent_settings
 from app.services.system import APP_VERSION
-from app.services.update_check import OFFLINE, take_daily_check
+from app.services.update_check import OFFLINE, RESTARTED, instructions, take_daily_check
 from tests.conftest import app_client
 from tests.test_mcp import agent, call, seed
 
@@ -33,6 +33,15 @@ def test_once_per_day_and_off_switch(database_url: str) -> None:
         assert take_daily_check(session, lambda: date(2026, 11, 2)) is None
         update_agent_settings(session, AgentSettingsUpdate(update_check_enabled=True))
         assert take_daily_check(session, lambda: date(2026, 11, 2))
+
+
+def test_each_install_updates_restarts_and_says_so() -> None:
+    assert "--force-run" in instructions(install="windows")
+    assert "project-brain-desktop" in instructions(install="deb")
+    assert "flatpak kill" in instructions(install="flatpak")
+    for install in ("windows", "deb", "flatpak"):
+        assert RESTARTED in instructions(install=install)
+    assert RESTARTED not in instructions(install="source")
 
 
 async def test_setting_is_on_by_default_and_saved(database_url: str) -> None:
