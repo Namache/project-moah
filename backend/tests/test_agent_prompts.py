@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from httpx import AsyncClient
 
+from app.services.agent_prompts import claude_command
 from tests.conftest import app_client
 from tests.test_mcp import agent, call
 
@@ -114,4 +115,19 @@ async def test_second_opinion_is_off_until_switched_on(database_url: str, tmp_pa
             session, "brain_second_opinion", question="Second look?", project=pid
         )
         assert not failed and result["other_agent"] == "claude"
-        assert result["command"].startswith(f"cd {ROOT} && claude -p --permission-mode plan")
+        if sys.platform == "win32":
+            assert result["command"].startswith("$OutputEncoding")
+            assert f"Set-Location -LiteralPath '{ROOT}'" in result["command"]
+        else:
+            assert result["command"].startswith(f"cd {ROOT} && claude -p --permission-mode plan")
+
+
+def test_codex_on_windows_asks_claude_in_powershell() -> None:
+    command = claude_command("claude", "C:/Users/O'Neil/game", "Is 6 right?\n'@ sneaky", True)
+    assert command.startswith("$OutputEncoding = [System.Text.UTF8Encoding]::new($false); ")
+    assert "Set-Location -LiteralPath 'C:/Users/O''Neil/game'; @'\n" in command
+    # The text ends only at the real closing line, then goes to Claude's read-only mode.
+    assert command.count("\n'@") == 1 and "\n '@ sneaky" in command
+    assert "\n'@ | claude -p --permission-mode plan --allowedTools Read Grep Glob " in command
+    assert command.endswith(" --no-session-persistence")
+    assert "<<" not in command and "&&" not in command

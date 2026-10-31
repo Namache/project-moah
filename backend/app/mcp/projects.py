@@ -10,15 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.models.project import GLOBAL_PROJECT_ID, Project
 from app.services.projects import name_key
+from app.services.usage import inside_folder as _inside
 from app.services.usage import normalize_folder
 
 
 class ProjectChoiceError(ValueError):
     """Raised with a message an agent can act on."""
-
-
-def _inside(path: str, root: str) -> bool:
-    return path == root or path.startswith(root.rstrip("/") + "/")
 
 
 def _folder(path: str) -> str:

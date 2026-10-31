@@ -5,6 +5,7 @@ import { useCreateProject, useUpdateProject } from "../hooks/useProjects";
 import { Button } from "./ui";
 import { useModalDialog } from "../hooks/useModalDialog";
 import { t } from "../lib/i18n";
+import { useInstall } from "../lib/install";
 
 const iconOptions = ["📁", "🧭", "🎮", "✨", "🌿", "💡", "🧪", "🎨"];
 
@@ -21,6 +22,7 @@ export function ProjectDialog({ project, onClose, onSaved }: ProjectDialogProps)
   const [icon, setIcon] = useState(project?.icon ?? "📁");
   const [accent, setAccent] = useState(project?.accent ?? "#35766d");
   const [rootPath, setRootPath] = useState(project?.root_path ?? "");
+  const install = useInstall();
   const [status, setStatus] = useState<ProjectStatus>(project?.status ?? "active");
   const createProject = useCreateProject();
   const updateProject = useUpdateProject(project?.id ?? "");
@@ -94,7 +96,7 @@ export function ProjectDialog({ project, onClose, onSaved }: ProjectDialogProps)
             <label htmlFor="project-path" className="field-label">{t("Repository path")} <span className="font-normal text-ink-subtle">{t("Optional")}</span></label>
             <div className="relative">
               <FolderOpen size={17} className="pointer-events-none absolute left-3 top-3 text-ink-subtle" aria-hidden="true" />
-              <input id="project-path" className="field-input !pl-10" value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder={t("/home/you/projects/trailhead")} autoComplete="off" />
+              <input id="project-path" className="field-input !pl-10" value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder={install === "windows" ? t("C:\\Users\\you\\projects\\trailhead") : t("/home/you/projects/trailhead")} autoComplete="off" />
             </div>
             {window.projectBrainDesktop?.chooseFolder && <Button className="mt-2" onClick={async () => { const chosen = await window.projectBrainDesktop?.chooseFolder?.(t("Choose the project's repository folder")).catch(() => null); if (chosen) setRootPath(chosen); }}><FolderOpen size={16} aria-hidden="true" />{t("Choose folder")}</Button>}
             <p className="mt-1.5 text-xs leading-5 text-ink-subtle">{t("You can add a path later. Project Moah reads only file names, Git status, and commit messages from this folder, and never changes it.")}</p>

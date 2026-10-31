@@ -111,6 +111,7 @@ export const ru: Record<string, Translation> = {
   "Archived": "В архиве",
   "Repository path": "Путь к репозиторию",
   "/home/you/projects/trailhead": "/home/you/projects/trailhead",
+  "C:\\Users\\you\\projects\\trailhead": "C:\\Users\\you\\projects\\trailhead",
   "Choose folder": "Выбрать папку",
   "Choose the project's repository folder": "Выберите папку репозитория проекта",
   "You can add a path later. Project Moah reads only file names, Git status, and commit messages from this folder, and never changes it.": "Путь можно добавить позже. Project Moah читает в этой папке только имена файлов, состояние Git и сообщения коммитов и никогда её не меняет.",
@@ -1220,12 +1221,15 @@ export const ru: Record<string, Translation> = {
   // Integrations
   "1. Connect Claude Code once, for every project": "1. Подключите Claude Code один раз для всех проектов",
   "2. Load your rules at the start of every session: add this to ~/.claude/settings.json": "2. Загружайте правила в начале каждой сессии: добавьте это в ~/.claude/settings.json",
+  "2. Load your rules at the start of every session: add this to %USERPROFILE%\\.claude\\settings.json": "2. Загружайте правила в начале каждой сессии: добавьте это в %USERPROFILE%\\.claude\\settings.json",
   "Check the connection": "Проверьте подключение",
   "Claude Code MCP documentation": "Документация Claude Code по MCP",
   "Claude Code hooks": "Хуки Claude Code",
   "1. Connect Codex once, for every project": "1. Подключите Codex один раз для всех проектов",
   "Or add this to ~/.codex/config.toml": "Или добавьте это в ~/.codex/config.toml",
+  "Or add this to %USERPROFILE%\\.codex\\config.toml": "Или добавьте это в %USERPROFILE%\\.codex\\config.toml",
   "2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md": "2. Попросите Codex начинать каждую сессию с Project Moah: добавьте это в ~/.codex/AGENTS.md",
+  "2. Tell Codex to start every session from Project Moah: add this to %USERPROFILE%\\.codex\\AGENTS.md": "2. Попросите Codex начинать каждую сессию с Project Moah: добавьте это в %USERPROFILE%\\.codex\\AGENTS.md",
   "Codex MCP documentation": "Документация Codex по MCP",
 
   // Help categories

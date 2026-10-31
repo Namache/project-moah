@@ -8,6 +8,7 @@ where the person sees and approves it.
 from __future__ import annotations
 
 import shlex
+import sys
 from urllib.parse import quote
 
 from fastapi import HTTPException
@@ -30,6 +31,21 @@ def _folder(project: Project, cwd: str | None = None) -> str | None:
     if project.root_path:
         return normalize_folder(project.root_path)
     return normalize_folder(cwd) if cwd else None
+
+
+def claude_command(claude: str, folder: str | None, prompt: str, windows: bool) -> str:
+    """Claude's read-only answer, as Codex runs it: in bash, or in PowerShell on Windows, where a
+    here-string replaces the heredoc and UTF-8 keeps non-English text intact on its way in."""
+    flags = "-p --permission-mode plan --allowedTools Read Grep Glob --no-session-persistence"
+    if windows:
+        enter = "Set-Location -LiteralPath '" + folder.replace("'", "''") + "'; " if folder else ""
+        body = prompt.replace("\n'@", "\n '@")  # a line starting with '@ would end the text
+        return (
+            f"$OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+            f"{enter}@'\n{body}\n'@ | {claude} {flags}"
+        )
+    enter = f"cd {shlex.quote(folder)} && " if folder else ""
+    return f"{enter}{claude} {flags} <<'{HEREDOC}'\n{prompt}\n{HEREDOC}"
 
 
 def _clip(text: str, limit: int) -> str:
@@ -132,11 +148,7 @@ def second_opinion(
             f"{where} - <<'{HEREDOC}'\n{prompt}\n{HEREDOC}"
         )
     else:
-        enter = f"cd {shlex.quote(folder)} && " if folder else ""
-        command = (
-            f"{enter}{settings.claude_command} -p --permission-mode plan --allowedTools Read Grep "
-            f"Glob --no-session-persistence <<'{HEREDOC}'\n{prompt}\n{HEREDOC}"
-        )
+        command = claude_command(settings.claude_command, folder, prompt, sys.platform == "win32")
     save = (
         f'brain_create_memory(type="note", title="Second opinion: <short topic>", '
         f'content=<both views>, tasks=["{human_id}"], project="{project.slug}")'

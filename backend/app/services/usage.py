@@ -117,6 +117,17 @@ def _int(value: object) -> int:
 WINDOWS_FOLDER = re.compile(r"^[A-Za-z]:[\\/]")
 
 
+def folder_key(path: str) -> str:
+    """How folders compare: Windows ignores case (C:/Users/Me is c:/users/me), Linux does not."""
+    return path.casefold() if WINDOWS_FOLDER.match(path) else path
+
+
+def inside_folder(path: str, root: str) -> bool:
+    """Whether a folder is root itself or anywhere below it."""
+    path, root = folder_key(path), folder_key(root)
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
 def normalize_folder(path: str) -> str:
     """One spelling per folder: /var/home is /home, a portal path names its host folder, and a
     Windows folder is written with forward slashes (C:/Users/me/game), so one comparison by "/"
@@ -358,7 +369,7 @@ def active_seconds(times: list[datetime]) -> float:
 def _home_group(folder: str) -> str:
     """A readable name for a folder no project claims: the first two levels below home."""
     home = normalize_folder(str(Path.home()))
-    if folder.startswith(home + "/"):
+    if inside_folder(folder, home) and len(folder) > len(home):
         parts = folder[len(home) + 1 :].split("/")
         return "~/" + "/".join(parts[:2])
     if folder.startswith(("/tmp/", "/var/tmp/")) or folder in ("/tmp", "/var/tmp"):
@@ -418,7 +429,7 @@ def usage_summary(
 
     def owner(folder: str) -> Project | None:
         for project, root in projects:
-            if folder == root or folder.startswith(root + "/"):
+            if inside_folder(folder, root):
                 return project
         return None
 
