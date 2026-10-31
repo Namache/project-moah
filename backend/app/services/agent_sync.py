@@ -30,7 +30,14 @@ from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.activity import acting_as
 from app.services.projects import ProjectService, name_key
-from app.services.usage import WINDOWS_FOLDER, claude_home, codex_home, normalize_folder
+from app.services.usage import (
+    WINDOWS_FOLDER,
+    claude_home,
+    codex_home,
+    folder_key,
+    inside_folder,
+    normalize_folder,
+)
 
 SYNC_ACTOR = "Sync from agents"
 HEAD_LINES = 40
@@ -121,7 +128,8 @@ def project_folder(folder: str) -> str | None:
     """The project folder a session folder stands for, or None when it is not a project."""
     home = normalize_folder(str(Path.home()))
     drive = WINDOWS_FOLDER.match(folder) is not None
-    if not (folder.startswith("/") or drive) or folder in ("/", home) or len(folder) <= 3:
+    is_home = folder_key(folder) == folder_key(home)
+    if not (folder.startswith("/") or drive) or folder == "/" or is_home or len(folder) <= 3:
         return None
     for marker in ("/.claude/worktrees/", "/.codex/worktrees/"):
         if marker in folder + "/":
@@ -139,15 +147,11 @@ def project_folder(folder: str) -> str | None:
         f"{home}/.local",
         f"{home}/AppData",  # Windows: app data and temporary folders
     )
-    if any(folder == root or folder.startswith(root + "/") for root in skipped):
+    if any(inside_folder(folder, root) for root in skipped):
         return None
     if ONE_OFF_CODEX.search(folder):
         return None
-    return folder if folder not in ("/", home) else None
-
-
-def _inside(path: str, root: str) -> bool:
-    return path == root or path.startswith(root.rstrip("/") + "/")
+    return folder if folder != "/" and folder_key(folder) != folder_key(home) else None
 
 
 def _similar_key(name: str) -> str:
@@ -175,7 +179,7 @@ def sync_agent_folders(session: Session, sightings: dict[str, Sighting] | None =
         if target is None:
             continue
         # Work inside an existing project's folder counts toward that folder.
-        target = next((root for _, root in roots if _inside(target, root)), target)
+        target = next((root for _, root in roots if inside_folder(target, root)), target)
         merged = grouped.setdefault(target, Sighting())
         merged.claude += seen.claude
         merged.codex += seen.codex
@@ -186,7 +190,7 @@ def sync_agent_folders(session: Session, sightings: dict[str, Sighting] | None =
     known = {row.folder: row for row in session.scalars(select(AgentFolder))}
     outer = sorted(set(grouped) | set(known), key=len)
     for folder in list(grouped):
-        parent = next((o for o in outer if o != folder and _inside(folder, o)), None)
+        parent = next((o for o in outer if o != folder and inside_folder(folder, o)), None)
         if parent is not None:
             seen = grouped.pop(folder)
             if parent in grouped:
@@ -201,7 +205,7 @@ def sync_agent_folders(session: Session, sightings: dict[str, Sighting] | None =
             row = AgentFolder(folder=folder, status="suggested", updated_at=now)
         row.claude_sessions, row.codex_sessions = seen.claude, seen.codex
         row.first_seen, row.last_seen = seen.first, seen.last
-        covering = next((p for p, root in roots if _inside(folder, root)), None)
+        covering = next((p for p, root in roots if inside_folder(folder, root)), None)
         if row.folder in known and row.status != "suggested":
             session.add(row)
             continue

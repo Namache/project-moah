@@ -8,6 +8,7 @@ import { writePref } from "../../lib/prefs";
 import type { Project } from "../../types/project";
 import { projectPath } from "../../lib/routes";
 import { t } from "../../lib/i18n";
+import { useInstall } from "../../lib/install";
 
 export const ONBOARDING_KEY = "pb-onboarding-done";
 
@@ -17,6 +18,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [project, setProject] = useState<Project | null>(null);
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
+  const install = useInstall();
   const [task, setTask] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
@@ -70,7 +72,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         <p className="mt-4 text-sm leading-7 text-ink-muted">{t("Pick the folder your code lives in. Project Moah only reads file names, Git status and commit messages, and never changes your code. You can do this later.")}</p>
         {canChoose && <Button className="mt-5" onClick={async () => { const chosen = await window.projectBrainDesktop?.chooseFolder?.(t("Choose the project's repository folder")).catch(() => null); if (chosen) setPath(chosen); }}>{t("Choose folder")}</Button>}
         <label htmlFor="onb-path" className="field-label mt-5">{t("Folder path")}</label>
-        <input id="onb-path" data-onboarding-focus className="field-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder={t("/home/you/projects/trailhead")} />
+        <input id="onb-path" data-onboarding-focus className="field-input" value={path} onChange={(e) => setPath(e.target.value)} placeholder={install === "windows" ? t("C:\\Users\\you\\projects\\trailhead") : t("/home/you/projects/trailhead")} />
         {error && <p role="alert" className="mt-3 text-sm text-danger-ink">{error}</p>}
         <div className="mt-8 flex items-center justify-between"><div className="flex gap-2"><Button variant="primary" onClick={() => void saveRepository()} disabled={updateProject.isPending}>{path.trim() ? t("Save and continue") : t("Continue")}</Button><Button variant="quiet" onClick={() => go(4)}>{t("Skip for now")}</Button></div>{skip}</div>
       </>}

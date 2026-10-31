@@ -36,12 +36,16 @@ export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH):
   // The command an agent runs to start Project Moah's local MCP server.
   const command = [...launch.command, "--agent", agent];
   // Prints the session brief (global rules, project rules, focus) for the folder Claude Code opened.
-  const brief = `${shell([...launch.command, "--brief", "--cwd"], windows)} "$CLAUDE_PROJECT_DIR"`;
+  // On Windows the hook starts the app directly (exec form, no shell), because Claude Code runs
+  // shell hooks in Git Bash or, without it, PowerShell, and the two read "$VAR" differently.
+  const hook = windows
+    ? { type: "command", command: launch.command[0], args: [...launch.command.slice(1), "--brief", "--cwd", "${CLAUDE_PROJECT_DIR}"], timeout: 20 }
+    : { type: "command", command: `${shell([...launch.command, "--brief", "--cwd"], windows)} "$CLAUDE_PROJECT_DIR"`, timeout: 20 };
   if (agent === "claude") {
     return {
       setup: [
         { label: msg("1. Connect Claude Code once, for every project"), language: "bash", text: `claude mcp add --transport stdio --scope user project-moah -- ${shell(command, windows)}` },
-        { label: msg("2. Load your rules at the start of every session: add this to ~/.claude/settings.json"), language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [{ type: "command", command: brief, timeout: 20 }] }] } }, null, 2) },
+        { label: windows ? msg("2. Load your rules at the start of every session: add this to %USERPROFILE%\\.claude\\settings.json") : msg("2. Load your rules at the start of every session: add this to ~/.claude/settings.json"), language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [hook] }] } }, null, 2) },
       ],
       verify: [{ label: msg("Check the connection"), language: "bash", text: "claude mcp list" }],
       sources: [{ label: msg("Claude Code MCP documentation"), url: "https://code.claude.com/docs/en/mcp" }, { label: msg("Claude Code hooks"), url: "https://code.claude.com/docs/en/hooks" }],
@@ -51,8 +55,8 @@ export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH):
   return {
     setup: [
       { label: msg("1. Connect Codex once, for every project"), language: "bash", text: `codex mcp add project-moah -- ${shell(command, windows)}` },
-      { label: msg("Or add this to ~/.codex/config.toml"), language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
-      { label: msg("2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md"), language: "markdown", text: "Project Moah is the source of truth for my rules and memory. At the start of every session, call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it returns." },
+      { label: windows ? msg("Or add this to %USERPROFILE%\\.codex\\config.toml") : msg("Or add this to ~/.codex/config.toml"), language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
+      { label: windows ? msg("2. Tell Codex to start every session from Project Moah: add this to %USERPROFILE%\\.codex\\AGENTS.md") : msg("2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md"), language: "markdown", text: "Project Moah is the source of truth for my rules and memory. At the start of every session, call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it returns." },
     ],
     verify: [{ label: msg("Check the connection"), language: "bash", text: "codex mcp list" }],
     sources: [{ label: msg("Codex MCP documentation"), url: "https://developers.openai.com/codex/mcp" }],

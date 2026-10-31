@@ -8,7 +8,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.services.agent_sync import project_folder
-from app.services.usage import normalize_folder
+from app.services.usage import inside_folder, normalize_folder
 
 pytestmark = pytest.mark.anyio
 # These describe Linux folders (/home, /var/home on Fedora Atomic, /tmp), which a Windows
@@ -73,6 +73,11 @@ def test_windows_folders_count_as_projects(monkeypatch) -> None:
     assert folder(r"C:\Users\me") is None
     assert folder("C:\\") is None
     assert folder(r"C:\Users\me\AppData\Local\Temp\scratch") is None
+    # Windows ignores case, and so does Moah: a terminal opened as c:\users\ME is the same place.
+    assert folder(r"c:\users\ME") is None
+    assert folder(r"c:\users\me\appdata\local\temp\scratch") is None
+    assert inside_folder("C:/Users/me/Game/src", "c:/users/ME/game")
+    assert not inside_folder("/home/me/Game/src", "/home/me/game")
 
 
 @linux_folders
