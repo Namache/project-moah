@@ -22,6 +22,7 @@ APP_VERSION = "0.1.2"
 FLATPAK_ID = "io.github.projectbrain.ProjectBrain"
 # The .deb puts a small launcher here that starts the bundled backend with --mcp.
 DEB_LAUNCHER = Path("/usr/bin/project-moah-mcp")
+DEB_APP = Path("/opt/Project Moah/project-brain-desktop")
 COUNT_TABLES = {
     "projects": "projects WHERE kind = 'project'",
     "tasks": "tasks",
@@ -66,40 +67,64 @@ def agent_launch() -> dict:
     return {"install": "source", "command": [sys.executable, "-m", "app.mcp.server"]}
 
 
+def app_command() -> list[str] | None:
+    """The installed app's start command, opening hidden in the tray, if this install has one."""
+    if Path("/.flatpak-info").exists():
+        # Anything started in this sandbox ends with the agent's connection; the Flatpak portal
+        # gives the app a sandbox of its own, and asks for no extra permission.
+        return ["flatpak-spawn", "/app/bin/project-brain", "--tray"]
+    if sys.platform == "win32":
+        # The service sits at <install folder>\resources\bin.
+        app = Path(sys.executable).resolve().parents[2] / "Project Moah.exe"
+    elif DEB_LAUNCHER.exists():
+        app = DEB_APP
+    else:
+        return None
+    return [str(app), "--tray"] if app.exists() else None
+
+
 def open_app_in_tray() -> None:
-    """On Windows, an agent connecting also opens the installed app, hidden in the tray.
+    """An agent connecting also opens the installed app, hidden in the tray.
 
     The app allows one copy of itself, so this does nothing visible when it is already running.
     A throwaway database (the package checks) means nobody is asking for the app.
     """
-    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+    if not getattr(sys, "frozen", False) or os.environ.get("PROJECT_BRAIN_DB_PATH"):
         return
-    if os.environ.get("PROJECT_BRAIN_DB_PATH"):
-        return
-    # The service sits at <install folder>\resources\bin.
-    app = Path(sys.executable).resolve().parents[2] / "Project Moah.exe"
-    if not app.exists():
+    command = app_command()
+    if command is None:
         return
     # What this process inherited is not for the app: an Electron-based agent's run-as-Node
     # switch would stop it opening, and PyInstaller's markers would confuse its own service.
     env = {
         name: value
         for name, value in os.environ.items()
-        if name != "ELECTRON_RUN_AS_NODE" and not name.startswith(("_PYI_", "_MEIPASS"))
+        if name not in ("ELECTRON_RUN_AS_NODE", "LD_LIBRARY_PATH", "LD_LIBRARY_PATH_ORIG")
+        and not name.startswith(("_PYI_", "_MEIPASS"))
     }
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-    detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    # PyInstaller points this at its own libraries; the app needs what the agent started with.
+    if "LD_LIBRARY_PATH_ORIG" in os.environ:
+        env["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH_ORIG"]
     # Agents may end their children together; the app has to outlive this connection.
-    for flags in (detached | subprocess.CREATE_BREAKAWAY_FROM_JOB, detached):
+    if sys.platform == "win32":
+        detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        options = [
+            {"creationflags": detached | subprocess.CREATE_BREAKAWAY_FROM_JOB},
+            {"creationflags": detached},
+        ]
+    else:
+        options = [{"start_new_session": True}]
+    for option in options:
         try:
             subprocess.Popen(  # noqa: S603 - fixed argument list, no shell
-                [str(app), "--tray"],
+                command,
                 env=env,
-                creationflags=flags,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 close_fds=True,
+                **option,
             )
             return
         except OSError:

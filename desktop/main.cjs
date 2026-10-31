@@ -1,7 +1,7 @@
 "use strict";
 
 const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, screen, session, shell } = require("electron");
-const { spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { randomBytes } = require("node:crypto");
 const { homedir } = require("node:os");
@@ -29,11 +29,12 @@ const STARTUP_TIMEOUT_MS = 45_000;
 let backend = null;
 let window = null;
 let tray = null;
+let hidesToTray = false;
 let stopping = false;
 let stopPromise = null;
 let backendStoppedForQuit = false;
 let quitting = false;
-// An agent starting on Windows opens the app with --tray: running, with no window in the way.
+// An agent starting opens the app with --tray: running, with no window in the way.
 const startInTray = process.argv.includes("--tray");
 let maximizeOnShow = false;
 let apiToken = "";
@@ -319,11 +320,11 @@ async function openWindow(port) {
     if (state.maximized) window?.maximize();
     window?.show();
   });
-  // On Windows the X button hides the window to the tray and the app keeps running; Quit in the
-  // tray menu ends it. Without a tray icon there would be no way back, so it closes as usual.
+  // The X button hides the window to the tray and the app keeps running; Quit in the tray menu
+  // ends it. Without a tray to show the icon there would be no way back, so it closes as usual.
   window.on("close", (event) => {
     saveWindowState();
-    if (process.platform !== "win32" || quitting || !tray) return;
+    if (quitting || !hidesToTray) return;
     event.preventDefault();
     window.hide();
   });
@@ -341,6 +342,19 @@ function showWindow() {
   maximizeOnShow = false;
   window.show();
   window.focus();
+}
+
+/** Linux desktops without a tray (plain GNOME) accept a tray icon and never show it. */
+function linuxTrayIsShown() {
+  try {
+    return execFileSync("gdbus", [
+      "call", "--session", "--dest", "org.freedesktop.DBus", "--object-path", "/org/freedesktop/DBus",
+      "--method", "org.freedesktop.DBus.NameHasOwner", "org.kde.StatusNotifierWatcher",
+    ], { encoding: "utf8", timeout: 2_000 }).includes("true");
+  } catch (error) {
+    writeLog(`[tray] ${error.message}`);
+    return false;
+  }
 }
 
 /** An icon in the system tray (notification area) for every build, so a minimised window is easy to find. */
@@ -367,6 +381,9 @@ function createTray() {
   tray.on("click", showWindow);
   // For scripts/check-desktop-window.cjs, which checks every build has its tray icon.
   global.projectMoahTray = !image.isEmpty();
+  hidesToTray = process.platform === "win32" || (process.platform === "linux" && linuxTrayIsShown());
+  // An agent opened the app, and with no tray it could only sit there unseen.
+  if (startInTray && !hidesToTray) app.quit();
 }
 
 const PROPOSAL_CHECK_MS = 15_000;
