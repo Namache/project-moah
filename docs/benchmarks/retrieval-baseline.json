@@ -1,0 +1,98 @@
+{
+  "code": "main 0632aa4 (before PROJ-009..012)",
+  "token_counter": "len(text)/4",
+  "brief_tokens": 454,
+  "quality": {
+    "precision": 0.449,
+    "recall": 1.0,
+    "pack_tokens_avg": 131,
+    "cases": [
+      {
+        "case": "task with a bug, a linked warning and a governing rule",
+        "precision": 0.429,
+        "recall": 1.0,
+        "noise": [
+          "n_art",
+          "n_button",
+          "n_files",
+          "n_hats"
+        ],
+        "missing": [],
+        "forbidden_found": [],
+        "tokens": 176
+      },
+      {
+        "case": "task with a superseded decision",
+        "precision": 0.167,
+        "recall": 1.0,
+        "noise": [
+          "b_save",
+          "n_art",
+          "n_buffer",
+          "n_hats",
+          "w_save"
+        ],
+        "missing": [],
+        "forbidden_found": [],
+        "tokens": 148
+      },
+      {
+        "case": "decision question, no task",
+        "precision": 0.25,
+        "recall": 1.0,
+        "noise": [
+          "n_button",
+          "n_files",
+          "n_tips"
+        ],
+        "missing": [],
+        "forbidden_found": [],
+        "tokens": 110
+      },
+      {
+        "case": "small task, one fact",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "forbidden_found": [],
+        "tokens": 58
+      },
+      {
+        "case": "bug question, no task",
+        "precision": 0.4,
+        "recall": 1.0,
+        "noise": [
+          "n_art",
+          "n_crash",
+          "n_hats"
+        ],
+        "missing": [],
+        "forbidden_found": [],
+        "tokens": 163
+      }
+    ]
+  },
+  "sessions": {
+    "every_request": {
+      "requests": 12,
+      "retrievals": 12,
+      "unnecessary_retrievals": 8,
+      "missed_requests": 0,
+      "completed_tasks": 3,
+      "tasks": 3,
+      "total_tokens": 3118,
+      "tokens_per_completed_task": 1039
+    },
+    "on_demand": {
+      "requests": 12,
+      "retrievals": 0,
+      "unnecessary_retrievals": 0,
+      "missed_requests": 5,
+      "completed_tasks": 0,
+      "tasks": 3,
+      "total_tokens": 1362,
+      "tokens_per_completed_task": null
+    }
+  }
+}
