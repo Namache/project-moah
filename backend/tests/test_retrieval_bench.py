@@ -29,6 +29,8 @@ async def test_on_demand_retrieval_skips_packs_without_missing_anything(database
     assert on_demand["retrievals"] < every["retrievals"]
     assert on_demand["unnecessary_retrievals"] < every["unnecessary_retrievals"]
     assert on_demand["tokens_per_completed_task"] < every["tokens_per_completed_task"]
+    # Baseline (old brief, old matching): 1,249 tokens per completed task.
+    assert on_demand["tokens_per_completed_task"] <= 700
 
 
 def test_the_brief_lists_every_reason_to_fetch_a_pack() -> None:

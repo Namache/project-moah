@@ -1,11 +1,12 @@
 {
-  "code": "main 0632aa4 (before PROJ-009..012)",
-  "token_counter": "len(text)/4",
-  "brief_tokens": 454,
+  "code": "main 0632aa4, before PROJ-009..012 (old brief = every_request)",
+  "token_counter": "services/tokens.py, Claude",
+  "measured": "2026-11-01",
+  "brief_tokens": 491,
   "quality": {
     "precision": 0.449,
     "recall": 1.0,
-    "pack_tokens_avg": 131,
+    "pack_tokens_avg": 151,
     "cases": [
       {
         "case": "task with a bug, a linked warning and a governing rule",
@@ -19,7 +20,7 @@
         ],
         "missing": [],
         "forbidden_found": [],
-        "tokens": 176
+        "tokens": 195
       },
       {
         "case": "task with a superseded decision",
@@ -34,7 +35,7 @@
         ],
         "missing": [],
         "forbidden_found": [],
-        "tokens": 148
+        "tokens": 172
       },
       {
         "case": "decision question, no task",
@@ -47,7 +48,7 @@
         ],
         "missing": [],
         "forbidden_found": [],
-        "tokens": 110
+        "tokens": 132
       },
       {
         "case": "small task, one fact",
@@ -56,7 +57,7 @@
         "noise": [],
         "missing": [],
         "forbidden_found": [],
-        "tokens": 58
+        "tokens": 65
       },
       {
         "case": "bug question, no task",
@@ -69,29 +70,29 @@
         ],
         "missing": [],
         "forbidden_found": [],
-        "tokens": 163
+        "tokens": 192
       }
     ]
   },
   "sessions": {
     "every_request": {
-      "requests": 12,
-      "retrievals": 12,
-      "unnecessary_retrievals": 8,
+      "requests": 14,
+      "retrievals": 14,
+      "unnecessary_retrievals": 10,
       "missed_requests": 0,
       "completed_tasks": 3,
       "tasks": 3,
-      "total_tokens": 3118,
-      "tokens_per_completed_task": 1039
+      "total_tokens": 3747,
+      "tokens_per_completed_task": 1249
     },
     "on_demand": {
-      "requests": 12,
+      "requests": 14,
       "retrievals": 0,
       "unnecessary_retrievals": 0,
-      "missed_requests": 5,
+      "missed_requests": 7,
       "completed_tasks": 0,
       "tasks": 3,
-      "total_tokens": 1362,
+      "total_tokens": 1473,
       "tokens_per_completed_task": null
     }
   }
