@@ -59,7 +59,7 @@
 - Several routes to the same record add up like independent chances: two routes of 50% give 75% (1 − 0.5 × 0.5), and nothing ever reaches 100%.
 - Records scoring under 20% stay out of the pack.
 
-**Links learn.** When an agent reports that a record helped, the links that led to it gain 0.08 for that kind of work, and lose 0.08 when it didn't. Links nobody uses fade slowly after a month. Each pack also draws link weights from their track record ([Thompson sampling](https://en.wikipedia.org/wiki/Thompson_sampling)), so a new link sometimes gets its chance while proven ones almost always win.
+**Links learn.** When an agent reports that a record helped, the links that led to it gain 0.08 for that kind of work, and lose 0.08 when it didn't. Links nobody uses fade slowly after a month. Packs are predictable: the same request gives the same pack. If you want Moah to try out new links, turn on **Let packs explore** in Settings > Agents: packs then draw link weights from their track record ([Thompson sampling](https://en.wikipedia.org/wiki/Thompson_sampling)), so a new link sometimes gets its chance while proven ones almost always win.
 
 ---
 

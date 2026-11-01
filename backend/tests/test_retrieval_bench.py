@@ -39,3 +39,21 @@ def test_the_brief_lists_every_reason_to_fetch_a_pack() -> None:
     assert "FIRST for every request" not in HOW_TO
     for when in RETRIEVE_WHEN.values():
         assert when in HOW_TO
+
+
+async def test_packs_are_repeatable_and_exploring_keeps_recall(database_url: str) -> None:
+    report = await run(database_url)
+    assert report["quality"]["repeatable"]  # same request, same pack (PROJ-014)
+    assert report["explore"]["recall_min"] == 1.0
+
+
+async def test_repeat_packs_send_only_what_is_new(database_url: str) -> None:
+    report = await run(database_url)
+    on_demand = report["sessions"]["on_demand"]
+    aware = report["sessions"]["on_demand_repeat_aware"]
+    assert aware["missed_requests"] == 0
+    assert aware["retrievals"] == on_demand["retrievals"]
+    # The unnecessary fetches cost ~100 tokens each before (PROJ-015 asks for ~20).
+    assert aware["unnecessary_retrieval_tokens"]
+    assert max(aware["unnecessary_retrieval_tokens"]) <= 35
+    assert aware["tokens_per_completed_task"] < on_demand["tokens_per_completed_task"]

@@ -7,7 +7,7 @@ import { Button } from "./ui";
 
 type Commands = Pick<AgentSettings, "codex_command" | "claude_command">;
 
-/** Default agent for "Work on task", the second-opinion switch (and, while it is on, how each agent is started), and the daily update check. */
+/** Default agent for "Work on task", the second-opinion switch (and, while it is on, how each agent is started), the daily update check, and whether packs explore. */
 export function AgentSettingsCard() {
   const client = useQueryClient();
   const query = useQuery({ queryKey: queryKeys.agentSettings, queryFn: ({ signal }) => agentsApi.settings(signal), retry: false });
@@ -49,6 +49,10 @@ export function AgentSettingsCard() {
       <label className="flex items-start gap-3 text-sm text-ink">
         <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" checked={s.update_check_enabled !== false} onChange={(e) => save.mutate({ update_check_enabled: e.target.checked })} />
         <span><strong>{t("Automatically check for updates")}</strong><br /><span className="text-ink-muted">{t("Once a day, at the start of a session, your agent looks up the newest Project Moah release on GitHub and asks you before updating. Project Moah itself never goes online.")}</span></span>
+      </label>
+      <label className="flex items-start gap-3 text-sm text-ink">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" checked={Boolean(s.explore_packs)} onChange={(e) => save.mutate({ explore_packs: e.target.checked })} />
+        <span><strong>{t("Let packs explore")}</strong><br /><span className="text-ink-muted">{t("Context packs sometimes include a record reached over a link nobody has rated yet, so Project Moah learns whether it helps. Packs then differ a little from one request to the next. Off: the same request always gets the same pack.")}</span></span>
       </label>
       {save.isError && <p role="alert" className="text-sm text-danger-ink">{save.error.message}</p>}
     </div>

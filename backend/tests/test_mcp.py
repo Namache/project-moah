@@ -560,3 +560,46 @@ async def test_projects_file_records_on_one_shared_tree(database_url: str) -> No
         assert not failed and gone == {"deleted": path}
         _, tree = await call(session, "brain_shelves", project=a)
         assert path not in [s["shelf"] for s in tree["shared_tree"]]
+
+
+async def test_repeat_packs_in_a_session_send_only_what_is_new(
+    database_url: str, tmp_path: Path
+) -> None:
+    import subprocess
+
+    async with app_client(database_url) as client:
+        await seed(client, tmp_path)
+    async with agent(database_url) as session:
+        error, first = await call(
+            session, "brain_context_pack", task="CAMP-001", project="trailhead"
+        )
+        assert not error and "CURRENT TASK" in first and "brain_retrieval_feedback" in first
+        error, again = await call(
+            session, "brain_context_pack", task="CAMP-001", project="trailhead"
+        )
+        assert not error and again.startswith("Nothing new since R-")
+        assert "brain_retrieval_feedback" not in again and len(again) < len(first) / 3
+        error, full = await call(
+            session, "brain_context_pack", task="CAMP-001", project="trailhead", full=True
+        )
+        assert not error and "CURRENT TASK" in full
+
+        # The start-up hook runs when a session starts, is cleared or is compacted: the
+        # running server must not answer "nothing new" to an agent that lost its context.
+        subprocess.run(
+            [sys.executable, "-m", "app.mcp", "--brief", "--cwd", str(tmp_path)],
+            cwd=str(BACKEND),
+            env={"PROJECT_BRAIN_DATABASE_URL": database_url, "PATH": "/usr/bin:/bin"},
+            check=True,
+            capture_output=True,
+        )
+        error, after_clear = await call(
+            session, "brain_context_pack", task="CAMP-001", project="trailhead"
+        )
+        assert not error and "CURRENT TASK" in after_clear
+
+        error, _ = await call(session, "brain_brief", project="trailhead")
+        error, after_brief = await call(
+            session, "brain_context_pack", task="CAMP-001", project="trailhead"
+        )
+        assert not error and "CURRENT TASK" in after_brief

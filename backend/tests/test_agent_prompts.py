@@ -41,6 +41,7 @@ async def test_agent_settings_defaults_and_changes(client: AsyncClient) -> None:
         "codex_command": "codex",
         "claude_command": "claude",
         "update_check_enabled": True,
+        "explore_packs": False,
     }
     changed = await client.patch(
         "/api/settings/agents",

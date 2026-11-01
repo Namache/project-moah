@@ -125,8 +125,9 @@ async def test_agents_hear_about_an_update_once_and_packs_record_the_build(
         assert not error and pack.startswith("MOAH WAS UPDATED") and future.label in pack
         error, tasks = await call(session, "brain_get_task", task="CAMP-001", project="trailhead")
         assert not error and "moah_updated" not in tasks
+        # full=true: a plain repeat would be "nothing new" and not recorded (PROJ-015).
         error, again = await call(
-            session, "brain_context_pack", task="CAMP-001", project="trailhead"
+            session, "brain_context_pack", task="CAMP-001", project="trailhead", full=True
         )
         assert not error and "MOAH WAS UPDATED" not in again
     with factory(database_url)() as db:

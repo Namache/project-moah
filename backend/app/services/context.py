@@ -19,8 +19,10 @@ Link System: the task, its linked records and search hits are starting nodes. Sp
 Shelves the work mentions, or that the starting nodes sit on, wake up; members of awake shelves
 join the starting nodes, and members of awake Global shelves join as Global knowledge. Relevance
 then spreads out over the links (Personalized PageRank, by pushing; see GraphService.traverse),
-adding up over every route, so the work touches only what is near the starting nodes. Agents'
-packs sample each link's weight (Thompson sampling) so untried links get a chance. A record
+adding up over every route, so the work touches only what is near the starting nodes. When the
+person turns exploring on (Settings > Agents), agents' packs sample each link's weight (Thompson
+sampling) so untried links get a chance; by default the same request gives the same pack.
+Repeat packs in one agent session send only what is new (see SentRecords). A record
 reached this way joins the pack with its strongest route as its reason. Records are read
 through the search index, the walk and their links, never by reading the whole project. A
 record that sits only on dormant shelves is left out unless it is linked to the task, named,
@@ -47,7 +49,7 @@ import re
 from collections import Counter, OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -71,6 +73,7 @@ from app.services.graph import GraphService, Node, Path
 from app.services.memory import MemoryService
 from app.services.projects import ProjectService
 from app.services.search import SearchService
+from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
 from app.services.tasks import CLOSED_STATUSES, TaskService
 from app.services.tokens import base_tokens, count_tokens, factor
@@ -302,10 +305,87 @@ class Item:
     order: float = 0.0
     reason: str = ""
     confidence: float | None = None  # path score for records the Link System reached
+    repeat: bool = False  # already sent to this agent session, unchanged (see SentRecords)
     tokens: int = field(init=False)
 
     def __post_init__(self) -> None:
         self.tokens = base_tokens(self.text)  # provider-neutral; see ContextService.provider
+
+
+@dataclass
+class SentRecords:
+    """What one agent session has already been sent by packs in one project.
+
+    The MCP server keeps one per project, in memory, for as long as the session lasts (see
+    app.mcp.server). A repeat pack sends only what is new or changed since: an item already sent
+    with the same text costs no budget and is named, not repeated. An item whose text changed
+    (an edited record, a ticked criterion) counts as new.
+    """
+
+    items: dict[str, str] = field(default_factory=dict)  # item key -> fingerprint of its text
+    last: str = ""  # short retrieval id of the latest pack that sent anything
+
+    @staticmethod
+    def key(item: Item) -> str:
+        return f"{item.section}|{item.kind}|{item.ref or item.title}"
+
+    @staticmethod
+    def fingerprint(item: Item) -> str:
+        import hashlib
+
+        return hashlib.blake2b(item.text.encode(), digest_size=8).hexdigest()
+
+    def has(self, item: Item) -> bool:
+        return self.items.get(self.key(item)) == self.fingerprint(item)
+
+    def add(self, item: Item, retrieval: str) -> None:
+        self.items[self.key(item)] = self.fingerprint(item)
+        self.last = retrieval or self.last
+
+    def clear(self) -> None:
+        self.items.clear()
+        self.last = ""
+
+
+# Set by the session start-up hook (``project-moah-mcp --brief``), which Claude Code runs when a
+# session starts, is cleared (/clear) or is compacted. Every MCP server then forgets what it sent,
+# so the next pack is sent in full: the agent may no longer have the earlier ones in context.
+CONTEXT_RESET = "agent_context_reset"
+
+
+def mark_context_reset(session: Session) -> None:
+    """Note that an agent's context was just started, cleared or compacted. Never raises: a
+    busy database must not cost the agent its brief."""
+    try:
+        row = session.get(AppSetting, CONTEXT_RESET) or AppSetting(key=CONTEXT_RESET)
+        now = utc_now()
+        row.value, row.updated_at = now.isoformat(), now
+        session.add(row)
+        session.commit()
+    except Exception:  # noqa: BLE001
+        session.rollback()
+
+
+def context_reset_at(session: Session) -> datetime | None:
+    row = session.get(AppSetting, CONTEXT_RESET)
+    if row is None or row.updated_at is None:
+        return None
+    at = row.updated_at
+    return at if at.tzinfo is not None else at.replace(tzinfo=UTC)
+
+
+def repeat_label(item: Item) -> str | None:
+    """How a repeated item is named in a repeat pack: a record's ID, a related task's ID, a
+    file's path. The pack's own task and its details (status, goal, criteria...) and activity
+    are not listed: the agent knows what it is working on."""
+    if item.kind.startswith("memory"):
+        return item.text.split()[0] if item.text else None
+    if item.section in ("related", "blockers", "dependencies") and item.kind == "task":
+        first = item.text.split(" — ")[0].split()
+        return first[-1] if first else None
+    if item.kind == "file":
+        return item.title
+    return None
 
 
 class ContextService:
@@ -329,8 +409,9 @@ class ContextService:
         self.decision_intent = False
         self.named_tasks: dict[str, str] = {}  # task id -> human id, typed in the request
         self.named_memory: set[str] = set()  # memory ids typed in the request
-        # Agents' packs explore: link weights are sampled (Thompson sampling), so links nobody
-        # has tried yet get an occasional chance. Previews in the app stay deterministic.
+        # Set only when exploring (Settings > Agents, off by default): link weights are then
+        # sampled (Thompson sampling), so links nobody has tried yet get an occasional chance.
+        # Otherwise every pack, an agent's or a preview in the app, is deterministic.
         self.sample: random.Random | None = None
 
     def build(
@@ -348,15 +429,23 @@ class ContextService:
         global_rules: bool = True,
         explore: bool | None = None,
         provider: str | None = None,
+        sent: SentRecords | None = None,
     ) -> ContextPack:
         """``record_for`` names the agent asking; its pack is kept as a retrieval session so
-        feedback can teach the links, and it explores (see ``sample``) unless ``explore=False``.
-        Previews in the app are
-        not recorded. ``global_rules=False`` leaves out the Global rules, for an agent whose
-        session brief already gave them."""
+        feedback can teach the links. Previews in the app are not recorded. An agent's pack
+        explores (see ``sample``) only when the person turned exploring on in Settings, or when
+        ``explore=True``; by default the same request gives the same pack. ``global_rules=False``
+        leaves out the Global rules, for an agent whose session brief already gave them.
+        ``sent`` is what this agent session was already sent (kept by the MCP server): those
+        items are named instead of repeated, and a pack with nothing new is not recorded."""
         if explore is None:
-            # PROJECT_BRAIN_EXPLORE=0 turns exploring off, for tests and side-by-side trials.
-            explore = record_for is not None and os.environ.get("PROJECT_BRAIN_EXPLORE") != "0"
+            # PROJECT_BRAIN_EXPLORE=0 keeps exploring off even when the setting is on, for
+            # tests and side-by-side trials.
+            explore = (
+                record_for is not None
+                and os.environ.get("PROJECT_BRAIN_EXPLORE") != "0"
+                and get_agent_settings(self.session).explore_packs
+            )
         if explore:
             self.sample = random.Random()
         self.provider = provider or record_for
@@ -373,10 +462,20 @@ class ContextService:
             exclude=exclude,
             operation=operation,
             global_rules=global_rules,
+            sent=sent,
         )
         retrieval_id = None
-        text = self._render(kept, project.name)
-        if record_for is not None:
+        new = [i for i in kept if not i.repeat]
+        repeated = [i for i in kept if i.repeat]
+        repeat_of = None
+        if repeated and sent is not None:
+            repeat_of = sent.last or None
+            text = self._render_repeat(new, repeated, repeat_of)
+            repeat_of = repeat_of or ""  # marks a repeat pack even before any pack was recorded
+        else:
+            text = self._render(kept, project.name)
+        if record_for is not None and new:
+            # A pack with nothing new teaches nothing and asks for no feedback: not recorded.
             retrieval_id = self._record(
                 project.id,
                 detail_task,
@@ -385,6 +484,9 @@ class ContextService:
                 kept,
                 estimate_tokens(text, self.provider),
             )
+        if sent is not None and new:
+            for i in new:
+                sent.add(i, (retrieval_id or "")[:8])
         return ContextPack(
             project_id=project.id,
             project_name=project.name,
@@ -394,7 +496,7 @@ class ContextService:
             estimated_tokens=estimate_tokens(text, self.provider),
             over_budget=over_budget,
             text=text,
-            sections=self._summarize(kept, self.provider),
+            sections=self._summarize(new if repeat_of is not None else kept, self.provider),
             items=[
                 ContextItem(
                     section=i.section,
@@ -404,6 +506,7 @@ class ContextService:
                     tokens=math.ceil(i.tokens * factor(self.provider)),
                     reason=i.reason,
                     confidence=None if i.confidence is None else round(i.confidence, 2),
+                    repeat=i.repeat,
                 )
                 for i in kept
             ],
@@ -413,6 +516,7 @@ class ContextService:
             operation=self.operation,
             retrieval_id=retrieval_id,
             excluded=self.excluded,
+            repeat_of=repeat_of,
         )
 
     def _crowded(self, graph: GraphContext) -> list[str]:
@@ -488,8 +592,10 @@ class ContextService:
         exclude: list[str] | None = None,
         operation: str | None = None,
         global_rules: bool = True,
+        sent: SentRecords | None = None,
     ):
-        """Select and budget the items. Shared by context packs and handoffs."""
+        """Select and budget the items. Shared by context packs and handoffs. Items in
+        ``sent`` cost no budget: they are named, not sent again."""
         if detail not in DEFAULT_BUDGETS:
             raise invalid("detail must be minimal, balanced, or detailed")
         if budget is not None and budget < 100:
@@ -571,6 +677,9 @@ class ContextService:
         if CAPS["activity"][detail]:
             items += self._activity_items(project_id, detail_task, detail)
 
+        if sent is not None:
+            for i in items:
+                i.repeat = sent.has(i)
         # Items are counted in provider-neutral tokens; the budget is in the agent's tokens.
         kept, over_budget = self._fit(
             items, math.floor(limit / factor(self.provider)), detail, omitted
@@ -1580,7 +1689,10 @@ class ContextService:
         max_chars = limit  # in tokens; the name is kept from when budgets were characters
 
         def cost(item: Item) -> int:
-            # An item costs its text and a separator, plus its heading the first time.
+            # An item costs its text and a separator, plus its heading the first time. One
+            # this session was already sent is only named, so it costs nothing.
+            if item.repeat:
+                return 0
             heading = 0 if item.section in seen else HEADING_TOKENS[item.section] + 1
             return item.tokens + 1 + heading
 
@@ -1588,7 +1700,8 @@ class ContextService:
             nonlocal used
             kept.append(item)
             used += cost(item)
-            seen.add(item.section)
+            if not item.repeat:
+                seen.add(item.section)
 
         for item in ranked:
             if item.tier == 0:
@@ -1676,6 +1789,20 @@ class ContextService:
             else:
                 blocks.append(f"{heading}\n" + "\n\n".join(i.text for i in group))
         return "\n\n".join(blocks)
+
+    @staticmethod
+    def _render_repeat(new: list[Item], repeated: list[Item], since: str | None) -> str:
+        """A repeat pack: one line naming what this session already has and that still applies,
+        then only what is new or changed."""
+        labels = list(dict.fromkeys(filter(None, (repeat_label(i) for i in repeated))))
+        ref = f" since R-{since}" if since else ""
+        if not new:
+            line = f"Nothing new{ref}."
+            return line + (f" Still applies: {', '.join(labels)}." if labels else "")
+        line = f"Already sent{ref}, unchanged, still applies: " + (
+            ", ".join(labels) if labels else "the task details"
+        )
+        return f"{line}.\n\nNEW OR CHANGED\n\n" + ContextService._render(new, "")
 
     @staticmethod
     def _summarize(kept: list[Item], provider: str | None = None) -> list[ContextSection]:
