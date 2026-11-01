@@ -387,6 +387,126 @@ def _totals(events: list[UsageEvent]) -> dict:
     }
 
 
+# A usage reply counts toward the task the agent last worked on in that project (a context pack
+# for it, or a change it made to the task, a checkpoint or a record linked to it), within this
+# long. Matches the MCP server's session task, which is forgotten after two idle hours.
+TASK_GAP = timedelta(hours=2)
+COMPLETED = "completed"
+
+
+def _aware(at: datetime) -> datetime:
+    return at if at.tzinfo else at.replace(tzinfo=UTC)
+
+
+def task_usage(
+    session: Session, events: list[UsageEvent], project_of: dict[tuple[str, str], str]
+) -> dict:
+    """Real token use per task, from the agents' own logs: tokens per completed task.
+
+    Logs say nothing about tasks, so each reply is matched to Project Moah's own record of what
+    the agent was doing: the latest task it fetched a context pack for or changed (activity by
+    that agent) in the reply's project, at most ``TASK_GAP`` earlier. Replies in a log session
+    before its first such signal go to that first signal, so the turn that called the pack is
+    counted with its task. Replies with no task nearby stay unassigned and are reported as such.
+    ``project_of`` maps (agent, session) to the project id the session worked in."""
+    from app.models.checkpoint import ActivityEvent
+    from app.models.graph import RetrievalSession
+    from app.models.task import Task
+
+    if not events:
+        return {"tasks": [], "completed_tasks": 0, "unassigned_fresh_tokens": 0}
+    start = min(e.at for e in events) - TASK_GAP
+    end = max(e.at for e in events)
+    projects = set(project_of.values())
+    signals: dict[tuple[str, str], list[tuple[datetime, str]]] = defaultdict(list)
+    for project_id, agent, task_id, at in session.execute(
+        select(
+            RetrievalSession.project_id,
+            RetrievalSession.agent,
+            RetrievalSession.task_id,
+            RetrievalSession.created_at,
+        ).where(
+            RetrievalSession.project_id.in_(projects),
+            RetrievalSession.task_id.is_not(None),
+            RetrievalSession.created_at.between(start, end),
+        )
+    ):
+        if agent in AGENTS:
+            signals[(project_id, agent)].append((_aware(at), task_id))
+    for project_id, agent, task_id, at in session.execute(
+        select(
+            ActivityEvent.project_id,
+            ActivityEvent.actor_type,
+            ActivityEvent.task_id,
+            ActivityEvent.timestamp,
+        ).where(
+            ActivityEvent.project_id.in_(projects),
+            ActivityEvent.task_id.is_not(None),
+            ActivityEvent.actor_type.in_(AGENTS),
+            ActivityEvent.timestamp.between(start, end),
+        )
+    ):
+        signals[(project_id, agent)].append((_aware(at), task_id))
+    for found in signals.values():
+        found.sort()
+
+    per_task: dict[str, list[UsageEvent]] = defaultdict(list)
+    unassigned = 0
+    by_session: dict[tuple[str, str], list[UsageEvent]] = defaultdict(list)
+    for event in events:
+        by_session[(event.agent, event.session)].append(event)
+    for key, items in by_session.items():
+        items.sort(key=lambda e: e.at)
+        project_id = project_of.get(key)
+        found = signals.get((project_id, key[0]), []) if project_id else []
+        inside = [s for s in found if items[0].at - TASK_GAP <= s[0] <= items[-1].at]
+        for event in items:
+            before = [s for s in inside if s[0] <= event.at and event.at - s[0] <= TASK_GAP]
+            if before:
+                per_task[before[-1][1]].append(event)
+            elif inside and inside[0][0] > event.at:
+                per_task[inside[0][1]].append(event)  # the turn that led to the first signal
+            else:
+                unassigned += event.fresh
+
+    rows = []
+    if per_task:
+        tasks = {t.id: t for t in session.scalars(select(Task).where(Task.id.in_(per_task.keys())))}
+        for task_id, items in per_task.items():
+            task = tasks.get(task_id)
+            if task is None:
+                unassigned += sum(e.fresh for e in items)
+                continue
+            rows.append(
+                {
+                    "task_id": task.id,
+                    "task": task.human_id,
+                    "title": task.title,
+                    "project_id": task.project_id,
+                    "status": task.status,
+                    **_totals(items),
+                    "replies": len(items),
+                }
+            )
+    rows.sort(key=lambda row: row["fresh_tokens"], reverse=True)
+    done = [r for r in rows if r["status"] == COMPLETED]
+    return {
+        "tasks": rows,
+        "completed_tasks": len(done),
+        # Tokens the agent sent and received fresh (not read back from its cache), and all of
+        # them including cache reads, per task that a person marked complete.
+        "fresh_tokens_per_completed_task": (
+            round(sum(r["fresh_tokens"] for r in done) / len(done)) if done else None
+        ),
+        "total_tokens_per_completed_task": (
+            round(sum(r["fresh_tokens"] + r["cached_tokens"] for r in done) / len(done))
+            if done
+            else None
+        ),
+        "unassigned_fresh_tokens": unassigned,
+    }
+
+
 def _bucket_start(at: datetime, offset: timedelta, hourly: bool) -> datetime:
     """The start of the person's local hour or day containing `at`, as a UTC time."""
     local = at + offset
@@ -561,6 +681,12 @@ def usage_summary(
         {"project_id": names[key][0], "name": names[key][1], **_totals(items)}
         for key, items in by_project.items()
     ]
+    project_of = {
+        key: pid
+        for key, items in per_session.items()
+        if (pid := place(max(items, key=lambda e: e.at).cwd)[1])
+    }
+    by_task = task_usage(session, events, project_of)
     rows.sort(key=lambda row: row["fresh_tokens"], reverse=True)
     roots = reader.roots()
     return {
@@ -579,6 +705,7 @@ def usage_summary(
         "by_model": by_model,
         "by_tool": by_tool[:30],
         "sessions": session_rows[:15],
+        "by_task": {**by_task, "tasks": by_task["tasks"][:30]},
         "signals": signals,
         "longest_session_seconds": round(longest),
         "codex_limits": limits,

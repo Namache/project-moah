@@ -27,6 +27,7 @@ export function usageReport(overrides: Partial<UsageReport> = {}): UsageReport {
     by_model: [{ agent: "claude", model: "claude-opus-5-5", fresh_tokens: 4_600_000, cached_tokens: 1, replies: 900 }, { agent: "codex", model: "gpt-6-astra", fresh_tokens: 3_100_000, cached_tokens: 1, replies: 300 }],
     by_tool: [{ agent: "claude", tool: "Bash", calls: 1520, output_chars: 3_100_000 }, { agent: "claude", tool: "Read", calls: 560, output_chars: 900_000 }, { agent: "codex", tool: "exec", calls: 270, output_chars: 800_000 }],
     sessions: [{ agent: "codex", session: "abc", project: "Trailhead", project_id: "p1", fresh_tokens: 2_000_000, active_seconds: 7200, replies: 80, compactions: 3, models: ["gpt-6-astra"], last_at: new Date().toISOString() }],
+    by_task: { tasks: [{ task_id: "t1", task: "CAMP-7", title: "Camp party capacity", project_id: "p1", status: "completed", replies: 12, fresh_tokens: 240_000, cached_tokens: 9_000_000, output_tokens: 20_000, active_seconds: 1800, sessions: 1 }], completed_tasks: 1, fresh_tokens_per_completed_task: 240_000, total_tokens_per_completed_task: 9_240_000, unassigned_fresh_tokens: 0 },
     signals: { opus_reply_share: 0.96, compactions: { claude: 1, codex: 24 }, subagents_started: { claude: 2, codex: 3 }, tool_calls: { claude: 2080, codex: 270 }, tool_output_chars: { claude: 4_000_000, codex: 800_000 } },
     ...overrides,
   };
