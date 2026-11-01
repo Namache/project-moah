@@ -22,6 +22,7 @@ export function diagnosticReport(d: Diagnostics): string {
     `Migration: ${d.database.migration}`, `Integrity: ${d.database.integrity}, foreign key problems: ${d.database.foreign_key_problems}`,
     `Search index: ${d.database.search_index_ready ? "ready" : "unavailable"}`, `Git: ${d.git.available ? d.git.version ?? "available" : "not available"}`,
     `Records: ${Object.entries(d.counts).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(", ")}`,
+    ...(d.builds ? [`Build: ${d.builds.installed}, packs from older builds in the last day: ${d.builds.old_build_last_day}`] : []),
   ].join("\n");
 }
 
@@ -80,6 +81,7 @@ function Diagnostics() {
               <dt className="text-ink-muted">{t("Search")}</dt><dd>{d.database.search_index_ready ? t("Ready") : t("Unavailable")}</dd>
               <dt className="text-ink-muted">Git</dt><dd>{d.git.available ? d.git.version : t("Not available to Project Moah, so repository details are hidden")}</dd>
               <dt className="text-ink-muted">{t("MCP server")}</dt><dd>{tp(d.mcp.tools, "{count} tool, started by your agent when needed", "{count} tools, started by your agent when needed")}</dd>
+              {d.builds && <><dt className="text-ink-muted">{t("Build")}</dt><dd>{d.builds.installed} <span className="text-ink-subtle">({d.builds.old_build_last_day === 0 ? t("every agent session is on it") : tp(d.builds.old_build_last_day, "{count} pack in the last day came from an older build; those agent sessions are asked to restart", "{count} packs in the last day came from an older build; those agent sessions are asked to restart")})</span></dd></>}
               <dt className="text-ink-muted">{t("Contents")}</dt><dd>{Object.entries(d.counts).map(([k, v]) => countLabel(k, v)).join(", ")}</dd>
             </dl>
             <Button className="mt-4" onClick={() => void copyReport()}>{copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}{copied ? t("Copied") : t("Copy diagnostic report")}</Button>

@@ -132,6 +132,8 @@ def open_app_in_tray() -> None:
 
 
 def diagnostics(session: Session) -> dict:
+    from app.services.builds import pack_builds  # it imports APP_VERSION from here
+
     path = database_path()
     migration = session.execute(text("SELECT version_num FROM alembic_version")).scalar()
     integrity = session.execute(text("PRAGMA integrity_check")).scalar()
@@ -172,6 +174,7 @@ def diagnostics(session: Session) -> dict:
         },
         "git": {"available": git is not None, "version": git_version},
         "mcp": {"command": " ".join(agent_launch()["command"]), "tools": mcp_tool_count()},
+        "builds": pack_builds(session),
     }
 
 

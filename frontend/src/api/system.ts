@@ -10,6 +10,8 @@ export interface Diagnostics {
   counts: Record<string, number>;
   git: { available: boolean; version: string | null };
   mcp: { command: string; tools: number };
+  /** Packs served in the last day by each build; old ones mean an agent session still runs a build from before the last update. */
+  builds?: { installed: string; last_day: Record<string, number>; old_build_last_day: number };
 }
 
 /** How agents start this installation's MCP server: the Flatpak, the .deb launcher, the Windows executable, or source. */

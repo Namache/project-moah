@@ -42,6 +42,7 @@ from app.services.activity import acting_as
 from app.services.agent_prompts import second_opinion
 from app.services.agent_sync import sync_quietly
 from app.services.brief import build_brief
+from app.services.builds import UpdateWatch, register_build
 from app.services.checkpoints import CheckpointService
 from app.services.context import ContextService
 from app.services.discovery import DiscoveryService, discover_checkpoint_quietly
@@ -131,6 +132,7 @@ def build_server(
     server = MCPServer("project-moah", instructions=INSTRUCTIONS)
     actor = actor_for(agent)
     working = SessionTask()
+    watch = UpdateWatch()
 
     def tool(annotations: ToolAnnotations):
         """Register a tool that gets a session, attribution, and readable errors."""
@@ -143,7 +145,7 @@ def build_server(
                     try:
                         with acting_as(actor, agent):
                             result = fn(session, *args, **kwargs)
-                        return result
+                        return with_restart_notice(result, session)
                     except Exception as error:  # noqa: BLE001 - turned into a plain message
                         session.rollback()
                         raise ToolError(_message(error)) from None
@@ -156,6 +158,23 @@ def build_server(
             return server.tool(annotations=annotations)(run)
 
         return decorate
+
+    def with_restart_notice(result: Any, session: Session) -> Any:
+        """Once per session, add 'restart me' to the first answer after a newer build appears."""
+        if watch.told or not isinstance(result, str | dict | list):
+            return result
+        if isinstance(result, list) and not all(
+            isinstance(part, TextContent | ImageContent) for part in result
+        ):
+            return result  # a plain list of rows has nowhere to say it; the next answer will
+        notice = watch.notice(session)
+        if notice is None:
+            return result
+        if isinstance(result, str):
+            return f"{notice}\n\n{result}"
+        if isinstance(result, dict):
+            return {"moah_updated": notice, **result}
+        return [TextContent(type="text", text=notice), *result]
 
     def pick(session: Session, project: str | None, cwd: str | None = None, *, write: bool = False):
         found, how = resolve_project(session, project, cwd, default_project)
@@ -1202,6 +1221,11 @@ def main(argv: list[str] | None = None) -> int:
     url = get_database_url()
     upgrade_database(url)
     engine = make_engine(url)
+    try:
+        with make_session_factory(engine)() as session:
+            register_build(session, installed=False)  # a new session may be the first of a new build
+    except Exception:  # noqa: BLE001 - never stop an agent's tools over this note
+        pass
     if args.brief:
         # Hooks read the brief as UTF-8. A Windows pipe would use the ANSI code page and fail on
         # the first title it cannot encode, so the agent would start without its rules.

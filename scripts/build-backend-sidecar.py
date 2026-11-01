@@ -1,8 +1,10 @@
 """Build the platform-native, self-contained API sidecar for Electron packaging."""
 
 import importlib.util
+import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -35,6 +37,20 @@ def main() -> int:
         )
         return 1
 
+    # Which build this is, so an agent session still running an older one can be told to restart.
+    build_info = repo / "build/build_info.json"
+    build_info.parent.mkdir(parents=True, exist_ok=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    build_info.write_text(
+        json.dumps({"stamp": int(time.time()), "commit": commit or None}), encoding="utf-8"
+    )
+
     command = [
         sys.executable,
         "-m",
@@ -54,6 +70,8 @@ def main() -> int:
         str(repo / "backend"),
         "--add-data",
         f"{repo / 'backend/alembic.ini'}:backend",
+        "--add-data",
+        f"{build_info}:backend",
         "--add-data",
         f"{repo / 'backend/migrations'}:backend/migrations",
         "--add-data",

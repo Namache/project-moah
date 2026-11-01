@@ -27,6 +27,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.graph import OPERATIONS, NodeUsefulness, RetrievalSession
 from app.models.project import utc_now
+from app.services.builds import current_build
 from app.services.errors import invalid, not_found
 from app.services.graph import LEARNED_CONFIDENCE, GraphService, Node
 
@@ -124,6 +125,7 @@ class RetrievalService:
             agent=agent,
             items=items,
             tokens=tokens,
+            build=current_build().label,
             created_at=utc_now(),
         )
         self.session.add(found)
