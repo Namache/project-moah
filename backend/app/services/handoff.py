@@ -119,7 +119,7 @@ class HandoffService:
                     kind=i.kind,
                     ref=i.ref,
                     title=i.title,
-                    tokens=i.tokens,
+                    tokens=estimate_tokens(i.text),
                     reason=i.reason,
                 )
                 for i in kept
