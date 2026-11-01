@@ -33,8 +33,9 @@ the pack takes the set of items with the highest total score that fits (an exact
 one long item cannot push out two short ones worth more. A memory record that repeats a
 higher-ranked one in its section is left out. When an item of one tier is left out, no item
 from a later tier is kept. An item is
-either included whole or left out; it is never cut off partway. Token counts are estimates
-(characters divided by four), enough to prevent runaway context, not exact accounting.
+either included whole or left out; it is never cut off partway. Tokens are counted locally for
+the asking agent's provider (services/tokens.py: fitted to OpenAI's tokenizer, an estimate for
+Claude's); what an agent really used is read from its own logs (services/usage.py).
 """
 
 from __future__ import annotations
@@ -72,6 +73,7 @@ from app.services.projects import ProjectService
 from app.services.search import SearchService
 from app.services.shelves import ShelfService
 from app.services.tasks import CLOSED_STATUSES, TaskService
+from app.services.tokens import base_tokens, count_tokens, factor
 
 DEFAULT_BUDGETS: dict[str, int] = {"minimal": 750, "balanced": 1500, "detailed": 3000}
 IMPORTANCE_SCORE = {"critical": 20, "high": 12, "normal": 5, "low": 0}
@@ -169,6 +171,7 @@ SECTIONS: list[tuple[str, str]] = [
     ("activity", "RECENT ACTIVITY"),
 ]
 HEADING = dict(SECTIONS)
+HEADING_TOKENS = {key: base_tokens(heading) for key, heading in SECTIONS}
 SECTION_ORDER = {key: i for i, (key, _) in enumerate(SECTIONS)}
 # Header sections print their text directly under the heading.
 INLINE = {"project", "shelves", "milestone", "task", "status", "goal", "next"}
@@ -204,8 +207,9 @@ CAPS: dict[str, dict[str, int]] = {
 }
 
 
-def estimate_tokens(text: str) -> int:
-    return math.ceil(len(text) / 4)
+def estimate_tokens(text: str, provider: str | None = None) -> int:
+    """Tokens of ``text`` for the asking agent's provider, counted locally (services/tokens)."""
+    return count_tokens(text, provider)
 
 
 def match_keys(text: str) -> set[str]:
@@ -301,7 +305,7 @@ class Item:
     tokens: int = field(init=False)
 
     def __post_init__(self) -> None:
-        self.tokens = estimate_tokens(self.text)
+        self.tokens = base_tokens(self.text)  # provider-neutral; see ContextService.provider
 
 
 class ContextService:
@@ -320,6 +324,7 @@ class ContextService:
         self.operation = "coding"
         self.usefulness: dict[Node, float] = {}
         self.excluded: list[ExcludedItem] = []
+        self.provider: str | None = None  # whose tokens budgets and counts are in
         self.coverage: dict[str, float] = {}  # memory id -> share of the work's words it covers
         self.decision_intent = False
         self.named_tasks: dict[str, str] = {}  # task id -> human id, typed in the request
@@ -342,6 +347,7 @@ class ContextService:
         record_for: str | None = None,
         global_rules: bool = True,
         explore: bool | None = None,
+        provider: str | None = None,
     ) -> ContextPack:
         """``record_for`` names the agent asking; its pack is kept as a retrieval session so
         feedback can teach the links, and it explores (see ``sample``) unless ``explore=False``.
@@ -353,6 +359,7 @@ class ContextService:
             explore = record_for is not None and os.environ.get("PROJECT_BRAIN_EXPLORE") != "0"
         if explore:
             self.sample = random.Random()
+        self.provider = provider or record_for
         project, detail_task, kept, limit, over_budget, omitted, warnings = self.assemble(
             project_id,
             task=task,
@@ -368,7 +375,12 @@ class ContextService:
         text = self._render(kept, project.name)
         if record_for is not None:
             retrieval_id = self._record(
-                project.id, detail_task, query, record_for, kept, estimate_tokens(text)
+                project.id,
+                detail_task,
+                query,
+                record_for,
+                kept,
+                estimate_tokens(text, self.provider),
             )
         return ContextPack(
             project_id=project.id,
@@ -376,17 +388,17 @@ class ContextService:
             task=detail_task.human_id if detail_task else None,
             detail_level=detail,
             budget=limit,
-            estimated_tokens=estimate_tokens(text),
+            estimated_tokens=estimate_tokens(text, self.provider),
             over_budget=over_budget,
             text=text,
-            sections=self._summarize(kept),
+            sections=self._summarize(kept, self.provider),
             items=[
                 ContextItem(
                     section=i.section,
                     kind=i.kind,
                     ref=i.ref,
                     title=i.title,
-                    tokens=i.tokens,
+                    tokens=math.ceil(i.tokens * factor(self.provider)),
                     reason=i.reason,
                     confidence=None if i.confidence is None else round(i.confidence, 2),
                 )
@@ -556,7 +568,10 @@ class ContextService:
         if CAPS["activity"][detail]:
             items += self._activity_items(project_id, detail_task, detail)
 
-        kept, over_budget = self._fit(items, limit, detail, omitted)
+        # Items are counted in provider-neutral tokens; the budget is in the agent's tokens.
+        kept, over_budget = self._fit(
+            items, math.floor(limit / factor(self.provider)), detail, omitted
+        )
         kept_ids = {id(i) for i in kept}
         dropped = sorted(
             (i for i in items if id(i) not in kept_ids and i.confidence is not None),
@@ -1557,14 +1572,14 @@ class ContextService:
         )
         ranked = ContextService._without_repeats(ranked, omitted)
         kept: list[Item] = []
-        used = 0  # characters, so the budget agrees with how the final text is estimated
+        used = 0  # tokens, counted the way the final text is
         seen: set[str] = set()
-        max_chars = limit * 4
+        max_chars = limit  # in tokens; the name is kept from when budgets were characters
 
         def cost(item: Item) -> int:
             # An item costs its text and a separator, plus its heading the first time.
-            heading = 0 if item.section in seen else len(HEADING[item.section]) + 2
-            return len(item.text) + 2 + heading
+            heading = 0 if item.section in seen else HEADING_TOKENS[item.section] + 1
+            return item.tokens + 1 + heading
 
         def keep(item: Item) -> None:
             nonlocal used
@@ -1597,14 +1612,14 @@ class ContextService:
 
     @staticmethod
     def _best_set(group: list[Item], room: int, cost: Callable[[Item], int]) -> list[Item]:
-        """The subset of ``group`` with the highest total score that fits ``room`` characters:
-        an exact 0/1 knapsack, in whole tokens. A tier holds tens of items and the budget is a
+        """The subset of ``group`` with the highest total score that fits ``room`` tokens:
+        an exact 0/1 knapsack. A tier holds tens of items and the budget is a
         few thousand tokens, so this takes milliseconds. Every item is worth at least 1, so
         among equal scores the pack still takes as many as fit."""
         if room <= 0 or not group:
             return []
-        weights = [math.ceil(cost(i) / 4) for i in group]
-        capacity = room // 4
+        weights = [cost(i) for i in group]
+        capacity = room
         if sum(weights) <= capacity:
             return list(group)
         values = [max(i.score, 0.0) + 1 for i in group]
@@ -1660,7 +1675,7 @@ class ContextService:
         return "\n\n".join(blocks)
 
     @staticmethod
-    def _summarize(kept: list[Item]) -> list[ContextSection]:
+    def _summarize(kept: list[Item], provider: str | None = None) -> list[ContextSection]:
         sections = []
         for key, heading in SECTIONS:
             group = [i for i in kept if i.section == key]
@@ -1670,7 +1685,8 @@ class ContextService:
                         key=key,
                         title=heading.title(),
                         tokens=math.ceil(
-                            (len(heading) + 2 + sum(len(i.text) + 2 for i in group)) / 4
+                            (HEADING_TOKENS[key] + 1 + sum(i.tokens + 1 for i in group))
+                            * factor(provider)
                         ),
                         items=len(group),
                     )
