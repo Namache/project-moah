@@ -175,6 +175,7 @@ SESSIONS = [
             Request("Work on CAMP-1", "start_task", {"d_party"}),
             Request("Show the count in the camp header", "follow_up"),
             Request("Fix the typo in the tooltip", "small_edit"),
+            Request("Recruiting a seventh folk crashes the camp", "debugging", {"d_party"}),
         ],
     ),
     Script(
@@ -185,6 +186,7 @@ SESSIONS = [
             Request("Move the volume options into the Audio tab", "follow_up"),
             Request("The mixer bus list is wrong, check AUDIO-1", "names_record", {"f_audio"}),
             Request("Make the tab labels bold", "small_edit"),
+            Request("Now make the mixer remember volumes", "unfamiliar_area", {"f_audio"}),
         ],
     ),
 ]
