@@ -11,9 +11,10 @@ Russian strings, 2026-11-01. Weighted error on held-out text: Markdown and prose
 Russian 4.5%, TypeScript 5%, Python 11% (it overcounts code a little; characters / 4 was off
 by 23%, 42%, 5% and 11%).
 
-Claude's tokenizer is not public, so a Claude count is the o200k estimate times
-``PROVIDER_FACTOR["claude"]``: an estimate, not a measurement. What an agent really used comes
-from its own logs (services/usage.py), never from this module.
+Claude's tokenizer is not public, so a Claude count is the o200k estimate times a factor: 1.2
+until Project Moah has measured it from Claude Code's own logs on this computer
+(services/token_calibration.py; newer Claude models measured nearer 2 on packs). What an agent
+really used comes from its own logs (services/usage.py), never from this module.
 """
 
 from __future__ import annotations
@@ -68,8 +69,24 @@ def base_tokens(text: str) -> int:
     return total
 
 
+# Factors measured on this computer from the agents' own logs (services/token_calibration.py),
+# which replace the fixed ones above once enough packs were measured.
+_measured: dict[str, float] = {}
+
+
+def use_measured(provider: str, value: float | None) -> None:
+    """Use a measured factor for ``provider`` (None goes back to the fixed one)."""
+    if value is None:
+        _measured.pop(provider, None)
+    else:
+        _measured[provider] = value
+
+
 def factor(provider: str | None) -> float:
-    return PROVIDER_FACTOR.get((provider or DEFAULT_PROVIDER).casefold(), PROVIDER_FACTOR["claude"])
+    name = (provider or DEFAULT_PROVIDER).casefold()
+    if name not in PROVIDER_FACTOR:
+        name = "claude"
+    return _measured.get(name, PROVIDER_FACTOR[name])
 
 
 def count_tokens(text: str, provider: str | None = None) -> int:

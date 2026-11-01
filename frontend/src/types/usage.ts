@@ -24,7 +24,9 @@ export interface ModelRow { agent: Agent; model: string; fresh_tokens: number; c
 export interface ToolRow { agent: Agent; tool: string; calls: number; output_chars: number }
 export interface SessionRow { agent: Agent; session: string; project: string; project_id: string | null; fresh_tokens: number; active_seconds: number; replies: number; compactions: number; models: string[]; last_at: string }
 export interface TaskUsageRow extends UsageTotals { task_id: string; task: string; title: string; project_id: string; status: string; replies: number }
-export interface TaskUsage { tasks: TaskUsageRow[]; completed_tasks: number; fresh_tokens_per_completed_task?: number | null; total_tokens_per_completed_task?: number | null; unassigned_fresh_tokens: number }
+export interface TaskUsage { tasks: TaskUsageRow[]; completed_tasks: number; fresh_tokens_per_completed_task?: number | null; total_tokens_per_completed_task?: number | null; unassigned_fresh_tokens: number; matched_fresh_tokens?: { session: number; time: number; none: number }; unassigned_share?: number | null }
+export interface PackEstimateRow { model: string; packs: number; factor: number; estimated_tokens: number; actual_tokens: number; error_fixed: number; error_measured: number | null; last_at: string }
+export interface TokenEstimates { fixed_factor: number; min_packs: number; target_error: number; models: PackEstimateRow[]; in_use: { model: string; factor: number } | null }
 export interface UsageSignals { opus_reply_share: number; compactions: Record<Agent, number>; subagents_started: Record<Agent, number>; tool_calls: Record<Agent, number>; tool_output_chars: Record<Agent, number> }
 
 export interface UsageReport {
@@ -45,6 +47,7 @@ export interface UsageReport {
   by_tool?: ToolRow[];
   sessions?: SessionRow[];
   by_task?: TaskUsage;
+  token_estimates?: TokenEstimates;
   signals?: UsageSignals;
   codex_limits: ({ short?: LimitWindow; weekly?: LimitWindow; updated_at: string }) | null;
 }

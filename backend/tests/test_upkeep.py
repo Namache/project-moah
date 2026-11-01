@@ -21,6 +21,7 @@ pytestmark = pytest.mark.anyio
 UNVERSIONED = {
     "activity_events",
     "agent_folders",
+    "agent_session_events",
     "ai_proposals",
     "alembic_version",
     "app_settings",

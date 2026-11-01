@@ -1,4 +1,5 @@
 from app.models.agent_folder import AgentFolder
+from app.models.agent_session import AgentSessionEvent
 from app.models.app_setting import AppSetting
 from app.models.checkpoint import ActivityEvent, Checkpoint
 from app.models.files import (
@@ -34,6 +35,7 @@ from app.models.task import (
 
 __all__ = [
     "AgentFolder",
+    "AgentSessionEvent",
     "AppSetting",
     "AcceptanceCriterion",
     "ActivityEvent",

@@ -360,6 +360,9 @@ class ContextService:
         if explore:
             self.sample = random.Random()
         self.provider = provider or record_for
+        from app.services.token_calibration import load as load_token_factor
+
+        load_token_factor(self.session)  # Claude's factor as measured from its logs, if it was
         project, detail_task, kept, limit, over_budget, omitted, warnings = self.assemble(
             project_id,
             task=task,

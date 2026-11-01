@@ -113,6 +113,12 @@ describe("interactive dashboard", () => {
     expect(screen.getByRole("tab", { name: "By task" })).toHaveFocus();
     expect(screen.getByText("CAMP-7 Camp party capacity")).toBeInTheDocument();
     expect(screen.getByText(/per completed task, from the agents' own logs/)).toBeInTheDocument();
+    expect(screen.getByText(/\(8%\) matched no task/)).toBeInTheDocument();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Pack estimates" })).toHaveFocus();
+    expect(screen.getByText("×1.93")).toBeInTheDocument();
+    expect(screen.getByText(/8 packs measured, estimated 5k, real 8k, off by 38% with ×1\.2, 4% with its measured ×1\.93/)).toBeInTheDocument();
+    expect(screen.getByText(/Packs are now sized with ×1\.93/)).toBeInTheDocument();
     await userEvent.keyboard("{ArrowRight}");
     expect(screen.getByRole("tab", { name: "By model" })).toHaveFocus();
     expect(screen.getByRole("tab", { name: "By model" })).toHaveAttribute("aria-selected", "true");
