@@ -62,10 +62,11 @@ INSTRUCTIONS = """\
 Project Moah is the person's source of truth for rules, decisions, tasks, checkpoints and memory,
 shared by Claude Code and Codex across every project. At the start of a session, call brain_brief
 with your working folder as cwd (skip it if a Project Moah brief is already in your context) and
-follow the global and project rules it returns. Call brain_context_pack FIRST for every request,
-small ones too, before reading code: the records hold what the code doesn't (known bugs, traps,
-decisions). The pack's task becomes this session's task, and what you write afterwards is linked
-to it.
+follow the global and project rules it returns. Fetch more only when the work needs it: call
+brain_context_pack when you start or switch tasks, when a request names an ID you have no pack
+for, when you need the history behind something (decisions, known bugs, traps), before changing
+an area you have not touched this session, and when debugging. Skip it for follow-ups and small
+edits. The pack's task becomes this session's task, and what you write afterwards is linked to it.
 Record settled decisions, rules, facts, bugs and warnings with brain_create_memory as you go.
 When you know how a record relates to others, say so in the same call with links, each written
 "relationship target" (links=["caused_by DEC-002", "uses file:src/save.gd"]); use brain_link for
@@ -306,7 +307,9 @@ def build_server(
         explain: bool = False,
         global_rules: bool = False,
     ) -> str:
-        """Get a compact, ranked context pack for a task (for example CAMP-037). detail is minimal,
+        """Get a compact, ranked context pack for a task (for example CAMP-037), when the work
+        needs more than the brief: a new task, an ID you have no pack for, history, an unfamiliar
+        area, or a bug. Not needed for follow-ups on the same work. detail is minimal,
         balanced, or detailed. Omit task to use the project's current focus. operation (coding,
         debugging, design, testing, art, documentation, planning) is detected from the task when
         omitted. explain=true adds why each record was included and what came close. Global rules are left out

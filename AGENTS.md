@@ -6,7 +6,7 @@ This repository uses Project Moah as the canonical source for task state, projec
 
 When the Project Moah MCP server is connected (Codex: see `docs/MCP.md`):
 
-- Call `brain_context_pack` FIRST for every request, small ones too, then read the source files it names: the records hold what the code doesn't (known bugs, traps, decisions). Do not infer completion from conversation history.
+- Call `brain_context_pack` when you start or switch tasks, when a request names an ID you have no pack for, when you need the history behind something (decisions, known bugs, traps), before changing an area you have not touched this session, and when debugging; then read the source files it names. Skip it for follow-ups and small edits. Do not infer completion from conversation history.
 - Keep projects separate. If the project is ambiguous, ask; never guess.
 - After meaningful work, call `brain_create_checkpoint`. Suggest durable changes with `brain_create_proposal` for a person to review.
 - Never change locked memory. Ideas are not requirements.

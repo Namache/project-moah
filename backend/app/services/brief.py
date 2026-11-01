@@ -2,7 +2,7 @@
 current project's rules and state, and how to keep Project Moah up to date.
 
 Kept small on purpose. It is injected once per session, so every line costs tokens in every chat.
-Details come later, on demand, from context packs.
+Details come later, only when the work needs them, from context packs (see RETRIEVE_WHEN).
 """
 
 from __future__ import annotations
@@ -16,28 +16,36 @@ from app.services.memory import MemoryService
 from app.services.proposals import ProposalService
 from app.services.tasks import TaskService
 
-HOW_TO = """\
+# When an agent should fetch a context pack. The brief lists these, and the retrieval benchmark
+# (tests/retrieval_bench.py) replays sessions against the same list, so the two cannot drift.
+RETRIEVE_WHEN: dict[str, str] = {
+    "start_task": "you start a task or switch to another one",
+    "names_record": "the request names a task or record ID you have no pack for",
+    "history": "you need the history behind something: why it is so, what was decided, "
+    "known bugs or traps",
+    "unfamiliar_area": "you are about to change an area you have not touched in this session",
+    "debugging": "you are tracking down a bug or error",
+}
+
+HOW_TO = (
+    """\
 HOW TO WORK WITH PROJECT MOAH
-Project Moah is the source of truth for rules, decisions and memory, shared by Claude Code
-and Codex.
-- Follow every rule above. Global rules apply in every project and every chat.
-- Call brain_context_pack FIRST for every request, small ones too, before reading code (pass
-  cwd or project). The records hold what the code doesn't: known bugs, traps and decisions.
-  Then read the files it names. Its task becomes this session's task: what you write afterwards
-  is linked to it. Packs leave out the Global rules above, since you already have them.
-- As things are settled, record them with brain_create_memory without being asked: decisions,
-  rules, facts, bugs and warnings that will matter later. Say how they relate in the same call,
-  with related=[IDs] or links=["caused_by DEC-002"]. Skip trivia and anything the code or Git
-  history already shows. A record is filed on its shelf automatically; pass shelf= when you know a
-  more specific one. Shelves are one shared tree of categories, broad to specific
-  (Knowledge > Game development > Game design > Game mechanics), never a project or a word.
-  When a pack says a shelf is crowded, split it into narrower categories as it asks.
-- After working from a context pack, tell brain_retrieval_feedback which records helped.
-- Global memory (project="global") is for things true in every project, such as the person's
-  preferences. New global rules and decisions go to brain_create_proposal for the person to
-  accept.
-- After meaningful work, call brain_create_checkpoint. Locked memory and finishing tasks need
-  review."""
+Project Moah holds the rules, decisions and memory shared by Claude Code and Codex.
+- Follow every rule above, in every chat.
+- Fetch more context only when the work needs it. Call brain_context_pack (task=ID or query=...)
+  when:
+"""
+    + "\n".join(f"  * {when}" for when in RETRIEVE_WHEN.values())
+    + """
+  Skip it for follow-ups on the same work and small edits: you already have what it would give.
+  Its task becomes this session's task; what you write afterwards links to it.
+- Record settled decisions, rules, facts, bugs and warnings with brain_create_memory, saying how
+  they relate (links=["caused_by DEC-002"]). Skip trivia and what the code or Git already shows.
+  Things true in every project go to project="global"; new global rules and decisions go to
+  brain_create_proposal.
+- After working from a pack, tell brain_retrieval_feedback which records helped. After
+  meaningful work, call brain_create_checkpoint. Locked memory and finishing tasks need review."""
+)
 
 
 def _rule_line(m: MemoryRead, scope: str = "") -> str:
