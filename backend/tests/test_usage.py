@@ -327,3 +327,59 @@ async def test_agent_filter_until_and_local_days(client: AsyncClient, logs) -> N
         )
     ).json()
     assert 3 <= len(hours["series"]) <= 5
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux folder layout (/home, /var/home)")
+async def test_real_tokens_per_completed_task(client: AsyncClient, logs, database_url) -> None:
+    from app.db.session import make_engine, make_session_factory
+    from app.models.checkpoint import ActivityEvent
+    from app.models.graph import RetrievalSession
+
+    game = (
+        await client.post("/api/projects", json={"name": "Game", "root_path": "/home/me/game"})
+    ).json()
+    base = f"/api/projects/{game['id']}/tasks"
+    first = (await client.post(base, json={"title": "Fix old saves"})).json()
+    second = (await client.post(base, json={"title": "Camp header"})).json()
+    with make_session_factory(make_engine(database_url))() as session:
+        # Claude fetched a pack for the first task, then changed the second one.
+        session.add(
+            RetrievalSession(
+                project_id=game["id"],
+                task_id=first["id"],
+                operation="coding",
+                agent="claude",
+                items=[],
+                created_at=NOW - timedelta(minutes=35),
+            )
+        )
+        session.add(
+            ActivityEvent(
+                project_id=game["id"],
+                task_id=second["id"],
+                task_project_id=game["id"],
+                event_type="TASK_UPDATED",
+                actor_type="claude",
+                timestamp=NOW - timedelta(minutes=25),
+            )
+        )
+        session.commit()
+    write(
+        logs["claude"],
+        [
+            claude_line("m1", 40, "/home/me/game"),  # the turn that asked for the pack
+            claude_line("m2", 30, "/home/me/game/src"),
+            claude_line("m3", 20, "/home/me/game"),
+        ],
+    )
+    await client.patch(f"{base}/{first['id']}", json={"status": "completed"})
+
+    by_task = (await client.get("/api/usage")).json()["by_task"]
+    rows = {row["task"]: row for row in by_task["tasks"]}
+    assert rows[first["human_id"]]["fresh_tokens"] == 2 * 15
+    assert rows[first["human_id"]]["replies"] == 2
+    assert rows[second["human_id"]]["fresh_tokens"] == 15
+    assert by_task["completed_tasks"] == 1
+    assert by_task["fresh_tokens_per_completed_task"] == 30
+    assert by_task["total_tokens_per_completed_task"] == 30 + 200
+    assert by_task["unassigned_fresh_tokens"] == 0

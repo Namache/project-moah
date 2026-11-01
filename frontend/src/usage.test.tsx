@@ -110,6 +110,10 @@ describe("interactive dashboard", () => {
     expect(screen.getByText(/compacted 3×/)).toBeInTheDocument();
     expect(screen.getByRole("tabpanel", { name: "By session" })).toBeInTheDocument();
     await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "By task" })).toHaveFocus();
+    expect(screen.getByText("CAMP-7 Camp party capacity")).toBeInTheDocument();
+    expect(screen.getByText(/per completed task, from the agents' own logs/)).toBeInTheDocument();
+    await userEvent.keyboard("{ArrowRight}");
     expect(screen.getByRole("tab", { name: "By model" })).toHaveFocus();
     expect(screen.getByRole("tab", { name: "By model" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "By tool" })).toHaveAttribute("tabindex", "-1");

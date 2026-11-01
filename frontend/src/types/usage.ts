@@ -23,6 +23,8 @@ export interface SeriesPoint { start: string; claude: { fresh_tokens: number; ac
 export interface ModelRow { agent: Agent; model: string; fresh_tokens: number; cached_tokens: number; replies: number }
 export interface ToolRow { agent: Agent; tool: string; calls: number; output_chars: number }
 export interface SessionRow { agent: Agent; session: string; project: string; project_id: string | null; fresh_tokens: number; active_seconds: number; replies: number; compactions: number; models: string[]; last_at: string }
+export interface TaskUsageRow extends UsageTotals { task_id: string; task: string; title: string; project_id: string; status: string; replies: number }
+export interface TaskUsage { tasks: TaskUsageRow[]; completed_tasks: number; fresh_tokens_per_completed_task?: number | null; total_tokens_per_completed_task?: number | null; unassigned_fresh_tokens: number }
 export interface UsageSignals { opus_reply_share: number; compactions: Record<Agent, number>; subagents_started: Record<Agent, number>; tool_calls: Record<Agent, number>; tool_output_chars: Record<Agent, number> }
 
 export interface UsageReport {
@@ -42,6 +44,7 @@ export interface UsageReport {
   by_model?: ModelRow[];
   by_tool?: ToolRow[];
   sessions?: SessionRow[];
+  by_task?: TaskUsage;
   signals?: UsageSignals;
   codex_limits: ({ short?: LimitWindow; weekly?: LimitWindow; updated_at: string }) | null;
 }
