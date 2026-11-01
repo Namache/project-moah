@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import get_database_url
 from app.db.migrate import upgrade_database
 from app.db.session import make_engine, make_session_factory
-from app.mcp.linking import SessionTask, link_written, sort_named
+from app.mcp.linking import SessionPacks, SessionTask, link_written, sort_named
 from app.mcp.projects import ProjectChoiceError, resolve_project
 from app.models.graph import OPERATIONS
 from app.models.memory import Memory
@@ -45,7 +45,7 @@ from app.services.agent_sync import sync_quietly
 from app.services.brief import build_brief
 from app.services.builds import UpdateWatch, register_build
 from app.services.checkpoints import CheckpointService
-from app.services.context import ContextService
+from app.services.context import ContextService, mark_context_reset
 from app.services.discovery import DiscoveryService, discover_checkpoint_quietly
 from app.services.files import FileService
 from app.services.graph import GraphService, Node
@@ -135,6 +135,7 @@ def build_server(
     working = SessionTask()
     watch = UpdateWatch()
     sessions = SessionTracker(agent.strip().casefold())
+    packs = SessionPacks()
 
     def tool(annotations: ToolAnnotations):
         """Register a tool that gets a session, attribution, and readable errors."""
@@ -143,10 +144,12 @@ def build_server(
             @wraps(fn)
             def run(*args: Any, **kwargs: Any) -> Any:
                 working.tick()
+                packs.tick()
                 with session_factory() as session:
                     try:
                         if sessions.refresh(session):
                             working.clear()  # /clear started a new session: no task of its own
+                            packs.clear()  # and none of the packs sent before are in its context
                         with acting_as(actor, agent):
                             result = fn(session, *args, **kwargs)
                         sessions.record_tasks(session, working.tasks())
@@ -229,6 +232,7 @@ def build_server(
         focus and latest checkpoint, and how to keep Project Moah current. Pass your working
         folder as cwd. Works outside any project too: then only global rules apply."""
         working.clear()  # a new session starts with no task of its own
+        packs.clear()  # and has been sent nothing yet
         sync_quietly(session)  # a folder first seen in this session gets its project now
         try:
             found, _ = pick(session, project, cwd)
@@ -330,6 +334,7 @@ def build_server(
         operation: str | None = None,
         explain: bool = False,
         global_rules: bool = False,
+        full: bool = False,
     ) -> str:
         """Get a compact, ranked context pack for a task (for example CAMP-037), when the work
         needs more than the brief: a new task, an ID you have no pack for, history, an unfamiliar
@@ -340,10 +345,15 @@ def build_server(
         because the session brief already gave them; pass global_rules=true if you never got the
         brief. The task
         becomes this session's task: what you write afterwards is linked to it. The pack
-        carries a retrieval id: after the work, report what helped with brain_retrieval_feedback."""
+        carries a retrieval id: after the work, report what helped with brain_retrieval_feedback.
+        A repeat request in this session gets only what is new or changed, and names what you
+        already have; full=true sends everything again (if your context lost earlier packs)."""
         found, _ = pick(session, project)
         if operation is not None and operation not in OPERATIONS:
             raise ValueError(f"operation must be one of: {', '.join(OPERATIONS)}")
+        sent = packs.get(session, found.id)
+        if full:
+            sent.clear()  # send everything; later repeats count from this pack
         pack = ContextService(session).build(
             found.id,
             task=task,
@@ -354,10 +364,22 @@ def build_server(
             operation=operation,
             record_for=agent,
             global_rules=global_rules,
+            sent=sent,
         )
+        before = session_task(session, found.id)
         if pack.task and (task or not query):
             # The work this pack is for. A pack for a search alone only borrows the focus task.
             working.set(found.id, TaskService(session).get(found.id, pack.task).id)
+        current = session_task(session, found.id)
+        if pack.repeat_of is not None and not pack.retrieval_id:
+            # Nothing new: a line, not a pack. The agent already has the rest; the tool's
+            # description says how to get it all again (full=true).
+            text = pack.text
+            if current != before:
+                text += f"\nThis session's task is {current}: what you write now is linked to it."
+            if check := take_daily_check(session):
+                text += "\n\n" + check
+            return text
         notes = [f"~{pack.estimated_tokens} tokens", f"operation {pack.operation}"] + pack.warnings
         if pack.omitted:
             notes.append("left out: " + ", ".join(f"{n} {why}" for why, n in pack.omitted.items()))
@@ -368,7 +390,7 @@ def build_server(
                 f'After the work, call brain_retrieval_feedback(retrieval="R-{pack.retrieval_id[:8]}",'
                 " useful=[...], not_useful=[...]) with the IDs that helped and those that did not."
             )
-        if current := session_task(session, found.id):
+        if current and (current != before or pack.repeat_of is None):
             after.append(f"This session's task is {current}: what you write now is linked to it.")
         if check := take_daily_check(session):
             # The day's check had not been given yet: this session started without a brief.
@@ -1241,6 +1263,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             with make_session_factory(engine)() as session:
                 sync_quietly(session)
+                # A session just started, was cleared or was compacted: packs sent before are
+                # no longer in its context, so running MCP servers send the next one in full.
+                mark_context_reset(session)
                 # Hooks on Windows can't pass the folder portably: cmd.exe and Git Bash spell
                 # variables differently, so read Claude Code's own variable here instead.
                 cwd = args.cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()

@@ -7,7 +7,7 @@ import { App } from "./App";
 
 const project = { id: "p1", name: "Trailhead", slug: "trailhead", description: null, icon: null, accent: null, root_path: null, status: "active", current_focus_task_id: null, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", last_opened_at: null, archived_at: null };
 
-const agentSettings = { default_agent: "claude", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude", update_check_enabled: true };
+const agentSettings = { default_agent: "claude", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude", update_check_enabled: true, explore_packs: false };
 
 function setup(existing: unknown[] = []) {
   const calls: { url: string; method: string; body?: unknown }[] = [];

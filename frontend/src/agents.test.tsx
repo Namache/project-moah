@@ -8,7 +8,7 @@ import { ProjectsNav } from "./components/ProjectsNav";
 import { WorkOnTaskButton } from "./components/tasks/WorkOnTaskButton";
 import type { Project } from "./types/project";
 
-const settings = { default_agent: "codex", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude", update_check_enabled: true };
+const settings = { default_agent: "codex", second_opinion_enabled: false, codex_command: "codex", claude_command: "claude", update_check_enabled: true, explore_packs: false };
 const prompt = { agent: "codex", task: "CAMP-001", prompt: "Work on task CAMP-001", url: "codex://new?prompt=Work", folder: "/home/me/game" };
 
 function wrap(ui: React.ReactNode) {
@@ -73,6 +73,15 @@ describe("agent settings", () => {
     expect(box).toBeChecked();
     await userEvent.click(box);
     expect(calls.at(-1)?.body).toEqual({ update_check_enabled: false });
+  });
+
+  it("keeps packs predictable until exploring is switched on", async () => {
+    const calls = mockFetch();
+    wrap(<AgentSettingsCard />);
+    const box = await screen.findByRole("checkbox", { name: /Let packs explore/ });
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    expect(calls.at(-1)?.body).toEqual({ explore_packs: true });
   });
 
   it("shows the agent commands only when second opinions are on", async () => {

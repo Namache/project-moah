@@ -19,6 +19,9 @@ class ContextItem(BaseModel):
     # How strongly the Link System connected this record to the work, 0 to 1. None when it
     # came in another way (the task itself, a checkpoint, a global rule).
     confidence: float | None = None
+    # True when this agent session was already sent the item, unchanged, by an earlier pack:
+    # it still applies but is not repeated in the text.
+    repeat: bool = False
 
 
 class ExcludedItem(BaseModel):
@@ -58,3 +61,6 @@ class ContextPack(BaseModel):
     # Set when an agent's pack was recorded, so it can report back what helped.
     retrieval_id: str | None = None
     excluded: list[ExcludedItem] = Field(default_factory=list)
+    # A repeat request in one agent session: the earlier pack (R-...) whose items were not sent
+    # again. None for a first pack or a preview.
+    repeat_of: str | None = None

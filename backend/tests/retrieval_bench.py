@@ -19,6 +19,12 @@ Two measurements:
    - missed: a request needed a record the agent never got, so the task fails
    - tokens: brief + every pack, counted with the app's own token counter
    - tokens per completed task: total tokens / sessions with nothing missed
+   The ``on_demand_repeat_aware`` policy fetches like ``on_demand`` but replays the MCP server's
+   memory of what the session was already sent (PROJ-015): a repeat pack sends only what is new.
+
+3. Exploring (PROJ-014). Packs are predictable by default; with exploring on (Settings) link
+   weights are sampled. The pack cases are run ``EXPLORE_RUNS`` times with exploring on and
+   compared with the predictable run.
 
 Run ``python -m tests.retrieval_bench`` from backend/ to print the numbers as JSON.
 Real agents may not follow the brief literally; that needs live runs (see the 2026-10 logs).
@@ -37,7 +43,7 @@ from httpx import AsyncClient
 
 from app.models.project import Project
 from app.services import brief as brief_module
-from app.services.context import ContextService
+from app.services.context import ContextService, SentRecords
 
 # ---- the fixture -----------------------------------------------------------------------------
 
@@ -191,10 +197,18 @@ SESSIONS = [
     ),
 ]
 
+
+def _on_demand(kind: str) -> bool:
+    return kind in getattr(brief_module, "RETRIEVE_WHEN", {})
+
+
+# policy: (fetch a pack for this kind of request?, remember what the session was sent?)
 POLICIES = {
-    "every_request": lambda kind: True,
-    "on_demand": lambda kind: kind in getattr(brief_module, "RETRIEVE_WHEN", {}),
+    "every_request": (lambda kind: True, False),
+    "on_demand": (_on_demand, False),
+    "on_demand_repeat_aware": (_on_demand, True),
 }
+EXPLORE_RUNS = 30
 
 
 # ---- running it ------------------------------------------------------------------------------
@@ -262,9 +276,26 @@ async def seed(client: AsyncClient) -> tuple[str, dict[str, str], dict[str, str]
     )
 
 
-def _pack(session, pid: str, task: str | None, query: str | None):
+def _pack(
+    session,
+    pid: str,
+    task: str | None,
+    query: str | None,
+    *,
+    explore: bool = False,
+    sent: SentRecords | None = None,
+):
+    # A session that remembers what it was sent records its packs like the MCP server does, so
+    # a repeat names the pack it repeats. Running last, it cannot change the other numbers.
     return ContextService(session).build(
-        pid, task=task, query=query, detail="balanced", global_rules=False, explore=False
+        pid,
+        task=task,
+        query=query,
+        detail="balanced",
+        global_rules=False,
+        explore=explore,
+        record_for="claude" if sent is not None else None,
+        sent=sent,
     )
 
 
@@ -275,11 +306,11 @@ def _count(text: str) -> int:
     return count_tokens(text, "claude")
 
 
-def measure(session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, str]) -> dict:
-    label_of = {v: k for k, v in memory_ids.items()}
+def _quality(session, pid, task_ids, label_of, explore: bool = False) -> dict:
     cases = []
     for case in CASES:
-        pack = _pack(session, pid, task_ids.get(case.task) if case.task else None, case.query)
+        task = task_ids.get(case.task) if case.task else None
+        pack = _pack(session, pid, task, case.query, explore=explore)
         got = {label_of.get(i.ref, i.ref) for i in pack.items if i.kind.startswith("memory")}
         got -= case.fine
         hit = got & case.needed
@@ -292,33 +323,71 @@ def measure(session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, s
                 "missing": sorted(case.needed - got),
                 "forbidden_found": sorted(got & case.forbidden),
                 "tokens": _count(pack.text),
+                "text": pack.text,
             }
         )
     n = len(cases)
-    quality = {
+    return {
         "precision": round(sum(c["precision"] for c in cases) / n, 3),
         "recall": round(sum(c["recall"] for c in cases) / n, 3),
         "pack_tokens_avg": round(sum(c["tokens"] for c in cases) / n),
         "cases": cases,
     }
 
+
+def _explore(session, pid, task_ids, label_of, predictable: dict) -> dict:
+    """The pack cases with exploring on, ``EXPLORE_RUNS`` times."""
+    runs = [_quality(session, pid, task_ids, label_of, explore=True) for _ in range(EXPLORE_RUNS)]
+    differ = [
+        sum(1 for run in runs if run["cases"][k]["text"] != case["text"])
+        for k, case in enumerate(predictable["cases"])
+    ]
+    return {
+        "runs": EXPLORE_RUNS,
+        "precision_avg": round(sum(r["precision"] for r in runs) / len(runs), 3),
+        "precision_min": min(r["precision"] for r in runs),
+        "recall_avg": round(sum(r["recall"] for r in runs) / len(runs), 3),
+        "recall_min": min(r["recall"] for r in runs),
+        "pack_tokens_avg": round(sum(r["pack_tokens_avg"] for r in runs) / len(runs)),
+        # per case: in how many runs the pack differed from the predictable one
+        "packs_that_differed": differ,
+    }
+
+
+def measure(session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, str]) -> dict:
+    label_of = {v: k for k, v in memory_ids.items()}
+    quality = _quality(session, pid, task_ids, label_of)
+    # Same request twice, exploring off: the packs must be identical (PROJ-014).
+    again = _quality(session, pid, task_ids, label_of)
+    quality["repeatable"] = all(
+        a["text"] == b["text"] for a, b in zip(quality["cases"], again["cases"], strict=True)
+    )
+    explore = _explore(session, pid, task_ids, label_of, quality)
+    for case in quality["cases"]:
+        del case["text"]
+
     project = session.get(Project, pid)
     brief_tokens = _count(brief_module.build_brief(session, project))
     sessions = {}
-    for policy, wants in POLICIES.items():
+    for policy, (wants, remembers) in POLICIES.items():
         total = retrievals = unnecessary = missed_requests = completed = 0
+        unnecessary_tokens: list[int] = []
         for script in SESSIONS:
             known: set[str] = set()
+            sent = SentRecords() if remembers else None
             tokens = brief_tokens
             failed = False
             for request in script.requests:
                 if wants(request.kind):
                     retrievals += 1
-                    if request.needs <= known:
-                        unnecessary += 1
+                    needless = request.needs <= known
                     query = None if request.kind == "start_task" else request.text
-                    pack = _pack(session, pid, task_ids[script.task], query)
-                    tokens += _count(pack.text)
+                    pack = _pack(session, pid, task_ids[script.task], query, sent=sent)
+                    cost = _count(pack.text)
+                    tokens += cost
+                    if needless:
+                        unnecessary += 1
+                        unnecessary_tokens.append(cost)
                     known |= {
                         label_of.get(i.ref, i.ref)
                         for i in pack.items
@@ -333,13 +402,19 @@ def measure(session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, s
             "requests": sum(len(s.requests) for s in SESSIONS),
             "retrievals": retrievals,
             "unnecessary_retrievals": unnecessary,
+            "unnecessary_retrieval_tokens": unnecessary_tokens,
             "missed_requests": missed_requests,
             "completed_tasks": completed,
             "tasks": len(SESSIONS),
             "total_tokens": total,
             "tokens_per_completed_task": round(total / completed) if completed else None,
         }
-    return {"brief_tokens": brief_tokens, "quality": quality, "sessions": sessions}
+    return {
+        "brief_tokens": brief_tokens,
+        "quality": quality,
+        "explore": explore,
+        "sessions": sessions,
+    }
 
 
 async def run(database_url: str) -> dict:

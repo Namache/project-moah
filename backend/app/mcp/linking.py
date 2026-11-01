@@ -24,7 +24,9 @@ from dataclasses import dataclass, field
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.project import utc_now
 from app.models.task import Task
+from app.services.context import SentRecords, context_reset_at
 from app.services.discovery import discover_quietly, link_to_task_quietly
 from app.services.graph import GraphService
 
@@ -69,6 +71,39 @@ class SessionTask:
             self._tasks.pop(project_id, None)
             return None
         return task
+
+
+class SessionPacks:
+    """What this agent session was already sent by context packs, per project, so a repeat
+    pack sends only what is new (see app.services.context.SentRecords).
+
+    Forgotten when the session ends (the process exits), on brain_brief, after a long pause, and
+    when any agent's context was started, cleared or compacted since (the start-up hook notes
+    it in the database). The last can make another session resend one full pack: that costs
+    tokens, while a pack that wrongly says "nothing new" would cost the agent its context.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        self._sent: dict[str, SentRecords] = {}
+        self._seen = clock()
+        self._since = utc_now()
+
+    def tick(self) -> None:
+        now = self._clock()
+        if now - self._seen > IDLE_SECONDS:
+            self.clear()
+        self._seen = now
+
+    def clear(self) -> None:
+        self._sent.clear()
+        self._since = utc_now()
+
+    def get(self, session: Session, project_id: str) -> SentRecords:
+        reset = context_reset_at(session)
+        if reset is not None and reset >= self._since:
+            self.clear()
+        return self._sent.setdefault(project_id, SentRecords())
 
 
 @dataclass

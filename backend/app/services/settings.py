@@ -28,6 +28,10 @@ class AgentSettings(BaseModel):
     # On by default: once a day the agent looks up the latest release with its own tools and asks
     # before updating. Project Moah itself never goes online either way.
     update_check_enabled: bool = True
+    # Off by default: the same request gives the same pack. On, agents' packs sample link
+    # weights (Thompson sampling), so links nobody has rated get an occasional chance to prove
+    # themselves, at the cost of packs that differ a little from one call to the next.
+    explore_packs: bool = False
 
 
 class AgentSettingsUpdate(BaseModel):
@@ -38,6 +42,7 @@ class AgentSettingsUpdate(BaseModel):
     codex_command: str | None = Field(default=None, min_length=1, max_length=500)
     claude_command: str | None = Field(default=None, min_length=1, max_length=500)
     update_check_enabled: bool | None = None
+    explore_packs: bool | None = None
 
 
 def get_agent_settings(session: Session) -> AgentSettings:

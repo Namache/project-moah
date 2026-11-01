@@ -21,6 +21,8 @@ export const ru: Record<string, Translation> = {
   "Make it yours": "Настройте под себя",
   "Choose how Project Moah works for you. You can change any of this later in Settings.": "Выберите, как Project Moah будет работать для вас. Всё это можно изменить позже в настройках.",
   "Automatically check for updates": "Автоматически проверять обновления",
+  "Let packs explore": "Разрешить пакетам исследовать",
+  "Context packs sometimes include a record reached over a link nobody has rated yet, so Project Moah learns whether it helps. Packs then differ a little from one request to the next. Off: the same request always gets the same pack.": "Иногда в пакет контекста попадает запись, найденная по связи, которую ещё никто не оценил, чтобы Project Moah узнал, полезна ли она. Тогда пакеты немного различаются от запроса к запросу. Если выключено, на один и тот же запрос всегда приходит один и тот же пакет.",
   "Once a day, at the start of a session, your agent looks up the newest Project Moah release on GitHub and asks you before updating. Project Moah itself never goes online.": "Раз в день, в начале сессии, ваш агент проверяет на GitHub, не вышла ли новая версия Project Moah, и спрашивает вас, прежде чем обновлять. Сам Project Moah никогда не выходит в интернет.",
   "Saving…": "Сохранение…",
   "Save commands": "Сохранить команды",
