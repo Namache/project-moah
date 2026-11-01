@@ -269,10 +269,10 @@ def _pack(session, pid: str, task: str | None, query: str | None):
 
 
 def _count(text: str) -> int:
-    from app.services import context
+    """Claude tokens, counted locally (services/tokens.py), so runs on old code compare."""
+    from app.services.tokens import count_tokens
 
-    counter = getattr(context, "count_tokens", None)
-    return counter(text) if counter else context.estimate_tokens(text)
+    return count_tokens(text, "claude")
 
 
 def measure(session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, str]) -> dict:
