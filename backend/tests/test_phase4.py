@@ -86,7 +86,7 @@ async def test_records_that_helped_a_similar_task_are_predicted(
     base = f"/api/projects/{pid}"
     first = await post(client, f"{base}/tasks", title="Balance camp fire upgrades")
     second = await post(client, f"{base}/tasks", title="Balance camp tent upgrades")
-    note = await post(client, f"{base}/memory", type="fact", title="Camp costs live in costs.csv")
+    note = await post(client, f"{base}/memory", type="fact", title="Camp upgrade costs live in costs.csv")
     factory = make_session_factory(make_engine(database_url))
     with factory() as session:
         service = ContextService(session)

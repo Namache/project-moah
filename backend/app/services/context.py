@@ -5,7 +5,15 @@ Safety rules, applied before anything is ranked (all enforced here, not in the U
 - Memory that is hidden, archived, invalidated, or superseded is never included.
 - ``manual_only`` memory appears only when the caller names it in ``include``.
 - ``relevant_only`` memory appears only when it relates to the task or the query.
-- Ideas are included only when related to the task, and are labelled as not requirements.
+- Ideas are included only when tied to the task (linked, named, every word matching, or over
+  verified links), and are labelled as not requirements.
+
+Matching, strongest first: records linked to the task; records linked to a task the request
+names by ID ("check AUDIO-1", which also finds AUDIO-001) or named themselves; records reached
+over verified links (a guessed link counts ``GUESS_FACTOR`` as much); then word matches. Any-word
+search only proposes word matches: a record must cover ``MIN_COVERAGE`` of the meaningful words
+of the task title or of the request, so one shared common word is not a match. A request asking
+what was decided puts decisions and rules first.
 
 Link System: the task, its linked records and search hits are starting nodes. Specialty
 Shelves the work mentions, or that the starting nodes sit on, wake up; members of awake shelves
@@ -84,6 +92,29 @@ GRAPH_KINDS = ("task", "memory", "file", "milestone")
 # Only the best search hits start the walk; the rest are too loose a match to follow.
 GRAPH_SEARCH_SEEDS = 15
 EXCLUDED_SHOWN = 5
+# Word matching (any-word search finds candidates; these decide which really match).
+# A record must cover this share of the work's meaningful words (title words count fully, body
+# words partly), so one shared common word ("old", "save") is not a match.
+MIN_COVERAGE = 0.4
+BODY_WEIGHT = 0.6
+# An idea, or a non-decision when the request asks what was decided, needs every word.
+FULL_COVERAGE = 0.99
+# Chat filler that says nothing about which records matter.
+FILLER = frozenset(
+    "about again also any can could did does done just know let lets look need now please"
+    " should show still tell think want would".split()
+)
+# Words that ask what was decided: decisions and rules rank first.
+DECISION_WORDS = frozenset(
+    "agreed choice chose chosen decide decided decision decisions settle settled".split()
+)
+DECISION_BOOST = 1.25
+# Record IDs typed in a request ("check AUDIO-1"): an exact match beats any word match.
+REF_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9]*-\d+\b")
+# A record reached over a link nobody verified (a guess, or a weak inferred link) counts this
+# much of one reached over verified links (made or confirmed by a person, or built in).
+VERIFIED_CONFIDENCE = 0.8
+GUESS_FACTOR = 0.6
 # Explicit rules outrank other guidance reached through links.
 RULE_MULTIPLIER = 1.5
 # Activation spreading from the task wakes a shelf when it reaches one of its records with at
@@ -177,6 +208,28 @@ def estimate_tokens(text: str) -> int:
     return math.ceil(len(text) / 4)
 
 
+def match_keys(text: str) -> set[str]:
+    """The meaningful words of a text, lightly stemmed, for comparing work with records."""
+    from app.services.search import STOPWORDS
+    from app.services.shelves import WORD, stem
+
+    keys = set()
+    for word in WORD.findall(text):
+        low = word.casefold().strip("'")
+        if low in STOPWORDS or low in FILLER or low.isdigit() or REF_PATTERN.fullmatch(word):
+            continue
+        key = stem(low)
+        keys.add(key[:-1] if len(key) > 3 and key.endswith("e") else key)  # save, saves: sav
+    return keys
+
+
+def verified(path: Path | None) -> bool:
+    """Every link on the way was made or confirmed by a person, or is built in."""
+    return path is not None and all(
+        e.status == "active" and e.confidence >= VERIFIED_CONFIDENCE for _, _, e in path.hops
+    )
+
+
 def task_label(ref) -> str:
     """``CAMP-037 Title (in progress)`` for any object with human_id, title, and status."""
     return f"{ref.human_id} {ref.title} ({ref.status.replace('_', ' ')})"
@@ -267,6 +320,10 @@ class ContextService:
         self.operation = "coding"
         self.usefulness: dict[Node, float] = {}
         self.excluded: list[ExcludedItem] = []
+        self.coverage: dict[str, float] = {}  # memory id -> share of the work's words it covers
+        self.decision_intent = False
+        self.named_tasks: dict[str, str] = {}  # task id -> human id, typed in the request
+        self.named_memory: set[str] = set()  # memory ids typed in the request
         # Agents' packs explore: link weights are sampled (Thompson sampling), so links nobody
         # has tried yet get an occasional chance. Previews in the app stay deterministic.
         self.sample: random.Random | None = None
@@ -444,8 +501,13 @@ class ContextService:
         items: list[Item] = [
             Item("project", "project", project.id, project.name, project.name, 0, reason="project"),
         ]
-        terms = " ".join(filter(None, [detail_task.title if detail_task else None, query]))
-        related_memory = self._memory_relevance(project_id, terms)
+        self.decision_intent = bool(
+            {w.casefold() for w in re.findall(r"\w+", query or "")} & DECISION_WORDS
+        )
+        self._named(project_id, query, detail_task)
+        related_memory = self._memory_relevance(
+            project_id, detail_task.title if detail_task else None, query
+        )
         from app.services.retrieval import detect_operation
 
         self.operation = operation or detect_operation(
@@ -666,8 +728,9 @@ class ContextService:
         self, project_id: str, *, task: str | None = None, query: str | None = None
     ) -> list[ShelfActivation]:
         detail_task = self.tasks.detail(project_id, task) if task else None
-        terms = " ".join(filter(None, [detail_task.title if detail_task else None, query]))
-        related = self._memory_relevance(project_id, terms)
+        related = self._memory_relevance(
+            project_id, detail_task.title if detail_task else None, query
+        )
         return self._graph_context(project_id, detail_task, query, related).activations
 
     def _graph_context(
@@ -987,15 +1050,63 @@ class ContextService:
 
     # ---- memory -------------------------------------------------------------------------
 
-    def _memory_relevance(self, project_id: str, terms: str) -> dict[str, float]:
-        """Memory ids that match the task or query text, scored 0-20 by search rank."""
-        if not terms.strip():
+    def _named(self, project_id: str, query: str | None, task: TaskDetail | None) -> None:
+        """Tasks and records the request names by ID ("check AUDIO-1"). Visibility rules still
+        apply to them: naming is not the person's include."""
+        self.named_tasks, self.named_memory = {}, set()
+        refs = {r.upper() for r in REF_PATTERN.findall(query or "")}
+        if task is not None:
+            refs.discard(task.human_id.upper())
+        if not refs:
+            return
+        padded = {f"{r.rsplit('-', 1)[0]}-{int(r.rsplit('-', 1)[1]):03d}": r for r in refs}
+        for row in self.memory.list(
+            project_id, statuses=["active"], refs=refs | padded.keys(), limit=50
+        ):
+            self.named_memory.add(row.id)
+            refs.discard(padded.get(row.human_id.upper(), row.human_id.upper()))
+        for ref in refs:
+            prefix, number = ref.rsplit("-", 1)
+            for spelling in dict.fromkeys([ref, f"{prefix}-{int(number):03d}"]):
+                try:  # AUDIO-1 is how people type AUDIO-001
+                    found = self.tasks.get(project_id, spelling)
+                except Exception:  # noqa: BLE001 - not a task here: an ordinary word then
+                    continue
+                self.named_tasks[found.id] = found.human_id
+                break
+
+    def _memory_relevance(self, project_id: str, *parts: str | None) -> dict[str, float]:
+        """Memory ids that match the task title or the request, scored 0-20.
+
+        Any-word search finds the candidates; a record then counts only when it covers enough
+        of the meaningful words of the task title or of the request, whichever it matches
+        better (``MIN_COVERAGE``; title words weigh more than body words). Mixing the two
+        would dilute both. The score is mostly that coverage, with the search rank breaking
+        ties."""
+        self.coverage = {}
+        decision = {k for w in DECISION_WORDS for k in match_keys(w)}
+        texts = [REF_PATTERN.sub(" ", p) for p in parts if p and p.strip()]
+        wanted_sets = [k for k in (match_keys(t) - decision for t in texts) if k]
+        if not wanted_sets:
             return {}
         hits = self.search.search(
-            terms, project_id=project_id, entity_types=["memory"], any_word=True, limit=50
+            " ".join(texts), project_id=project_id, entity_types=["memory"], any_word=True, limit=50
         )["items"]
         count = len(hits)
-        return {h["entity_id"]: 20 * (1 - index / max(count, 1)) for index, h in enumerate(hits)}
+        out: dict[str, float] = {}
+        for index, h in enumerate(hits):
+            title = match_keys(h["title"] or "")
+            body = match_keys(h["snippet"] or "") - title
+            cover = max(
+                min(1.0, (len(w & title) + BODY_WEIGHT * len(w & body)) / len(w))
+                for w in wanted_sets
+            )
+            short = all(len(w) == 1 for w in wanted_sets)
+            if not short and cover < MIN_COVERAGE:
+                continue
+            self.coverage[h["entity_id"]] = cover
+            out[h["entity_id"]] = 20 * cover * (0.8 + 0.2 * (1 - index / max(count, 1)))
+        return out
 
     def _global_items(self, project_id: str, detail: str) -> list[Item]:
         """The person's standing rules from the Global scope. Essential: never cut for budget."""
@@ -1040,6 +1151,10 @@ class ContextService:
             add(self.memory.list(project_id, statuses=["active"], refs=include_ids, limit=500))
         if task is not None:
             add(self.memory.list(project_id, statuses=["active"], task=task.id, limit=500))
+        for named in self.named_tasks:
+            add(self.memory.list(project_id, statuses=["active"], task=named, limit=500))
+        if self.named_memory:
+            add(self.memory.list(project_id, statuses=["active"], ids=sorted(self.named_memory)))
         for standing in ({"pinned": True}, {"locked_only": True}, {"visibility": ["always"]}):
             add(self.memory.list(project_id, statuses=["active"], limit=STANDING_LIMIT, **standing))
         return list(found.values())
@@ -1088,16 +1203,31 @@ class ContextService:
                 omitted["manual only"] += 1
                 continue
             linked = task_id is not None and any(t.id == task_id for t in m.tasks)
+            named_task = next(
+                (self.named_tasks[t.id] for t in m.tasks if t.id in self.named_tasks), None
+            )
+            named = m.id in self.named_memory
+            path = graph.paths.get(Node("memory", m.id))
             reach = 20 * graph.score(Node("memory", m.id)) if m.id in connected else 0.0
+            if reach and not verified(path):
+                reach *= GUESS_FACTOR
             if m.type == "rule":
                 reach *= RULE_MULTIPLIER
-            matched = max(related.get(m.id, 0.0), reach) * self.usefulness.get(
+            words = related.get(m.id, 0.0)
+            if self.decision_intent and words:
+                # The request asks what was decided: decisions and rules lead; anything else
+                # needs every word to count as a match.
+                if m.type in ("decision", "rule"):
+                    words *= DECISION_BOOST
+                elif self.coverage.get(m.id, 0.0) < FULL_COVERAGE:
+                    words = 0.0
+            matched = max(words, reach, 20.0 if named else 0.0) * self.usefulness.get(
                 Node("memory", m.id), 1.0
             )
             always = m.ai_visibility == "always"
             standing = m.is_pinned or (m.is_locked and m.type in ("decision", "rule"))
             if Node("memory", m.id) in graph.dormant and not (
-                manual or always or linked or standing
+                manual or always or linked or standing or named or named_task
             ):
                 omitted["dormant shelf"] += 1
                 if matched > 0:
@@ -1110,14 +1240,30 @@ class ContextService:
                     )
                 continue
             # Eligibility: named by the caller, always visible, or related to the work.
-            if not (manual or always or linked or matched > 0 or (standing and task_id is None)):
+            if not (
+                manual
+                or always
+                or linked
+                or named_task
+                or matched > 0
+                or (standing and task_id is None)
+            ):
                 omitted["not related"] += 1
                 continue
-            if m.type == "idea" and not (manual or linked or matched > 0):
+            # An idea is never a requirement: it joins only when tied to the work, not on a
+            # partial word match or a guessed link.
+            if m.type == "idea" and not (
+                manual
+                or linked
+                or named_task
+                or named
+                or self.coverage.get(m.id, 0.0) >= FULL_COVERAGE
+                or (m.id in connected and verified(path))
+            ):
                 omitted["not related"] += 1
                 continue
             score = (
-                (50 if linked else 0)
+                (50 if linked else 40 if named_task else 0)
                 + (30 if always else 0)
                 + (15 if m.is_pinned else 0)
                 + (10 if m.is_locked else 0)
@@ -1129,6 +1275,10 @@ class ContextService:
                 if manual
                 else "linked to this task"
                 if linked
+                else f"linked to {named_task}, named in the request"
+                if named_task
+                else "named in the request"
+                if named
                 else "always visible"
                 if always
                 else "matches the task"
@@ -1177,6 +1327,8 @@ class ContextService:
             for score, m, reason in chosen:
                 item = self._memory_item(section, m, score, reason, detail)
                 path = graph.paths.get(Node("memory", m.id))
+                if reason.endswith("named in the request") and item.tier > 1:
+                    item.tier = 2  # typed by ID: as essential as what the person names
                 if path is not None:
                     item.confidence = path.score
                 if (
