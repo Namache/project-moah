@@ -21,7 +21,7 @@ async def test_diagnostics_report_health_without_leaking_content(
     )
     assert (
         report["database"]["search_index_ready"] is True
-        and report["database"]["migration"] == "0015_images"
+        and report["database"]["migration"] == "0016_pack_build"
     )
     assert report["counts"]["projects"] == 1 and report["counts"]["tasks"] == 1
     assert (

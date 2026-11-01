@@ -31,6 +31,7 @@ from app.core.config import get_database_url
 from app.db.migrate import upgrade_database
 from app.db.session import make_engine, make_session_factory
 from app.services.agent_sync import background_sync
+from app.services.builds import register_build
 from app.services.usage import UsageReader
 
 
@@ -53,6 +54,10 @@ def create_app(
         upgrade_database(resolved_url)
         engine = make_engine(resolved_url)
         application.state.session_factory = make_session_factory(engine)
+        if desktop_token:
+            # The desktop app is the installed build; MCP processes on an older one see it.
+            with application.state.session_factory() as session:
+                register_build(session, installed=True)
         application.state.usage_reader = UsageReader()
         if warm_usage:
             # Read the agents' usage logs once in the background so the dashboard opens ready.

@@ -227,6 +227,7 @@ class RetrievalSession(Base):
     items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     outcome: Mapped[str | None] = mapped_column(String(20))
     tokens: Mapped[int | None] = mapped_column(Integer)  # size of the pack the agent got
+    build: Mapped[str | None] = mapped_column(String(80))  # Moah build that served it (0016)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
