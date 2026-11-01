@@ -40,6 +40,7 @@ from app.schemas.proposal import ProposalCreate
 from app.schemas.task import TaskCreate, TaskUpdate
 from app.services.activity import acting_as
 from app.services.agent_prompts import second_opinion
+from app.services.agent_sessions import SessionTracker, read_hook_input, record_start
 from app.services.agent_sync import sync_quietly
 from app.services.brief import build_brief
 from app.services.builds import UpdateWatch, register_build
@@ -133,6 +134,7 @@ def build_server(
     actor = actor_for(agent)
     working = SessionTask()
     watch = UpdateWatch()
+    sessions = SessionTracker(agent.strip().casefold())
 
     def tool(annotations: ToolAnnotations):
         """Register a tool that gets a session, attribution, and readable errors."""
@@ -143,8 +145,11 @@ def build_server(
                 working.tick()
                 with session_factory() as session:
                     try:
+                        if sessions.refresh(session):
+                            working.clear()  # /clear started a new session: no task of its own
                         with acting_as(actor, agent):
                             result = fn(session, *args, **kwargs)
+                        sessions.record_tasks(session, working.tasks())
                         return with_restart_notice(result, session)
                     except Exception as error:  # noqa: BLE001 - turned into a plain message
                         session.rollback()
@@ -1223,7 +1228,9 @@ def main(argv: list[str] | None = None) -> int:
     engine = make_engine(url)
     try:
         with make_session_factory(engine)() as session:
-            register_build(session, installed=False)  # a new session may be the first of a new build
+            register_build(
+                session, installed=False
+            )  # a new session may be the first of a new build
     except Exception:  # noqa: BLE001 - never stop an agent's tools over this note
         pass
     if args.brief:
@@ -1242,6 +1249,15 @@ def main(argv: list[str] | None = None) -> int:
                     note = None
                 except ProjectChoiceError as error:
                     found, note = None, str(error)
+                # Claude Code hands the hook its session id: remember it with the project, so
+                # token use in that session's log can be matched to its tasks.
+                hook_agent = "claude" if args.agent == "agent" else args.agent.strip().casefold()
+                try:
+                    record_start(
+                        session, hook_agent, read_hook_input(), found.id if found else None
+                    )
+                except Exception:  # noqa: BLE001 - the brief matters more than the record
+                    session.rollback()
                 print(with_update_check(session, build_brief(session, found, note)), flush=True)
         finally:
             engine.dispose()

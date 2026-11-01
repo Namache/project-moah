@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.project import Project
+from app.services.tokens import base_tokens
 
 AGENTS = ("claude", "codex")
 RETENTION = timedelta(days=31)
@@ -55,7 +56,77 @@ class ToolEvent:
     output_chars: int = 0
 
 
+@dataclass(slots=True)
+class PackSample:
+    """One context pack and the tokens it really added to the conversation.
+
+    ``actual`` is how much the next request's prompt grew over the one that asked for the pack,
+    less that reply's own output: the pack's tool result. Taken only when nothing else (another
+    tool result, a reminder, a message) went in between."""
+
+    at: datetime
+    session: str
+    model: str
+    estimate_base: int  # services/tokens.base_tokens of the result, provider-neutral
+    actual: int
+
+
+@dataclass(slots=True)
+class TaskMark:
+    """A Project Moah tool result in an agent's log that named the session's task."""
+
+    at: datetime
+    agent: str
+    session: str
+    task: str  # human id, such as PROJ-017
+
+
+@dataclass(slots=True)
+class _Reply:
+    id: str
+    prompt: int
+    output: int
+    tools: int = 0
+
+
+@dataclass(slots=True)
+class _Pending:
+    reply: str
+    prompt: int
+    output: int
+    estimate_base: int
+
+
 SUBAGENT_TOOLS = {"Agent", "Task", "spawn_agent"}
+PACK_TOOL = "brain_context_pack"
+# What Project Moah's MCP tools say about the session's task (server.py).
+TASK_MARK = re.compile(
+    r"This session's task is ([A-Z][A-Z0-9]*-\d+)"
+    r"|\\?\"session_task\\?\":\s*\\?\"([A-Z][A-Z0-9]*-\d+)"
+)
+
+
+def moah_tool(name: str) -> str | None:
+    """The Project Moah tool a call is for (brain_...), whatever the agent named the server."""
+    last = re.split(r"__|\.|/", name)[-1]
+    return last if last.startswith("brain_") else None
+
+
+def _text(content: object) -> str:
+    """The text of a tool result, only ever used here to count it or find a task id."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            _text(item.get("text") if isinstance(item, dict) else item) for item in content
+        )
+    if isinstance(content, dict):
+        return _text(content.get("output") or content.get("text") or content.get("content"))
+    return ""
+
+
+def task_marks_in(text: str) -> list[str]:
+    return [a or b for a, b in TASK_MARK.findall(text)]
 
 
 def tool_label(name: str) -> str:
@@ -88,6 +159,11 @@ class _FileState:
     events: dict[str, UsageEvent] = field(default_factory=dict)
     tools: dict[str, ToolEvent] = field(default_factory=dict)
     compactions: list[tuple[datetime, str, str]] = field(default_factory=list)
+    moah_calls: dict[str, str] = field(default_factory=dict)  # tool call id -> brain_ tool
+    marks: list[TaskMark] = field(default_factory=list)
+    samples: list[PackSample] = field(default_factory=list)
+    reply: _Reply | None = None
+    pending: _Pending | None = None
     limits: dict | None = None
     limits_at: datetime | None = None
 
@@ -207,6 +283,16 @@ class UsageReader:
             ]
             return events, latest.limits if latest else None, tools, compactions
 
+    def task_marks(self) -> list[TaskMark]:
+        """Task ids Project Moah's own tool results named, per log session (after a refresh)."""
+        with self._lock:
+            return [m for state in self._files.values() for m in state.marks]
+
+    def pack_samples(self) -> list[PackSample]:
+        """Context packs with the tokens they really cost in Claude Code (after a refresh)."""
+        with self._lock:
+            return [p for state in self._files.values() for p in state.samples]
+
     def _read(self, agent: str, path: Path, stat: os.stat_result) -> None:
         identity = (stat.st_dev, stat.st_ino)
         state = self._files.get(path)
@@ -230,6 +316,8 @@ class UsageReader:
                 marker in raw for marker in (b'"usage"', b'"tool_result"', b'"compact_boundary"')
             ):
                 self._claude_line(state, session, raw)
+            elif agent == "claude" and state.pending and _adds_context(raw):
+                state.pending = None  # something besides the pack went in: no clean sample
             elif agent == "codex" and any(
                 marker in raw
                 for marker in (
@@ -253,27 +341,77 @@ class UsageReader:
             return
         session_id = str(record.get("sessionId") or session)
         cwd = normalize_folder(str(record.get("cwd") or ""))
+        main = not record.get("isSidechain")
         if record.get("subtype") == "compact_boundary":
             state.compactions.append((at, "claude", session_id))
+            state.pending = None
             return
         message = record.get("message")
         if not isinstance(message, dict):
             return
-        for block in message.get("content") if isinstance(message.get("content"), list) else []:
+        blocks = message.get("content") if isinstance(message.get("content"), list) else []
+        uses = results = 0
+        pack_result: str | None = None
+        for block in blocks:
             if not isinstance(block, dict):
                 continue
             if block.get("type") == "tool_use" and block.get("id"):
+                uses += 1
+                name = str(block.get("name") or "")
                 if block["id"] not in state.tools:
                     state.tools[block["id"]] = ToolEvent(
-                        at, "claude", session_id, cwd, tool_label(str(block.get("name") or ""))
+                        at, "claude", session_id, cwd, tool_label(name)
                     )
-            elif block.get("type") == "tool_result" and block.get("tool_use_id") in state.tools:
-                state.tools[block["tool_use_id"]].output_chars = _text_size(block.get("content"))
+                if moah := moah_tool(name):
+                    state.moah_calls[block["id"]] = moah
+            elif block.get("type") == "tool_result":
+                results += 1
+                call = block.get("tool_use_id")
+                if call in state.tools:
+                    state.tools[call].output_chars = _text_size(block.get("content"))
+                if call in state.moah_calls:
+                    text = _text(block.get("content"))
+                    for task in task_marks_in(text):
+                        state.marks.append(TaskMark(at, "claude", session_id, task))
+                    if state.moah_calls.pop(call) == PACK_TOOL:
+                        pack_result = text
+        if main and record.get("type") == "user":
+            reply = state.reply
+            state.pending = None
+            if pack_result is not None and results == 1 and reply and reply.tools == 1:
+                state.pending = _Pending(
+                    reply.id, reply.prompt, reply.output, base_tokens(pack_result)
+                )
         if not isinstance(message.get("usage"), dict):
             return
         usage = message["usage"]
         # One reply is written as several lines that repeat its usage; the last one is complete.
         key = str(message.get("id") or record.get("uuid") or len(state.events))
+        prompt = (
+            _int(usage.get("input_tokens"))
+            + _int(usage.get("cache_creation_input_tokens"))
+            + _int(usage.get("cache_read_input_tokens"))
+        )
+        if main:
+            pending = state.pending
+            if pending and pending.reply != key:
+                grew = prompt - pending.prompt - pending.output
+                if grew > 0 and pending.estimate_base > 0:
+                    state.samples.append(
+                        PackSample(
+                            at,
+                            session_id,
+                            str(message.get("model") or ""),
+                            pending.estimate_base,
+                            grew,
+                        )
+                    )
+            state.pending = None  # taken, or the same reply went on after the result
+            if state.reply is None or state.reply.id != key:
+                state.reply = _Reply(key, prompt, _int(usage.get("output_tokens")))
+            state.reply.prompt = prompt
+            state.reply.output = _int(usage.get("output_tokens"))
+            state.reply.tools += uses
         state.events[key] = UsageEvent(
             at=at,
             agent="claude",
@@ -309,10 +447,16 @@ class UsageReader:
                 state.tools.setdefault(
                     call, ToolEvent(at, "codex", session, state.cwd, tool_label(name))
                 )
+                if moah := moah_tool(name):
+                    state.moah_calls[call] = moah
             elif (
                 item in ("function_call_output", "custom_tool_call_output") and call in state.tools
             ):
                 state.tools[call].output_chars = _text_size(payload.get("output"))
+                if call in state.moah_calls and at:
+                    state.moah_calls.pop(call)
+                    for task in task_marks_in(_text(payload.get("output"))):
+                        state.marks.append(TaskMark(at, "codex", session, task))
             return
         if kind in ("session_meta", "turn_context"):
             if isinstance(payload.get("cwd"), str):
@@ -358,6 +502,16 @@ class UsageReader:
         )
 
 
+CONTEXT_LINES = (b'"type":"attachment"', b'"type":"system"', b'"type":"user"')
+
+
+def _adds_context(raw: bytes) -> bool:
+    """Whether a Claude Code log line puts something into the next request (a reminder, a
+    hook's output, a message), judged without parsing it. Subagent lines don't count."""
+    compact = raw.replace(b'": "', b'":"')
+    return any(m in compact for m in CONTEXT_LINES) and b'"isSidechain":true' not in compact
+
+
 def active_seconds(times: list[datetime]) -> float:
     """Time with agent activity. A gap longer than five minutes counts as five minutes at most."""
     ordered = sorted(times)
@@ -398,25 +552,83 @@ def _aware(at: datetime) -> datetime:
     return at if at.tzinfo else at.replace(tzinfo=UTC)
 
 
+def _by_session_id(
+    items: list[UsageEvent], found: list[tuple[datetime, str]]
+) -> list[tuple[UsageEvent, str | None]]:
+    """Each reply of one log session with its task, from that session's own task changes.
+
+    Like the MCP server's session task: a task holds until the next one, and is forgotten after
+    two idle hours. Replies before the first task in a stretch of work go to that task, so the
+    turn that fetched the pack is counted with it."""
+    out: list[tuple[UsageEvent, str | None]] = []
+    stretch: list[UsageEvent] = []
+    opened = None  # when the stretch could first have set a task: after the previous one ended
+
+    def close() -> None:
+        inside = [s for s in found if (opened is None or s[0] > opened) and s[0] <= stretch[-1].at]
+        for event in stretch:
+            before = [s for s in inside if s[0] <= event.at]
+            task = before[-1][1] if before else (inside[0][1] if inside else None)
+            out.append((event, task))
+
+    for event in items:
+        if stretch and event.at - stretch[-1].at > TASK_GAP:
+            close()
+            opened = stretch[-1].at
+            stretch = []
+        stretch.append(event)
+    if stretch:
+        close()
+    return out
+
+
 def task_usage(
-    session: Session, events: list[UsageEvent], project_of: dict[tuple[str, str], str]
+    session: Session,
+    events: list[UsageEvent],
+    project_of: dict[tuple[str, str], str],
+    marks: list[TaskMark] | None = None,
 ) -> dict:
     """Real token use per task, from the agents' own logs: tokens per completed task.
 
-    Logs say nothing about tasks, so each reply is matched to Project Moah's own record of what
-    the agent was doing: the latest task it fetched a context pack for or changed (activity by
-    that agent) in the reply's project, at most ``TASK_GAP`` earlier. Replies in a log session
-    before its first such signal go to that first signal, so the turn that called the pack is
-    counted with its task. Replies with no task nearby stay unassigned and are reported as such.
-    ``project_of`` maps (agent, session) to the project id the session worked in."""
+    Matched by the log's session id first: the tasks Project Moah recorded for that session
+    (services/agent_sessions.py, from Claude Code's session id) and the task ids Project Moah's
+    own tool results in that log named (``marks``). A session with neither falls back to time:
+    the latest task the agent fetched a context pack for or changed in the reply's project, at
+    most ``TASK_GAP`` earlier. Replies with no task either way stay unassigned and are
+    reported as such. ``project_of`` maps (agent, session) to the project id it worked in."""
     from app.models.checkpoint import ActivityEvent
     from app.models.graph import RetrievalSession
     from app.models.task import Task
+    from app.services.agent_sessions import session_tasks
 
+    empty_match = {"session": 0, "time": 0, "none": 0}
     if not events:
-        return {"tasks": [], "completed_tasks": 0, "unassigned_fresh_tokens": 0}
+        return {
+            "tasks": [],
+            "completed_tasks": 0,
+            "unassigned_fresh_tokens": 0,
+            "matched_fresh_tokens": empty_match,
+            "unassigned_share": None,
+        }
     start = min(e.at for e in events) - TASK_GAP
     end = max(e.at for e in events)
+    exact = session_tasks(session, start - RETENTION, end + TASK_GAP)
+    if marks:
+        names = {m.task for m in marks}
+        by_name: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        for task_id, project_id, human_id in session.execute(
+            select(Task.id, Task.project_id, Task.human_id).where(Task.human_id.in_(names))
+        ):
+            by_name[human_id].append((task_id, project_id))
+        for mark in marks:
+            choices = by_name.get(mark.task, [])
+            own = [t for t, p in choices if p == project_of.get((mark.agent, mark.session))]
+            if own or len(choices) == 1:
+                exact.setdefault((mark.agent, mark.session), []).append(
+                    (mark.at, own[0] if own else choices[0][0])
+                )
+        for found in exact.values():
+            found.sort()
     projects = set(project_of.values())
     signals: dict[tuple[str, str], list[tuple[datetime, str]]] = defaultdict(list)
     for project_id, agent, task_id, at in session.execute(
@@ -451,12 +663,21 @@ def task_usage(
         found.sort()
 
     per_task: dict[str, list[UsageEvent]] = defaultdict(list)
-    unassigned = 0
+    matched = dict(empty_match)
+    how: dict[int, str] = {}  # reply -> how it was matched
     by_session: dict[tuple[str, str], list[UsageEvent]] = defaultdict(list)
     for event in events:
         by_session[(event.agent, event.session)].append(event)
     for key, items in by_session.items():
         items.sort(key=lambda e: e.at)
+        if key in exact:
+            for event, task_id in _by_session_id(items, exact[key]):
+                if task_id:
+                    per_task[task_id].append(event)
+                    how[id(event)] = "session"
+                else:
+                    matched["none"] += event.fresh
+            continue
         project_id = project_of.get(key)
         found = signals.get((project_id, key[0]), []) if project_id else []
         inside = [s for s in found if items[0].at - TASK_GAP <= s[0] <= items[-1].at]
@@ -464,18 +685,21 @@ def task_usage(
             before = [s for s in inside if s[0] <= event.at and event.at - s[0] <= TASK_GAP]
             if before:
                 per_task[before[-1][1]].append(event)
+                how[id(event)] = "time"
             elif inside and inside[0][0] > event.at:
                 per_task[inside[0][1]].append(event)  # the turn that led to the first signal
+                how[id(event)] = "time"
             else:
-                unassigned += event.fresh
+                matched["none"] += event.fresh
 
     rows = []
     if per_task:
         tasks = {t.id: t for t in session.scalars(select(Task).where(Task.id.in_(per_task.keys())))}
         for task_id, items in per_task.items():
             task = tasks.get(task_id)
-            if task is None:
-                unassigned += sum(e.fresh for e in items)
+            for event in items:
+                matched[how[id(event)] if task else "none"] += event.fresh
+            if task is None:  # deleted since
                 continue
             rows.append(
                 {
@@ -503,7 +727,13 @@ def task_usage(
             if done
             else None
         ),
-        "unassigned_fresh_tokens": unassigned,
+        "unassigned_fresh_tokens": matched["none"],
+        # How replies were matched, in fresh tokens: by the log's session id, by time (sessions
+        # Project Moah has no session record for), or not at all.
+        "matched_fresh_tokens": matched,
+        "unassigned_share": round(matched["none"] / total, 3)
+        if (total := sum(matched.values()))
+        else None,
     }
 
 
@@ -686,7 +916,11 @@ def usage_summary(
         for key, items in per_session.items()
         if (pid := place(max(items, key=lambda e: e.at).cwd)[1])
     }
-    by_task = task_usage(session, events, project_of)
+    by_task = task_usage(session, events, project_of, reader.task_marks())
+    from app.services import token_calibration
+
+    token_estimates = token_calibration.measure(reader.pack_samples())
+    token_calibration.save(session, token_estimates)
     rows.sort(key=lambda row: row["fresh_tokens"], reverse=True)
     roots = reader.roots()
     return {
@@ -706,6 +940,7 @@ def usage_summary(
         "by_tool": by_tool[:30],
         "sessions": session_rows[:15],
         "by_task": {**by_task, "tasks": by_task["tasks"][:30]},
+        "token_estimates": token_estimates,
         "signals": signals,
         "longest_session_seconds": round(longest),
         "codex_limits": limits,

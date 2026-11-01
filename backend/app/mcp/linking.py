@@ -55,6 +55,10 @@ class SessionTask:
     def set(self, project_id: str, task_id: str) -> None:
         self._tasks[project_id] = task_id
 
+    def tasks(self) -> dict[str, str]:
+        """Project id -> task id, for every project this session has a task in."""
+        return dict(self._tasks)
+
     def current(self, session: Session, project_id: str) -> Task | None:
         """The session's task in this project. One deleted or archived since is forgotten."""
         task_id = self._tasks.get(project_id)
