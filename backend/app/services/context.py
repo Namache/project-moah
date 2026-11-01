@@ -404,7 +404,7 @@ class ContextService:
                 )
                 for i in kept
             ],
-            omitted=dict(omitted),
+            omitted={why: n for why, n in omitted.items() if n},
             warnings=warnings,
             shelves=self.activations,
             operation=self.operation,
