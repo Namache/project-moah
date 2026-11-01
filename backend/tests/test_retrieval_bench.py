@@ -18,4 +18,4 @@ async def test_packs_find_what_tasks_need(database_url: str) -> None:
     for case in quality["cases"]:
         assert case["recall"] == 1.0, case
         assert not case["forbidden_found"], case
-    assert quality["precision"] >= 0.44  # baseline 0.449
+    assert quality["precision"] >= 0.85  # baseline 0.449 (any-word matches)
