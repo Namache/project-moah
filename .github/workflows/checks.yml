@@ -1,9 +1,18 @@
 name: Checks
 
+# Text-only changes (the README, other top-level Markdown, docs/) cannot break the code, so
+# they don't run the checks. Help pages live in frontend/src and still do.
 on:
   pull_request:
+    paths-ignore: &text-only
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
   push:
     branches: [main]
+    paths-ignore: *text-only
 
 permissions:
   contents: read
