@@ -37,7 +37,7 @@
       {
         "from": "bin",
         "to": "bin",
-        "filter": ["project-brain-backend", "project-brain-backend.exe"]
+        "filter": ["project-brain-backend", "project-brain-backend.exe", "_internal/**"]
       }
     ],
     "win": {

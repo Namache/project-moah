@@ -4,7 +4,7 @@ Services raise these so REST handlers and the future MCP adapter report the same
 messages. Messages are written for people, not for debugging.
 """
 
-from fastapi import HTTPException
+from starlette.exceptions import HTTPException
 
 
 def not_found(message: str) -> HTTPException:

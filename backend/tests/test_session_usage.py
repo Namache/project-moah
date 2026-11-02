@@ -96,15 +96,15 @@ async def test_mcp_server_follows_clear_and_records_each_sessions_task(
 async def test_brief_hook_records_the_session(
     client: AsyncClient, monkeypatch, database_url: str
 ) -> None:
-    from app.mcp import server
+    from app.mcp import cli
 
     monkeypatch.setenv("PROJECT_BRAIN_DATABASE_URL", database_url)
-    monkeypatch.setattr(server, "get_database_url", lambda: database_url)
+    monkeypatch.setattr(cli, "get_database_url", lambda: database_url)
     monkeypatch.setattr(
         "sys.stdin", io.StringIO(json.dumps({"session_id": "hook-1", "source": "startup"}))
     )
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", "/nowhere")
-    assert server.main(["--brief"]) == 0
+    assert cli.main(["--brief"]) == 0
     with factory(database_url)() as session:
         row = session.query(AgentSessionEvent).one()
         assert (row.agent, row.session_id, row.source) == ("claude", "hook-1", "startup")

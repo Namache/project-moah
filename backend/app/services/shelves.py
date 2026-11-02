@@ -20,10 +20,11 @@ stay dormant.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
-from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException
 
 from app.models.app_setting import AppSetting
 from app.models.graph import Shelf, ShelfMember
@@ -53,6 +54,7 @@ LEARNABLE = re.compile(r"[a-z][a-z']{3,}")
 WORD = re.compile(r"[\w']+")
 
 
+@lru_cache(maxsize=16384)
 def stem(word: str) -> str:
     """A light stem so 'inventories', 'saving' and 'saved' meet 'inventory' and 'save'."""
     w = word.casefold().strip("'")
@@ -66,9 +68,14 @@ def stems(text: str) -> set[str]:
     return {stem(w) for w in WORD.findall(text)}
 
 
+@lru_cache(maxsize=4096)
+def _signal_parts(signal: str) -> tuple[str, ...]:
+    return tuple(stem(w) for w in WORD.findall(signal))
+
+
 def signal_hit(signal: str, words: set[str]) -> bool:
     """Every word of the signal appears in the text."""
-    parts = [stem(w) for w in WORD.findall(signal)]
+    parts = _signal_parts(signal)
     return bool(parts) and all(p in words for p in parts)
 
 

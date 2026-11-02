@@ -783,11 +783,19 @@ def usage_summary(
                 return project
         return None
 
+    places: dict[str, tuple[str, str | None, str]] = {}
+
     def place(folder: str) -> tuple[str, str | None, str]:
-        project = owner(folder) if folder else None
-        if project:
-            return project.id, project.id, project.name
-        return "folder:" + _home_group(folder), None, _home_group(folder)
+        # Thousands of events share a few folders: look each folder up once.
+        if folder not in places:
+            project = owner(folder) if folder else None
+            group = _home_group(folder)
+            places[folder] = (
+                (project.id, project.id, project.name)
+                if project
+                else ("folder:" + group, None, group)
+            )
+        return places[folder]
 
     by_project: dict[str, list[UsageEvent]] = defaultdict(list)
     names: dict[str, tuple[str | None, str]] = {}

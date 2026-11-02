@@ -21,9 +21,9 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
-from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException
 
 from app.models.checkpoint import Checkpoint
 from app.models.files import FileCheckpoint, FileMemory, FileTask, ProjectFile
@@ -333,14 +333,19 @@ class GraphService:
 
     # ---- edges --------------------------------------------------------------------------
 
-    def edges(self, project_id: str, nodes: Iterable[Node]) -> list[Edge]:
+    def edges(
+        self, project_id: str, nodes: Iterable[Node], stored: list[Edge] | None = None
+    ) -> list[Edge]:
         """Every edge touching any of ``nodes``: built-in links, overridden or extended by
-        stored links. Edges of every status are returned; callers filter."""
+        stored links. Edges of every status are returned; callers filter. ``stored`` is
+        ``_stored_edges`` for the same nodes, when the caller already read it."""
         nodes = set(nodes)
         found: dict[tuple[Node, Node, str], Edge] = {
             e.key: e for e in self._builtin_edges(project_id, nodes)
         }
-        for e in self._stored_edges(project_id, nodes):
+        if stored is None:
+            stored = self._stored_edges(project_id, nodes)
+        for e in stored:
             builtin = found.get(e.key)
             if builtin is not None:
                 e.origin = builtin.origin  # an override keeps the built-in's origin
@@ -1192,9 +1197,11 @@ class GraphService:
         for shelf_id, members in memberships.items():
             for n in members:
                 node_shelves.setdefault(n, []).append(shelf_id)
+        # Stored links are read once: for the links inside the project and for its routes out.
+        stored = self._stored_edges(project_id, nodes)
         edges = [
             e
-            for e in self.edges(project_id, nodes)
+            for e in self.edges(project_id, nodes, stored)
             if e.source in info and e.target in info and e.status in ("active", "weak", "candidate")
         ]
         degree: dict[Node, int] = {}
@@ -1205,7 +1212,7 @@ class GraphService:
         # Routes: this project's links into Global records (Link System Phase 4).
         outside = [
             e
-            for e in self._stored_edges(project_id, set(info))
+            for e in stored
             if (e.source in info) != (e.target in info)
             and e.status in ("active", "weak", "candidate")
         ]

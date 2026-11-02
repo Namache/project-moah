@@ -138,7 +138,11 @@ def find_clusters(nodes: list[dict], links: list[dict]) -> list[list[str]]:
             votes: dict[str, float] = {}
             for other, w in neighbours[key].items():
                 votes[label[other]] = votes.get(label[other], 0.0) + w
-            best = max(votes.items(), key=lambda kv: (kv[1], [-ord(c) for c in kv[0]]))[0]
+            # The heaviest vote; a tie goes to the label first in order (the same as comparing
+            # (weight, label) pairs, without building a key for every vote).
+            top = max(votes.values())
+            tied = [k for k, w in votes.items() if w == top]
+            best = tied[0] if len(tied) == 1 else max(tied, key=lambda k: [-ord(c) for c in k])
             if best != label[key] and votes[best] > votes.get(label[key], 0.0):
                 label[key] = best
                 changed = True
@@ -183,6 +187,8 @@ class HealthService:
         self.session = session
         self.graph = GraphService(session)
         self.shelves = ShelfService(session)
+        # Health, suggestions and patterns all read a project's clusters: find them once per view.
+        self._clusters: dict[int, tuple[dict, list[dict]]] = {}
 
     # ---- health -------------------------------------------------------------------------
 
@@ -355,6 +361,12 @@ class HealthService:
     # ---- clusters and suggestions -------------------------------------------------------
 
     def _named_clusters(self, view: dict) -> list[dict]:
+        cached = self._clusters.get(id(view))
+        if cached is None or cached[0] is not view:
+            cached = self._clusters[id(view)] = (view, self._find_named_clusters(view))
+        return cached[1]
+
+    def _find_named_clusters(self, view: dict) -> list[dict]:
         # Titles only: labels (TRAI-012, DEC-3) would name every cluster after its prefix.
         titles = {n["key"]: n["title"] for n in view["nodes"]}
         everywhere = Counter(w for t in titles.values() for w in _words(t))
@@ -669,13 +681,20 @@ class HealthService:
             for p in self.session.scalars(select(Project).where(Project.status != "archived"))
         }
         out = []
-        for i, a in enumerate(rows):
-            for b in rows[i + 1 :]:
-                if a.project_id == b.project_id or not {a.project_id, b.project_id} <= names.keys():
+        # Every pair is compared, so read each record's project and words once, not per pair.
+        plain = [(m, m.project_id, meaning[m.id]) for m in rows]
+        for i, (a, a_project, a_words) in enumerate(plain):
+            if len(out) >= SUGGESTIONS_SHOWN:
+                break
+            if a_project not in names:
+                continue
+            for b, b_project, b_words in plain[i + 1 :]:
+                if a_project == b_project or b_project not in names:
                     continue
-                shared = meaning[a.id] & meaning[b.id]
-                smaller = max(min(len(meaning[a.id]), len(meaning[b.id])), 1)
-                if len(shared) < SHARE_WORDS or len(shared) / smaller < SHARE_OF:
+                shared = a_words & b_words
+                if len(shared) < SHARE_WORDS:
+                    continue
+                if len(shared) / max(min(len(a_words), len(b_words)), 1) < SHARE_OF:
                     continue
                 first, second = sorted((a, b), key=lambda m: m.id)
                 out.append(

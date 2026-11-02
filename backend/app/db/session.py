@@ -1,8 +1,8 @@
 from collections.abc import Iterator
 
-from fastapi import Request
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.requests import Request
 
 
 def make_engine(database_url: str) -> Engine:
@@ -20,6 +20,14 @@ def make_engine(database_url: str) -> Engine:
             cursor.execute("PRAGMA foreign_keys=ON")
             # The app and an agent's MCP server share one file; wait briefly instead of failing.
             cursor.execute("PRAGMA busy_timeout=5000")
+            # Write-ahead logging: readers and the writer no longer block each other (the app,
+            # agents' MCP servers and their start-up briefs share the file), and a write syncs
+            # the disk once instead of about three times. Kept in the file once set; full sync
+            # stays on, so a power cut still loses nothing that was saved.
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+            except Exception:  # noqa: BLE001 - another process holding a lock: try next time
+                pass
             cursor.close()
             # Unicode-aware case folding for searches; SQLite's lower() only folds ASCII.
             dbapi_connection.create_function(

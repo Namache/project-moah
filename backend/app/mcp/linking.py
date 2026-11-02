@@ -21,8 +21,8 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException
 
 from app.models.project import utc_now
 from app.models.task import Task

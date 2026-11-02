@@ -1,3 +1,3 @@
-from app.mcp.server import main
+from app.mcp.cli import main
 
 raise SystemExit(main())

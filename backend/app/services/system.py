@@ -64,7 +64,7 @@ def agent_launch() -> dict:
         if DEB_LAUNCHER.exists():
             return {"install": "deb", "command": [DEB_LAUNCHER.name]}
         return {"install": "linux", "command": [sys.executable, "--mcp"]}
-    return {"install": "source", "command": [sys.executable, "-m", "app.mcp.server"]}
+    return {"install": "source", "command": [sys.executable, "-m", "app.mcp"]}
 
 
 def app_command() -> list[str] | None:

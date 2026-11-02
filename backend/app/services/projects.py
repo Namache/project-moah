@@ -3,9 +3,9 @@ import unicodedata
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException
 
 from app.models.project import Project
 from app.repositories.projects import ProjectRepository

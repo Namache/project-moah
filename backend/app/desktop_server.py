@@ -8,14 +8,17 @@ from contextlib import suppress
 from pathlib import Path
 from threading import Thread
 
-import uvicorn
-
 from app.core.resources import resource_path
-from app.main import create_app
 
 
 async def serve() -> bool:
     """Start on an available loopback port and announce it after startup succeeds."""
+    # Imported here, not at the top: the same executable serves agents (--mcp) and their
+    # start-up brief, which need neither the web server nor the app's HTTP routes.
+    import uvicorn
+
+    from app.main import create_app
+
     token = os.getenv("PROJECT_BRAIN_DESKTOP_TOKEN")
     if not token:
         print("PROJECT_BRAIN_DESKTOP_TOKEN is required", file=sys.stderr)
@@ -77,7 +80,7 @@ def main() -> int:
         return connect_main()
     if "--mcp" in sys.argv:
         # The same executable also serves agents over stdio: `project-brain-backend --mcp`.
-        from app.mcp.server import main as mcp_main
+        from app.mcp.cli import main as mcp_main
         from app.services.system import open_app_in_tray
 
         if "--brief" not in sys.argv:

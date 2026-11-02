@@ -11,8 +11,8 @@ import shlex
 import sys
 from urllib.parse import quote
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException
 
 from app.models.project import Project
 from app.services.context import ContextService

@@ -33,6 +33,23 @@ def _error(estimates: list[float], actual: list[int]) -> float:
     return median(abs(e - a) / a for e, a in zip(estimates, actual, strict=True))
 
 
+def held_out_medians(values: list[float]) -> list[float]:
+    """For each value, the median of all the other values. Sorting once and skipping the value's
+    own place gives the same numbers as a median per value, in n log n instead of n² log n: a
+    month of packs took 20 seconds the other way, on every refresh of the Usage page."""
+    order = sorted(range(len(values)), key=values.__getitem__)
+    ranked = [values[i] for i in order]
+    rest = len(values) - 1
+    out = [0.0] * len(values)
+    for place, index in enumerate(order):
+
+        def nth(j: int, place: int = place) -> float:  # j-th of the others, smallest first
+            return ranked[j if j < place else j + 1]
+
+        out[index] = nth(rest // 2) if rest % 2 else (nth(rest // 2 - 1) + nth(rest // 2)) / 2
+    return out
+
+
 def measure(samples: list[PackSample], fixed: float = PROVIDER_FACTOR["claude"]) -> dict:
     """Per Claude model: packs measured, the factor they give, and how far estimates are off
     with the fixed factor and with the measured one (each pack checked against a factor from
@@ -57,8 +74,7 @@ def measure(samples: list[PackSample], fixed: float = PROVIDER_FACTOR["claude"])
         }
         if len(items) >= 2:
             held_out = [
-                items[i].estimate_base * median(ratios[:i] + ratios[i + 1 :])
-                for i in range(len(items))
+                s.estimate_base * m for s, m in zip(items, held_out_medians(ratios), strict=True)
             ]
             row["error_measured"] = round(_error(held_out, actual), 3)
         rows.append(row)

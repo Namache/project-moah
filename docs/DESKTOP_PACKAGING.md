@@ -46,7 +46,7 @@ The Flatpak has no broad access to the host filesystem and no network permission
 
 ## Build from source
 
-The commands in this section are for people making packages. Package users only install and launch from the desktop UI. Build the Python sidecar on each target operating system; [PyInstaller cannot cross-compile it](https://pyinstaller.org/en/latest/). The Python script writes `desktop/bin/project-brain-backend` on Linux or `desktop/bin/project-brain-backend.exe` on Windows. Electron then includes that binary in the package. Build the frontend first: PyInstaller embeds the Vite output in the backend executable, and the sidecar script rejects frontend output older than its source.
+The commands in this section are for people making packages. Package users only install and launch from the desktop UI. Build the Python sidecar on each target operating system; [PyInstaller cannot cross-compile it](https://pyinstaller.org/en/latest/). The Python script writes `desktop/bin/project-brain-backend` on Linux or `desktop/bin/project-brain-backend.exe` on Windows, with its libraries in `desktop/bin/_internal` beside it. Electron then includes both in the package. It is a folder build rather than a single file: a single-file executable unpacks itself into a temporary folder on every start, and every agent session starts it twice (its brief and its MCP server). Build the frontend first: PyInstaller bundles the Vite output with the backend, and the sidecar script rejects frontend output older than its source.
 
 ### Linux (Flatpak)
 

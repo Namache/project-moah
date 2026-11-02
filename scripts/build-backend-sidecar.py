@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -51,17 +52,22 @@ def main() -> int:
         json.dumps({"stamp": int(time.time()), "commit": commit or None}), encoding="utf-8"
     )
 
+    # A folder build, not --onefile: a one-file executable unpacks itself into a temporary folder
+    # on every start, which cost about a second for each agent session's brief and MCP server.
+    # The executable keeps its path (desktop/bin/project-brain-backend) with its libraries in
+    # desktop/bin/_internal beside it, so agents connected with the old path keep working.
+    staging = repo / "build/pyinstaller-dist"
     command = [
         sys.executable,
         "-m",
         "PyInstaller",
-        "--onefile",
+        "--onedir",
         "--noconfirm",
         "--clean",
         "--name",
         "project-brain-backend",
         "--distpath",
-        str(repo / "desktop/bin"),
+        str(staging),
         "--workpath",
         str(repo / "build/pyinstaller"),
         "--specpath",
@@ -92,7 +98,13 @@ def main() -> int:
         "mcp",
         "backend/app/desktop_server.py",
     ]
-    return subprocess.call(command, cwd=repo)
+    result = subprocess.call(command, cwd=repo)
+    if result != 0:
+        return result
+    bin_dir = repo / "desktop/bin"
+    shutil.rmtree(bin_dir, ignore_errors=True)
+    shutil.move(staging / "project-brain-backend", bin_dir)
+    return 0
 
 
 if __name__ == "__main__":

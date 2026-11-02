@@ -34,6 +34,8 @@ from app.services.agent_sync import background_sync
 from app.services.builds import register_build
 from app.services.usage import UsageReader
 
+USAGE_WARMUP_DELAY = 10.0  # seconds after start-up
+
 
 def create_app(
     database_url: str | None = None,
@@ -59,10 +61,15 @@ def create_app(
             with application.state.session_factory() as session:
                 register_build(session, installed=True)
         application.state.usage_reader = UsageReader()
+        warmup = None
         if warm_usage:
-            # Read the agents' usage logs once in the background so the dashboard opens ready.
+            # Read the agents' usage logs once in the background so the dashboard opens ready,
+            # after the first screen has loaded: a month of logs takes seconds to read, and
+            # until then it would slow every request of the window that is opening.
             reader = application.state.usage_reader
-            threading.Thread(target=reader.refresh, name="usage-warmup", daemon=True).start()
+            warmup = threading.Timer(USAGE_WARMUP_DELAY, reader.refresh)
+            warmup.name, warmup.daemon = "usage-warmup", True
+            warmup.start()
             # Sync from agents: give new Claude Code and Codex folders a project every minute.
             threading.Thread(
                 target=background_sync,
@@ -74,6 +81,8 @@ def create_app(
             yield
         finally:
             stop_sync.set()
+            if warmup is not None:
+                warmup.cancel()
             engine.dispose()
 
     application = FastAPI(title="Project Moah API", version="0.1.4", lifespan=lifespan)
