@@ -38,7 +38,7 @@
 | | What Moah does | Where |
 |---|---|---|
 | **Remembers** | Tasks, decisions, rules, facts, known issues and warnings, in one local database. Lock what agents must not change. | Tasks, Memory |
-| **Briefs** | Every agent session starts with your rules and the unfinished task, with what is already decided for it, so agents check Moah before asking you again. When the work needs more, the agent fetches a short, ranked pack, never your whole history. | Context packs |
+| **Briefs** | Every agent session starts with your rules and the unfinished task with what is already decided for it, so agents check Moah instead of asking you again. | Context packs |
 | **Links** | Records are connected the way they relate: a bug *caused by* a decision, a task that *uses* a rule. | Brain |
 | **Learns** | Links that lead to useful records get stronger, unused ones fade. | Brain health |
 | **Asks first** | Agents suggest changes to locked things; nothing changes until you accept. | Inbox |
@@ -72,20 +72,6 @@
 | Across agents | A separate file for each agent | Claude Code and Codex share one memory |
 | Keeping it tidy | You, by hand | Shelves file new records; links learn what helps |
 | Changing a rule | Anyone edits it, silently | Locked memory changes only with your OK |
-
----
-
-## Measured, not promised
-
-We test Moah on three small, half-finished projects. Each one has a history of tasks, decisions, rules, checkpoints and shelves. The same agent (Claude Sonnet 5.5) gets the same request with and without Moah, three times each, and hidden checks grade the result. Results on the code of version 0.1.4:
-
-| | Without Moah | With Moah |
-|---|---|---|
-| Finished the task | 9 of 9 runs | 9 of 9 runs |
-| Followed decisions made in earlier sessions | 40 of 45 checks | 45 of 45 checks |
-| Average cost per task | $0.144 | $0.168 (+17%) |
-
-Moah costs a little more, mostly for the start-up brief with your rules. In return, agents follow what you already decided instead of guessing, and each run leaves a checkpoint so the next session starts where it stopped.
 
 ---
 
