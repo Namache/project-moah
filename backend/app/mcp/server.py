@@ -374,9 +374,9 @@ def build_server(
         a task, a request names an ID, you need history or traps, before an unfamiliar area,
         when debugging, and before asking the person a question (query = the question). Skip
         it only for small edits or when a pack from this session already covers the work.
-        task is an ID such as CAMP-037; without it, the focus, the task the query names or
-        matches, or for a bare "continue" the brief's unfinished task is used. detail is
-        minimal, balanced or detailed. explain=true says why each record came.
+        task is an ID such as CAMP-037; without it, the pack picks the task the work is about
+        and says which. detail is minimal, balanced or detailed. explain=true says why each
+        record came.
         Rules your brief gave are left out; pass global_rules=true if you never got the brief.
         The pack's task becomes this session's task. A repeat sends only what is new; full=true
         sends everything again."""
