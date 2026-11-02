@@ -3,6 +3,7 @@ measured from the token jump each context pack causes in Claude Code's log (PROJ
 
 import io
 import json
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,6 +18,9 @@ from app.services.usage import PackSample, UsageReader, moah_tool, task_marks_in
 from tests.test_usage import claude_line, iso, logs, write  # noqa: F401 - logs is a fixture
 
 pytestmark = pytest.mark.anyio
+
+# A project folder spelled the way this system spells one (Windows rejects /home/me/game).
+GAME = "C:\\me\\game" if os.name == "nt" else "/home/me/game"
 
 NOW = datetime.now(UTC).replace(microsecond=0)
 PACK = (
@@ -136,7 +140,7 @@ def pack_turn(
         "input": {"task": task},
     }
     lines = [
-        claude_line(reply, minutes_ago, "/home/me/game", fresh=prompt, cached=0, out=out)
+        claude_line(reply, minutes_ago, GAME, fresh=prompt, cached=0, out=out)
         | {"type": "assistant"}
     ]
     lines[0]["message"]["content"] = [use]
@@ -167,7 +171,7 @@ def pack_turn(
 
 
 def next_reply(reply: str, minutes_ago: float, prompt: int) -> dict:
-    return claude_line(reply, minutes_ago, "/home/me/game", fresh=prompt, cached=0, out=20)
+    return claude_line(reply, minutes_ago, GAME, fresh=prompt, cached=0, out=20)
 
 
 def test_each_pack_is_measured_by_the_jump_it_causes(logs) -> None:  # noqa: F811
@@ -242,9 +246,7 @@ async def test_usage_matches_tasks_by_session_id(
     logs,  # noqa: F811
     database_url: str,
 ) -> None:
-    game = (
-        await client.post("/api/projects", json={"name": "Game", "root_path": "/home/me/game"})
-    ).json()
+    game = (await client.post("/api/projects", json={"name": "Game", "root_path": GAME})).json()
     base = f"/api/projects/{game['id']}/tasks"
     first = (await client.post(base, json={"title": "Fix old saves"})).json()
     second = (await client.post(base, json={"title": "Camp header"})).json()
@@ -274,7 +276,7 @@ async def test_usage_matches_tasks_by_session_id(
     )
     write(  # another session that never touched a task
         logs["claude"].with_name("s2.jsonl"),
-        [claude_line("x1", 15, "/home/me/game", fresh=4, cached=0, out=1) | {"sessionId": "s2"}],
+        [claude_line("x1", 15, GAME, fresh=4, cached=0, out=1) | {"sessionId": "s2"}],
     )
     by_task = (await client.get("/api/usage")).json()["by_task"]
     rows = {row["task"]: row for row in by_task["tasks"]}

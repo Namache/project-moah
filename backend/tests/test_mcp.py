@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from httpx import AsyncClient
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp.client.stdio import get_default_environment, stdio_client
 
 from tests.conftest import app_client
 
@@ -613,7 +613,11 @@ async def test_repeat_packs_in_a_session_send_only_what_is_new(
         subprocess.run(
             [sys.executable, "-m", "app.mcp", "--brief", "--cwd", str(tmp_path)],
             cwd=str(BACKEND),
-            env={"PROJECT_BRAIN_DATABASE_URL": database_url, "PATH": "/usr/bin:/bin"},
+            env={
+                **get_default_environment(),  # Windows cannot start Python without SYSTEMROOT
+                "PROJECT_BRAIN_DATABASE_URL": database_url,
+                "PATH": "/usr/bin:/bin",
+            },
             check=True,
             capture_output=True,
         )
