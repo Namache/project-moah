@@ -1,0 +1,395 @@
+{
+  "code": "fix-packs: infer the task from the request, records the task's own work names, weak shelf matches left out, agent packs without the shelf line, activity and the brief's rules",
+  "token_counter": "services/tokens.py, Claude",
+  "measured": "2026-11-02",
+  "on_main_33d29dd": {
+    "note": "the same bench (with the continue fixture) run on main 33d29dd",
+    "quality": {
+      "precision": 0.9,
+      "recall": 1.0,
+      "pack_tokens_avg": 92
+    },
+    "sessions": {
+      "every_request": {
+        "total_tokens": 2514,
+        "tokens_per_completed_task": 838,
+        "missed_requests": 0,
+        "unnecessary_retrieval_tokens": [
+          120,
+          120,
+          120,
+          120,
+          64,
+          64,
+          64,
+          84,
+          84,
+          84
+        ]
+      },
+      "on_demand": {
+        "total_tokens": 1858,
+        "tokens_per_completed_task": 619,
+        "missed_requests": 0,
+        "unnecessary_retrieval_tokens": [
+          120,
+          64,
+          84
+        ]
+      },
+      "on_demand_repeat_aware": {
+        "total_tokens": 1617,
+        "tokens_per_completed_task": 539,
+        "missed_requests": 0,
+        "unnecessary_retrieval_tokens": [
+          32,
+          21,
+          24
+        ]
+      }
+    },
+    "continue": [
+      {
+        "detail": "balanced",
+        "case": "continue, query only",
+        "task": null,
+        "precision": 0.0,
+        "recall": 0.0,
+        "missing": [
+          "d_dates",
+          "d_wish",
+          "w_wrap"
+        ],
+        "tokens": 134
+      },
+      {
+        "detail": "balanced",
+        "case": "continue, bare request",
+        "task": null,
+        "precision": 0.0,
+        "recall": 0.0,
+        "missing": [
+          "d_dates",
+          "d_wish",
+          "w_wrap"
+        ],
+        "tokens": 134
+      },
+      {
+        "detail": "balanced",
+        "case": "continue, task given",
+        "task": "READ-001",
+        "precision": 1.0,
+        "recall": 1.0,
+        "missing": [],
+        "tokens": 245
+      },
+      {
+        "detail": "balanced",
+        "case": "off-topic question",
+        "task": null,
+        "precision": 1.0,
+        "recall": 1.0,
+        "missing": [],
+        "tokens": 165
+      },
+      {
+        "detail": "minimal",
+        "case": "continue, query only",
+        "task": null,
+        "precision": 0.0,
+        "recall": 0.0,
+        "missing": [
+          "d_dates",
+          "d_wish",
+          "w_wrap"
+        ],
+        "tokens": 98
+      },
+      {
+        "detail": "minimal",
+        "case": "continue, bare request",
+        "task": null,
+        "precision": 0.0,
+        "recall": 0.0,
+        "missing": [
+          "d_dates",
+          "d_wish",
+          "w_wrap"
+        ],
+        "tokens": 98
+      },
+      {
+        "detail": "minimal",
+        "case": "continue, task given",
+        "task": "READ-001",
+        "precision": 1.0,
+        "recall": 0.333,
+        "missing": [
+          "d_dates",
+          "d_wish"
+        ],
+        "tokens": 159
+      },
+      {
+        "detail": "minimal",
+        "case": "off-topic question",
+        "task": null,
+        "precision": 0.0,
+        "recall": 0.0,
+        "missing": [
+          "d_dates"
+        ],
+        "tokens": 98
+      }
+    ]
+  },
+  "brief_tokens": 404,
+  "quality": {
+    "precision": 0.9,
+    "recall": 1.0,
+    "pack_tokens_avg": 57,
+    "cases": [
+      {
+        "case": "task with a bug, a linked warning and a governing rule",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [
+          "r_save"
+        ],
+        "forbidden_found": [],
+        "tokens": 80,
+        "task": "SAVE-001"
+      },
+      {
+        "case": "task with a superseded decision",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 51,
+        "task": "CAMP-001"
+      },
+      {
+        "case": "decision question, no task",
+        "precision": 0.5,
+        "recall": 1.0,
+        "noise": [
+          "n_files"
+        ],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 50,
+        "task": null
+      },
+      {
+        "case": "small task, one fact",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 52,
+        "task": "AUDIO-001"
+      },
+      {
+        "case": "bug question, no task",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 54,
+        "task": null
+      }
+    ],
+    "repeatable": true
+  },
+  "explore": {
+    "runs": 30,
+    "precision_avg": 0.9,
+    "precision_min": 0.9,
+    "recall_avg": 1.0,
+    "recall_min": 1.0,
+    "pack_tokens_avg": 57,
+    "packs_that_differed": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "sessions": {
+    "every_request": {
+      "requests": 14,
+      "retrievals": 14,
+      "unnecessary_retrievals": 10,
+      "unnecessary_retrieval_tokens": [
+        80,
+        80,
+        80,
+        80,
+        51,
+        51,
+        51,
+        71,
+        71,
+        71
+      ],
+      "missed_requests": 0,
+      "completed_tasks": 3,
+      "tasks": 3,
+      "total_tokens": 2196,
+      "tokens_per_completed_task": 732
+    },
+    "on_demand": {
+      "requests": 14,
+      "retrievals": 7,
+      "unnecessary_retrievals": 3,
+      "unnecessary_retrieval_tokens": [
+        80,
+        51,
+        71
+      ],
+      "missed_requests": 0,
+      "completed_tasks": 3,
+      "tasks": 3,
+      "total_tokens": 1712,
+      "tokens_per_completed_task": 571
+    },
+    "on_demand_repeat_aware": {
+      "requests": 14,
+      "retrievals": 7,
+      "unnecessary_retrievals": 3,
+      "unnecessary_retrieval_tokens": [
+        27,
+        22,
+        27
+      ],
+      "missed_requests": 0,
+      "completed_tasks": 3,
+      "tasks": 3,
+      "total_tokens": 1549,
+      "tokens_per_completed_task": 516
+    }
+  },
+  "continue": {
+    "task": "READ-001",
+    "cases": [
+      {
+        "detail": "balanced",
+        "case": "continue, query only",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 221,
+        "task": "READ-001",
+        "task_source": "inferred"
+      },
+      {
+        "detail": "balanced",
+        "case": "continue, bare request",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 221,
+        "task": "READ-001",
+        "task_source": "inferred"
+      },
+      {
+        "detail": "balanced",
+        "case": "continue, task given",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 221,
+        "task": "READ-001",
+        "task_source": "given"
+      },
+      {
+        "detail": "balanced",
+        "case": "off-topic question",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 129,
+        "task": null,
+        "task_source": null
+      },
+      {
+        "detail": "minimal",
+        "case": "continue, query only",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 192,
+        "task": "READ-001",
+        "task_source": "inferred"
+      },
+      {
+        "detail": "minimal",
+        "case": "continue, bare request",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 192,
+        "task": "READ-001",
+        "task_source": "inferred"
+      },
+      {
+        "detail": "minimal",
+        "case": "continue, task given",
+        "precision": 1.0,
+        "recall": 1.0,
+        "noise": [],
+        "missing": [],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 192,
+        "task": "READ-001",
+        "task_source": "given"
+      },
+      {
+        "detail": "minimal",
+        "case": "off-topic question",
+        "precision": 0.0,
+        "recall": 0.0,
+        "noise": [],
+        "missing": [
+          "d_dates"
+        ],
+        "from_brief": [],
+        "forbidden_found": [],
+        "tokens": 98,
+        "task": null,
+        "task_source": null
+      }
+    ]
+  }
+}

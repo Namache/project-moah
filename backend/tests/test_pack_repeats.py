@@ -71,11 +71,12 @@ async def test_a_repeat_pack_names_what_was_sent_and_sends_only_changes(
         assert first.repeat_of is None and "BUG-001" in first.text
         assert not any(i.repeat for i in first.items)
 
+        # The project's rule is in the agent's brief, so the pack never sends it.
+        assert "RULE-001" not in first.text
+        assert first.omitted["already in your brief"] == 1
         again = build(session)
         short = first.retrieval_id[:8]
-        assert again.text == (
-            f"Nothing new since R-{short}. Still applies: BUG-001, RULE-001, WARN-001."
-        )
+        assert again.text == f"Nothing new since R-{short}. Still applies: BUG-001, WARN-001."
         assert again.retrieval_id is None  # nothing to learn from, no feedback asked
         assert again.repeat_of == short
         assert all(i.repeat for i in again.items)
@@ -90,7 +91,7 @@ async def test_a_repeat_pack_names_what_was_sent_and_sends_only_changes(
     with factory(client)() as session:
         changed = build(session)
         assert changed.text.startswith(
-            f"Already sent since R-{short}, unchanged, still applies: BUG-001, RULE-001."
+            f"Already sent since R-{short}, unchanged, still applies: BUG-001."
         )
         assert "NEW OR CHANGED" in changed.text and "Autosave holds a lock now" in changed.text
         assert "Loading them crashes" not in changed.text  # BUG-001 is not repeated
@@ -110,14 +111,15 @@ async def test_records_already_sent_cost_no_budget(client: AsyncClient) -> None:
     pid, tasks, _ = await seed(client)
     sent = SentRecords()
     with factory(client)() as session:
-        full = ContextService(session).build(pid, task=tasks["save"], global_rules=False)
+        # With the rules sent too (an agent without a brief), the pack outgrows 100 tokens.
+        full = ContextService(session).build(pid, task=tasks["save"], for_agent=True)
         tight = ContextService(session).build(
-            pid, task=tasks["save"], global_rules=False, budget=100, sent=sent, record_for="claude"
+            pid, task=tasks["save"], budget=100, sent=sent, record_for="claude"
         )
         missing = {i.ref for i in full.items} - {i.ref for i in tight.items}
         assert missing, "the tight budget should leave something out"
         follow_up = ContextService(session).build(
-            pid, task=tasks["save"], global_rules=False, budget=100, sent=sent, record_for="claude"
+            pid, task=tasks["save"], budget=100, sent=sent, record_for="claude"
         )
         # What was sent is named for free, so the budget goes to what did not fit before.
         assert missing & {i.ref for i in follow_up.items if not i.repeat}

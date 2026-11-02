@@ -5,7 +5,9 @@ path that brought each one. Feedback then moves those links:
 - an agent says a record helped: every link on its path is strengthened for this kind of work;
 - an agent says a record did not help: the last link on its path is weakened for this kind of
   work only, so a link can stay strong for design while fading for debugging;
-- a checkpoint for the task counts as mild evidence that the pack was used.
+- a checkpoint for the task counts as mild evidence that the pack was used;
+- records of the agent session's latest pack that its checkpoint names as done or as the next
+  step count as useful, as if the agent had said so (unless it already sent feedback).
 A record the agent found useful that the pack did not hold gets a link from the task, so the
 next pack finds it without searching. Two records that both helped in one pack, joined by a
 candidate link nobody confirmed, confirm it: the guess was right.
@@ -283,6 +285,50 @@ class RetrievalService:
             created_by="inferred",
             actor=actor,
         )
+
+    def feedback_from_checkpoint(
+        self, project_id: str, ref: str | None, texts: list[str], *, actor: str
+    ) -> tuple[str, list[str]] | None:
+        """Implicit feedback: records of the retrieval ``ref`` (an agent session's latest pack)
+        that a checkpoint names in ``texts`` (its summary, completed work and next steps, not
+        its problems) helped. Counted as if the agent had sent them as useful, unless it
+        already sent feedback for that pack. Returns the retrieval's short id and the IDs
+        counted, or None. Never raises: learning never fails a checkpoint."""
+        from app.services.context import REF_PATTERN
+        from app.services.memory import MemoryService
+
+        if not ref:
+            return None
+        try:
+            retrieval = self.get(project_id, ref)
+            if retrieval.outcome == "feedback":
+                return None
+            held = {i["id"] for i in retrieval.items if i.get("kind") == "memory"}
+            named: dict[str, None] = {}
+            for text in texts:
+                for found in REF_PATTERN.findall(text or ""):
+                    prefix, number = found.rsplit("-", 1)
+                    named.setdefault(found.upper())
+                    named.setdefault(f"{prefix.upper()}-{int(number):03d}")
+            if not named or not held:
+                return None
+            rows = MemoryService(self.session).list(
+                project_id, statuses=["active"], refs=list(named), limit=50
+            )
+            order = {r: k for k, r in enumerate(named)}
+            useful = [
+                m.human_id
+                for m in sorted(rows, key=lambda m: order.get(m.human_id.upper(), 0))
+                if m.id in held
+            ]
+            if not useful:
+                return None
+            self.feedback(project_id, retrieval.id, useful=useful, not_useful=[], actor=actor)
+            return f"R-{retrieval.id[:8]}", useful
+        except Exception:  # noqa: BLE001
+            self.session.rollback()
+            logging.getLogger(__name__).exception("Feedback from a checkpoint failed")
+            return None
 
     def on_checkpoint(self, project_id: str, task_id: str | None, actor: str) -> int:
         """A checkpoint for a task is mild evidence its latest context pack was used."""

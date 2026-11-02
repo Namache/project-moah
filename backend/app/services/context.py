@@ -8,12 +8,17 @@ Safety rules, applied before anything is ranked (all enforced here, not in the U
 - Ideas are included only when tied to the task (linked, named, every word matching, or over
   verified links), and are labelled as not requirements.
 
-Matching, strongest first: records linked to the task; records linked to a task the request
-names by ID ("check AUDIO-1", which also finds AUDIO-001) or named themselves; records reached
-over verified links (a guessed link counts ``GUESS_FACTOR`` as much); then word matches. Any-word
-search only proposes word matches: a record must cover ``MIN_COVERAGE`` of the meaningful words
-of the task title or of the request, so one shared common word is not a match. A request asking
-what was decided puts decisions and rules first.
+The task: the one asked for, else the project's current focus, else the task a request plainly
+continues (it names the task by ID, or its words match one task in motion; see _infer_task),
+else none, and the pack is a project overview.
+
+Matching, strongest first: records linked to the task; records the task's own work names by ID
+(its unfinished criteria and next action, and what its latest checkpoint says is left); records
+linked to a task the request names by ID ("check AUDIO-1", which also finds AUDIO-001) or named
+themselves; records reached over verified links (a guessed link counts ``GUESS_FACTOR`` as
+much); then word matches. Any-word search only proposes word matches: a record must cover
+``MIN_COVERAGE`` of the meaningful words of the task title or of the request, so one shared
+common word is not a match. A request asking what was decided puts decisions and rules first.
 
 Link System: the task, its linked records and search hits are starting nodes. Specialty
 Shelves the work mentions, or that the starting nodes sit on, wake up; members of awake shelves
@@ -26,8 +31,9 @@ Repeat packs in one agent session send only what is new (see SentRecords). A rec
 reached this way joins the pack with its strongest route as its reason. Records are read
 through the search index, the walk and their links, never by reading the whole project. A
 record that sits only on dormant shelves is left out unless it is linked to the task, named,
-pinned, or always visible. Projects without shelves behave as before, with links widening what
-is found.
+pinned, or always visible. With a task, a decision, fact, note or idea whose only tie is a shelf
+woken by one keyword is left out too. Projects without shelves behave as before, with links
+widening what is found.
 
 Budget rule: items are ranked into priority tiers (0 is essential). Essential task
 information is always kept, even over budget. Other items are kept in tier order; within a tier
@@ -79,6 +85,20 @@ from app.services.tasks import CLOSED_STATUSES, TaskService
 from app.services.tokens import base_tokens, count_tokens, factor
 
 DEFAULT_BUDGETS: dict[str, int] = {"minimal": 750, "balanced": 1500, "detailed": 3000}
+# Task inference, for a request with no task and no focus set (see _infer_task). These words say
+# "carry on with the work" without saying which work, so they do not count as matching a task.
+WORK_WORDS = (
+    "continue finish resume start keep work feature task done let pick carry going wrap"
+    " implement complete rest remaining"
+)
+INFER_STATUSES = ("in_progress", "blocked", "review")
+INFER_COVER = 0.5  # share of the request's meaningful words a task's title and tags must cover
+# The project rules the session brief lists (brief.build_brief): the first this many visible ones.
+BRIEF_PROJECT_RULES = 12
+# With a task, a record whose only evidence is an awake shelf needs that shelf woken by more than
+# one keyword or through the task's own records: start score 0.6 x activation, and one keyword
+# gives activation 0.7 (score 0.42).
+SHELF_ONLY_MIN = 0.5
 IMPORTANCE_SCORE = {"critical": 20, "high": 12, "normal": 5, "low": 0}
 GOAL_LIMIT = 600
 # Traversal budget for one pack.
@@ -221,13 +241,29 @@ def match_keys(text: str) -> set[str]:
     from app.services.shelves import WORD, stem
 
     keys = set()
-    for word in WORD.findall(text):
+    for word in WORD.findall(text.replace("\u2019", "'")):
         low = word.casefold().strip("'")
+        if low.endswith("'s"):
+            low = low[:-2]  # possessives and "let's": the word itself
         if low in STOPWORDS or low in FILLER or low.isdigit() or REF_PATTERN.fullmatch(word):
             continue
         key = stem(low)
         keys.add(key[:-1] if len(key) > 3 and key.endswith("e") else key)  # save, saves: sav
     return keys
+
+
+WORK_KEYS = frozenset(match_keys(WORK_WORDS))
+
+
+def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
+    """The project rules the session brief lists, chosen the way brief.build_brief chooses them
+    (tests/test_pack_work.py checks the two agree). In the Global project, the brief lists all
+    of its rules as global rules."""
+    records = memory.list(project_id, statuses=["active"], limit=300)
+    rules = [
+        m for m in records if m.type == "rule" and m.ai_visibility not in ("hidden", "manual_only")
+    ]
+    return rules if project_id == GLOBAL_PROJECT_ID else rules[:BRIEF_PROJECT_RULES]
 
 
 def verified(path: Path | None) -> bool:
@@ -409,6 +445,12 @@ class ContextService:
         self.decision_intent = False
         self.named_tasks: dict[str, str] = {}  # task id -> human id, typed in the request
         self.named_memory: set[str] = set()  # memory ids typed in the request
+        # memory id -> where the task's own work names it (see _work_named)
+        self.work_named: dict[str, str] = {}
+        self.brief_rules: set[str] = set()  # project rules the agent's brief already listed
+        self.task_source: str | None = None  # given, focus or inferred; None for an overview
+        # An agent's pack leaves out what only a person reading it can use (see build).
+        self.for_agent = False
         # Set only when exploring (Settings > Agents, off by default): link weights are then
         # sampled (Thompson sampling), so links nobody has tried yet get an occasional chance.
         # Otherwise every pack, an agent's or a preview in the app, is deterministic.
@@ -430,14 +472,18 @@ class ContextService:
         explore: bool | None = None,
         provider: str | None = None,
         sent: SentRecords | None = None,
+        for_agent: bool | None = None,
     ) -> ContextPack:
         """``record_for`` names the agent asking; its pack is kept as a retrieval session so
         feedback can teach the links. Previews in the app are not recorded. An agent's pack
         explores (see ``sample``) only when the person turned exploring on in Settings, or when
         ``explore=True``; by default the same request gives the same pack. ``global_rules=False``
-        leaves out the Global rules, for an agent whose session brief already gave them.
-        ``sent`` is what this agent session was already sent (kept by the MCP server): those
-        items are named instead of repeated, and a pack with nothing new is not recorded."""
+        leaves out the Global rules and the project rules the brief lists, for an agent whose
+        session brief already gave them. ``sent`` is what this agent session was already sent
+        (kept by the MCP server): those items are named instead of repeated, and a pack with
+        nothing new is not recorded. ``for_agent`` (by default: when ``record_for`` is set)
+        leaves out the awake shelves line and recent activity, which help a person see why a
+        pack holds what it does but give an agent nothing to act on."""
         if explore is None:
             # PROJECT_BRAIN_EXPLORE=0 keeps exploring off even when the setting is on, for
             # tests and side-by-side trials.
@@ -449,6 +495,7 @@ class ContextService:
         if explore:
             self.sample = random.Random()
         self.provider = provider or record_for
+        self.for_agent = record_for is not None if for_agent is None else for_agent
         from app.services.token_calibration import load as load_token_factor
 
         load_token_factor(self.session)  # Claude's factor as measured from its logs, if it was
@@ -491,6 +538,7 @@ class ContextService:
             project_id=project.id,
             project_name=project.name,
             task=detail_task.human_id if detail_task else None,
+            task_source=self.task_source,
             detail_level=detail,
             budget=limit,
             estimated_tokens=estimate_tokens(text, self.provider),
@@ -607,17 +655,27 @@ class ContextService:
         omitted: Counter[str] = Counter()
         warnings: list[str] = []
 
-        # The task: the one asked for, else the project's current focus, else none.
-        task_ref = task or project.current_focus_task_id
+        # The task: the one asked for, else the project's current focus, else the one the
+        # request is plainly about (see _infer_task), else none: a project overview.
+        task_ref, self.task_source, why = task, "given" if task else None, ""
+        if task_ref is None and project.current_focus_task_id:
+            task_ref, self.task_source = project.current_focus_task_id, "focus"
+        if task_ref is None and query:
+            inferred = self._infer_task(project_id, query)
+            if inferred is not None:
+                (task_ref, why), self.task_source = inferred, "inferred"
         detail_task = self.tasks.detail(project_id, task_ref) if task_ref else None
-        if task is None and detail_task is not None:
-            warnings.append(
-                f"No task was given, so the current focus {detail_task.human_id} was used."
-            )
         if detail_task is None:
+            self.task_source = None
             warnings.append(
                 "No task was given and no current focus is set; this is a project overview."
             )
+        elif self.task_source == "focus":
+            warnings.append(
+                f"No task was given, so the current focus {detail_task.human_id} was used."
+            )
+        elif self.task_source == "inferred":
+            warnings.append(f"No task was given; {why}, so it was used. Pass task= for another.")
 
         items: list[Item] = [
             Item("project", "project", project.id, project.name, project.name, 0, reason="project"),
@@ -626,6 +684,10 @@ class ContextService:
             {w.casefold() for w in re.findall(r"\w+", query or "")} & DECISION_WORDS
         )
         self._named(project_id, query, detail_task)
+        self.work_named = self._work_named(project_id, detail_task)
+        self.brief_rules = (
+            set() if global_rules else {m.id for m in brief_project_rules(self.memory, project_id)}
+        )
         related_memory = self._memory_relevance(
             project_id, detail_task.title if detail_task else None, query
         )
@@ -650,7 +712,8 @@ class ContextService:
         graph = self._graph_context(project_id, detail_task, query, related_memory)
         self.graph_context = graph
         self.activations = graph.activations
-        items += self._shelf_items(graph)
+        if not self.for_agent:
+            items += self._shelf_items(graph)
         warnings += self._crowded(graph)
 
         if detail_task is not None:
@@ -674,7 +737,8 @@ class ContextService:
         items += self._routed_items(project_id, graph, detail)
         items += self._checkpoint_items(project_id, detail_task, detail)
         items += self._file_items(project_id, detail_task, query, detail, graph)
-        if CAPS["activity"][detail]:
+        if CAPS["activity"][detail] and not self.for_agent:
+            # An agent has the latest checkpoint, which the newest events mostly repeat.
             items += self._activity_items(project_id, detail_task, detail)
 
         if sent is not None:
@@ -1177,6 +1241,90 @@ class ContextService:
 
     # ---- memory -------------------------------------------------------------------------
 
+    def _task_by_ref(self, project_id: str, ref: str):
+        """The task a typed ID names, or None. AUDIO-1 is how people type AUDIO-001."""
+        prefix, number = ref.rsplit("-", 1)
+        for spelling in dict.fromkeys([ref.upper(), f"{prefix.upper()}-{int(number):03d}"]):
+            try:
+                return self.tasks.get(project_id, spelling)
+            except Exception:  # noqa: BLE001 - a record or an ordinary word, not a task here
+                continue
+        return None
+
+    def _infer_task(self, project_id: str, query: str) -> tuple[str, str] | None:
+        """The task a request with no task= is about, with why, or None.
+
+        1. An open task the request names by ID ("continue with IDLE-5").
+        2. Else the task in progress, blocked or in review whose title and tags cover at least
+           ``INFER_COVER`` of the request's meaningful words (work words such as "continue" or
+           "finish" do not count), share at least two of them (one, for a one-word request),
+           and cover more than any other such task does.
+        3. Else, for a request with no meaningful words at all ("Continue."), the one task in
+           progress, when there is exactly one.
+        A vague request matches nothing and gets a project overview, as before."""
+        for ref in REF_PATTERN.findall(query):
+            found = self._task_by_ref(project_id, ref)
+            if found is not None and found.status not in CLOSED_STATUSES:
+                return found.id, f"the request names {found.human_id}"
+        moving = self.tasks.list(project_id, statuses=list(INFER_STATUSES))
+        wanted = match_keys(query) - WORK_KEYS
+        if not wanted:
+            started = [t for t in moving if t.status == "in_progress"]
+            if len(started) == 1:
+                return started[0].id, f"{started[0].human_id} is the only task in progress"
+            return None
+        scored = sorted(
+            (
+                (len(wanted & match_keys(" ".join([t.title, *t.tags]))), t.human_id, t)
+                for t in moving
+            ),
+            key=lambda s: (-s[0], s[1]),
+        )
+        if not scored:
+            return None
+        shared, _, best = scored[0]
+        runner_up = scored[1][0] if len(scored) > 1 else 0
+        if (
+            shared / len(wanted) >= INFER_COVER
+            and shared >= min(2, len(wanted))
+            and shared > runner_up
+        ):
+            status = best.status.replace("_", " ")
+            return best.id, f"the request matches {best.human_id} ({status})"
+        return None
+
+    def _work_named(self, project_id: str, task: TaskDetail | None) -> dict[str, str]:
+        """Records the work itself names by ID, with where: the task's unfinished acceptance
+        criteria and next action, and what its latest checkpoint says is left (remaining work,
+        problems, next steps). A person or agent wrote those IDs down as what this work needs,
+        so they join the pack even when no word or link would find them. Only for a task: a
+        project overview has no work of its own."""
+        if task is None:
+            return {}
+        texts = [
+            ("the task", c.description) for c in task.acceptance_criteria if not c.is_completed
+        ]
+        texts.append(("the task", task.next_action or ""))
+        for cp in self.checkpoints.list(project_id, task=task.human_id, limit=1):
+            texts += [
+                ("the latest checkpoint", part)
+                for part in (cp.remaining_work, cp.problems, cp.next_steps)
+            ]
+        where: dict[str, str] = {}
+        for label, text in texts:
+            for ref in REF_PATTERN.findall(text or ""):
+                prefix, number = ref.rsplit("-", 1)
+                where.setdefault(f"{prefix.upper()}-{int(number):03d}", label)
+                where.setdefault(ref.upper(), label)
+        where.pop(task.human_id.upper(), None)
+        if not where:
+            return {}
+        return {
+            row.id: f"named in {where[row.human_id.upper()]}"
+            for row in self.memory.list(project_id, statuses=["active"], refs=set(where), limit=50)
+            if row.human_id.upper() in where
+        }
+
     def _named(self, project_id: str, query: str | None, task: TaskDetail | None) -> None:
         """Tasks and records the request names by ID ("check AUDIO-1"). Visibility rules still
         apply to them: naming is not the person's include."""
@@ -1193,14 +1341,9 @@ class ContextService:
             self.named_memory.add(row.id)
             refs.discard(padded.get(row.human_id.upper(), row.human_id.upper()))
         for ref in refs:
-            prefix, number = ref.rsplit("-", 1)
-            for spelling in dict.fromkeys([ref, f"{prefix}-{int(number):03d}"]):
-                try:  # AUDIO-1 is how people type AUDIO-001
-                    found = self.tasks.get(project_id, spelling)
-                except Exception:  # noqa: BLE001 - not a task here: an ordinary word then
-                    continue
+            found = self._task_by_ref(project_id, ref)
+            if found is not None:
                 self.named_tasks[found.id] = found.human_id
-                break
 
     def _memory_relevance(self, project_id: str, *parts: str | None) -> dict[str, float]:
         """Memory ids that match the task title or the request, scored 0-20.
@@ -1282,6 +1425,8 @@ class ContextService:
             add(self.memory.list(project_id, statuses=["active"], task=named, limit=500))
         if self.named_memory:
             add(self.memory.list(project_id, statuses=["active"], ids=sorted(self.named_memory)))
+        if self.work_named:
+            add(self.memory.list(project_id, statuses=["active"], ids=sorted(self.work_named)))
         for standing in ({"pinned": True}, {"locked_only": True}, {"visibility": ["always"]}):
             add(self.memory.list(project_id, statuses=["active"], limit=STANDING_LIMIT, **standing))
         return list(found.values())
@@ -1333,7 +1478,8 @@ class ContextService:
             named_task = next(
                 (self.named_tasks[t.id] for t in m.tasks if t.id in self.named_tasks), None
             )
-            named = m.id in self.named_memory
+            work = self.work_named.get(m.id)  # named by the task or its latest checkpoint
+            named = m.id in self.named_memory or work is not None
             path = graph.paths.get(Node("memory", m.id))
             reach = 20 * graph.score(Node("memory", m.id)) if m.id in connected else 0.0
             if reach and not verified(path):
@@ -1366,6 +1512,21 @@ class ContextService:
                         )
                     )
                 continue
+            node = Node("memory", m.id)
+            if (
+                task_id is not None  # with no task, a shelf may be all a request has
+                and m.id in connected
+                and path is not None
+                and not path.hops
+                and graph.start_reasons.get(node, "").startswith("on ")
+                and m.id not in related
+                and m.type in ("decision", "fact", "note", "idea")  # traps wake with their domain
+                and graph.score(node) < SHELF_ONLY_MIN
+                and not (manual or always or linked or named or named_task or standing)
+            ):
+                # Only a shelf woken by one keyword says it belongs: too weak to cost tokens.
+                omitted["weak shelf match"] += 1
+                continue
             # Eligibility: named by the caller, always visible, or related to the work.
             if not (
                 manual
@@ -1389,8 +1550,11 @@ class ContextService:
             ):
                 omitted["not related"] += 1
                 continue
+            if m.id in self.brief_rules and not manual:
+                omitted["already in your brief"] += 1
+                continue
             score = (
-                (50 if linked else 40 if named_task else 0)
+                (50 if linked else 45 if work else 40 if named_task else 0)
                 + (30 if always else 0)
                 + (15 if m.is_pinned else 0)
                 + (10 if m.is_locked else 0)
@@ -1404,6 +1568,8 @@ class ContextService:
                 if linked
                 else f"linked to {named_task}, named in the request"
                 if named_task
+                else work
+                if work
                 else "named in the request"
                 if named
                 else "always visible"
@@ -1438,6 +1604,7 @@ class ContextService:
                     if e[1].is_locked
                     or e[1].importance in ("critical", "high")
                     or e[2] == "linked to this task"
+                    or e[1].id in self.work_named
                 ]
                 omitted["detail level"] += len(ranked) - len(strong)
                 ranked = strong
@@ -1468,6 +1635,9 @@ class ContextService:
                     # Reached through other records: useful, never ahead of essentials such as
                     # the latest checkpoint or memory linked to the task.
                     item.tier = max(item.tier, 3)
+                if m.id in self.work_named:
+                    # The work names it as what it needs: ahead of anything found by words.
+                    item.tier = 1 if section in ("decisions", "rules", "warnings") else 2
                 items.append(item)
         if detail == "detailed":
             items += self._supersession_items(
