@@ -9,6 +9,8 @@ asked the person again what those records already said (2026-11-02 test).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -56,6 +58,10 @@ Follow every rule above. Moah also holds the person's earlier answers.
 )
 
 CLOSED_TASK = ("completed", "archived")
+# How many project rules and standing decisions the brief lists. Packs for an agent leave out
+# exactly the rules listed here (see brief_project_rules), so nothing is sent twice.
+BRIEF_PROJECT_RULES = 12
+BRIEF_STANDING = 10
 # What counts as already decided for a task: settled guidance first, then what is known.
 DECIDED_FIRST = ("decision", "rule", "warning")
 DECIDED_LATER = ("fact", "bug")
@@ -91,10 +97,25 @@ def global_rules(session: Session) -> list[MemoryRead]:
     return sorted(rules, key=lambda m: m.human_id)
 
 
+def listed_rules(project_id: str, visible: list[MemoryRead]) -> list[MemoryRead]:
+    """The project rules the brief lists, from the project's visible active records. In the
+    Global project every rule is a global rule, and the brief lists all of them."""
+    rules = [m for m in visible if m.type == "rule"]
+    return rules if project_id == GLOBAL_PROJECT_ID else rules[:BRIEF_PROJECT_RULES]
+
+
+def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
+    """The project rules the session brief lists, for context packs to leave out."""
+    return listed_rules(
+        project_id, _visible(memory.list(project_id, statuses=["active"], limit=300))
+    )
+
+
 def unfinished_task(session: Session, project: Project, latest: Checkpoint | None) -> Task | None:
     """The task the person is most likely in the middle of: the focus task, else the latest
     checkpoint's task while it is open, else the only task in progress. Never a guess between
-    several. Reading it changes nothing: the focus and the session's task stay as they are."""
+    several. Reading it changes nothing: the focus and the session's task stay as they are.
+    A context pack asked to just "continue" uses the same task (context._infer_task)."""
     if project.current_focus_task_id:
         focus = session.get(Task, project.current_focus_task_id)
         if focus is not None and focus.status not in CLOSED_TASK:
@@ -111,7 +132,7 @@ def unfinished_task(session: Session, project: Project, latest: Checkpoint | Non
     return started[0] if len(started) == 1 else None
 
 
-def _latest_checkpoint(
+def latest_checkpoint(
     session: Session, project_id: str, task_id: str | None = None
 ) -> Checkpoint | None:
     statement = select(Checkpoint).where(Checkpoint.project_id == project_id)
@@ -122,6 +143,33 @@ def _latest_checkpoint(
     ).first()
 
 
+def work_refs(
+    next_action: str | None, open_criteria: Iterable[str], checkpoint: object | None
+) -> dict[str, str]:
+    """IDs the task's own work names, each with where: its open acceptance criteria and next
+    action ("the task"), and what its latest checkpoint leaves: remaining work, problems and
+    next steps ("the latest checkpoint"). DEC-1 also names DEC-001. "global RULE-3" names a
+    Global record, and every global rule is in the brief already, so it is left out. The brief's
+    "Already decided" list and context packs both read the work this way."""
+    texts = [("the task", text) for text in open_criteria]
+    texts.append(("the task", next_action or ""))
+    if checkpoint is not None:
+        texts += [
+            ("the latest checkpoint", getattr(checkpoint, part) or "")
+            for part in ("remaining_work", "problems", "next_steps")
+        ]
+    where: dict[str, str] = {}
+    for label, text in texts:
+        for found in MENTION_PATTERN.finditer(text or ""):
+            if found.group("scope"):
+                continue
+            ref = found.group("ref").upper()
+            prefix, number = ref.rsplit("-", 1)
+            where.setdefault(f"{prefix}-{int(number):03d}", label)
+            where.setdefault(ref, label)
+    return where
+
+
 def decided_for(
     session: Session, project: Project, task: Task, checkpoint: Checkpoint | None, shown: set[str]
 ) -> list[Memory]:
@@ -129,20 +177,12 @@ def decided_for(
     those its latest checkpoint, next action or open criteria name. Records in ``shown`` (already
     in the brief) are left out."""
     linked = GraphService(session).linked_memory(project.id, Node("task", task.id))
-    texts = [task.next_action or ""]
-    if checkpoint is not None:
-        texts += [checkpoint.remaining_work, checkpoint.next_steps, checkpoint.problems]
-    texts += session.scalars(
+    open_criteria = session.scalars(
         select(AcceptanceCriterion.description).where(
             AcceptanceCriterion.task_id == task.id, AcceptanceCriterion.is_completed.is_(False)
         )
     )
-    # "global RULE-3" names a Global record, and every global rule is in the brief already.
-    named = {
-        m.group("ref").upper()
-        for m in MENTION_PATTERN.finditer("\n".join(t for t in texts if t))
-        if not m.group("scope")
-    }
+    named = set(work_refs(task.next_action, open_criteria, checkpoint))
     if not linked and not named:
         return []
     conditions = []
@@ -212,21 +252,21 @@ def build_brief(session: Session, project: Project | None, note: str | None = No
         if note:
             lines.append(note)
         records = _visible(MemoryService(session).list(project.id, statuses=["active"], limit=300))
-        project_rules = [m for m in records if m.type == "rule"][:12]
+        project_rules = listed_rules(project.id, records)
         standing = [
             m for m in records if m.type in ("decision", "warning") and (m.is_locked or m.is_pinned)
-        ][:10]
+        ][:BRIEF_STANDING]
         if project_rules:
             lines += ["PROJECT RULES"] + [_rule_line(m) for m in project_rules]
         if standing:
             lines += ["KEY DECISIONS AND WARNINGS"]
             lines += [f"- {m.human_id} {m.title}" for m in standing]
-        latest = _latest_checkpoint(session, project.id)
+        latest = latest_checkpoint(session, project.id)
         task = unfinished_task(session, project, latest)
         if task is not None:
             shown = {m.human_id for m in project_rules + standing}
             own = latest if latest is not None and latest.task_id == task.id else None
-            own = own or _latest_checkpoint(session, project.id, task.id)
+            own = own or latest_checkpoint(session, project.id, task.id)
             lines += unfinished_lines(session, project, task, own, shown)
         if latest is not None and (task is None or latest.task_id != task.id):
             step = " ".join((latest.next_steps or "").split())[:300]

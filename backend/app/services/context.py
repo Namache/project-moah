@@ -60,7 +60,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.models.app_setting import AppSetting
-from app.models.project import GLOBAL_PROJECT_ID, utc_now
+from app.models.project import GLOBAL_PROJECT_ID, Project, utc_now
 from app.schemas.context import (
     ContextItem,
     ContextPack,
@@ -72,6 +72,12 @@ from app.schemas.graph import ShelfActivation
 from app.schemas.memory import MemoryRead
 from app.schemas.task import TaskDetail
 from app.services.activity import ActivityService
+from app.services.brief import (
+    brief_project_rules,
+    latest_checkpoint,
+    unfinished_task,
+    work_refs,
+)
 from app.services.checkpoints import CheckpointService
 from app.services.errors import invalid
 from app.services.files import FileService
@@ -93,8 +99,6 @@ WORK_WORDS = (
 )
 INFER_STATUSES = ("in_progress", "blocked", "review")
 INFER_COVER = 0.5  # share of the request's meaningful words a task's title and tags must cover
-# The project rules the session brief lists (brief.build_brief): the first this many visible ones.
-BRIEF_PROJECT_RULES = 12
 # With a task, a record whose only evidence is an awake shelf needs that shelf woken by more than
 # one keyword or through the task's own records: start score 0.6 x activation, and one keyword
 # gives activation 0.7 (score 0.42).
@@ -253,17 +257,6 @@ def match_keys(text: str) -> set[str]:
 
 
 WORK_KEYS = frozenset(match_keys(WORK_WORDS))
-
-
-def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
-    """The project rules the session brief lists, chosen the way brief.build_brief chooses them
-    (tests/test_pack_work.py checks the two agree). In the Global project, the brief lists all
-    of its rules as global rules."""
-    records = memory.list(project_id, statuses=["active"], limit=300)
-    rules = [
-        m for m in records if m.type == "rule" and m.ai_visibility not in ("hidden", "manual_only")
-    ]
-    return rules if project_id == GLOBAL_PROJECT_ID else rules[:BRIEF_PROJECT_RULES]
 
 
 def verified(path: Path | None) -> bool:
@@ -661,7 +654,7 @@ class ContextService:
         if task_ref is None and project.current_focus_task_id:
             task_ref, self.task_source = project.current_focus_task_id, "focus"
         if task_ref is None and query:
-            inferred = self._infer_task(project_id, query)
+            inferred = self._infer_task(project, query)
             if inferred is not None:
                 (task_ref, why), self.task_source = inferred, "inferred"
         detail_task = self.tasks.detail(project_id, task_ref) if task_ref else None
@@ -1251,7 +1244,7 @@ class ContextService:
                 continue
         return None
 
-    def _infer_task(self, project_id: str, query: str) -> tuple[str, str] | None:
+    def _infer_task(self, project: Project, query: str) -> tuple[str, str] | None:
         """The task a request with no task= is about, with why, or None.
 
         1. An open task the request names by ID ("continue with IDLE-5").
@@ -1259,20 +1252,24 @@ class ContextService:
            ``INFER_COVER`` of the request's meaningful words (work words such as "continue" or
            "finish" do not count), share at least two of them (one, for a one-word request),
            and cover more than any other such task does.
-        3. Else, for a request with no meaningful words at all ("Continue."), the one task in
-           progress, when there is exactly one.
+        3. Else, for a request with no meaningful words at all ("Continue."), the unfinished
+           task the session brief shows (brief.unfinished_task: the latest checkpoint's task
+           while it is open, else the only task in progress), so the two never disagree.
         A vague request matches nothing and gets a project overview, as before."""
+        project_id = project.id
         for ref in REF_PATTERN.findall(query):
             found = self._task_by_ref(project_id, ref)
             if found is not None and found.status not in CLOSED_STATUSES:
                 return found.id, f"the request names {found.human_id}"
-        moving = self.tasks.list(project_id, statuses=list(INFER_STATUSES))
         wanted = match_keys(query) - WORK_KEYS
         if not wanted:
-            started = [t for t in moving if t.status == "in_progress"]
-            if len(started) == 1:
-                return started[0].id, f"{started[0].human_id} is the only task in progress"
-            return None
+            shown = unfinished_task(
+                self.session, project, latest_checkpoint(self.session, project_id)
+            )
+            if shown is None:
+                return None
+            return shown.id, f"{shown.human_id} is the unfinished task in your brief"
+        moving = self.tasks.list(project_id, statuses=list(INFER_STATUSES))
         scored = sorted(
             (
                 (len(wanted & match_keys(" ".join([t.title, *t.tags]))), t.human_id, t)
@@ -1301,21 +1298,12 @@ class ContextService:
         project overview has no work of its own."""
         if task is None:
             return {}
-        texts = [
-            ("the task", c.description) for c in task.acceptance_criteria if not c.is_completed
-        ]
-        texts.append(("the task", task.next_action or ""))
-        for cp in self.checkpoints.list(project_id, task=task.human_id, limit=1):
-            texts += [
-                ("the latest checkpoint", part)
-                for part in (cp.remaining_work, cp.problems, cp.next_steps)
-            ]
-        where: dict[str, str] = {}
-        for label, text in texts:
-            for ref in REF_PATTERN.findall(text or ""):
-                prefix, number = ref.rsplit("-", 1)
-                where.setdefault(f"{prefix.upper()}-{int(number):03d}", label)
-                where.setdefault(ref.upper(), label)
+        latest = self.checkpoints.list(project_id, task=task.human_id, limit=1)
+        where = work_refs(
+            task.next_action,
+            [c.description for c in task.acceptance_criteria if not c.is_completed],
+            latest[0] if latest else None,
+        )
         where.pop(task.human_id.upper(), None)
         if not where:
             return {}

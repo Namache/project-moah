@@ -8,6 +8,7 @@ packs carry only what they act on, and a checkpoint naming what helped counts as
 """
 
 import re
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -15,8 +16,8 @@ from httpx import AsyncClient
 from app.db.session import make_engine, make_session_factory
 from app.models.graph import RetrievalSession
 from app.models.project import Project
-from app.services.brief import build_brief
-from app.services.context import ContextService, brief_project_rules, match_keys
+from app.services.brief import brief_project_rules, build_brief, work_refs
+from app.services.context import ContextService, match_keys
 from app.services.memory import MemoryService
 from tests.conftest import app_client
 from tests.test_mcp import agent, call
@@ -142,12 +143,14 @@ async def test_a_request_with_no_task_uses_the_task_it_continues(client: AsyncCl
         assert overview["task"] is None, vague
         assert "this is a project overview" in overview["warnings"][0]
 
-    # "Continue." names nothing: only the one task in progress can be meant.
-    assert (await pack(client, pid, q="Continue."))["task"] is None  # two are in progress
-    response = await client.patch(f"/api/projects/{pid}/tasks/{sound}", json={"status": "todo"})
-    assert response.status_code == 200, response.text
+    # "Continue." names nothing: it means the unfinished task the brief shows, here the task
+    # of the latest checkpoint, though two tasks are in progress.
     bare = await pack(client, pid, q="Continue.")
-    assert bare["task"] == offline and "is the only task in progress" in bare["warnings"][0]
+    assert bare["task"] == offline and bare["task_source"] == "inferred"
+    assert bare["warnings"] == [
+        f"No task was given; {offline} is the unfinished task in your brief, so it was used. "
+        "Pass task= for another."
+    ]
 
     # The current focus still comes first.
     await post(client, f"/api/projects/{pid}/tasks/{sound}/start")
@@ -157,10 +160,50 @@ async def test_a_request_with_no_task_uses_the_task_it_continues(client: AsyncCl
 
 async def test_tied_tasks_are_not_guessed(client: AsyncClient) -> None:
     pid = (await post(client, "/api/projects", name="Shop"))["id"]
-    for title in ("Gold shop prices", "Gold shop layout"):
+    prices, layout = [
         await post(client, f"/api/projects/{pid}/tasks", title=title, status="in_progress")
+        for title in ("Gold shop prices", "Gold shop layout")
+    ]
     assert (await pack(client, pid, q="Continue the gold shop"))["task"] is None
     assert (await pack(client, pid, q="Continue the gold shop prices"))["task"] is not None
+    # Two in progress and no checkpoint: the brief shows none, and "Continue." picks none.
+    assert (await pack(client, pid, q="Continue."))["task"] is None
+    response = await client.patch(
+        f"/api/projects/{pid}/tasks/{layout['human_id']}", json={"status": "todo"}
+    )
+    assert response.status_code == 200, response.text
+    assert (await pack(client, pid, q="Continue."))["task"] == prices["human_id"]
+
+
+def test_work_refs_read_both_spellings_and_skip_global_records() -> None:
+    checkpoint = SimpleNamespace(remaining_work="See global RULE-3 and BUG-4.", problems="")
+    checkpoint.next_steps = None
+    where = work_refs("Follow DEC-1.", ["Per WARN-002"], checkpoint)
+    assert where["DEC-001"] == where["DEC-1"] == where["WARN-002"] == "the task"
+    assert where["BUG-004"] == "the latest checkpoint"
+    assert "RULE-003" not in where and "RULE-3" not in where  # a Global record
+
+
+async def test_the_brief_and_the_pack_agree_on_the_work(
+    client: AsyncClient, database_url: str
+) -> None:
+    """The brief's UNFINISHED task is the task a bare "Continue." pack uses, and every record
+    the brief lists as already decided for it is in that pack, in full."""
+    pid, rec = await build_camp(client)
+    offline = rec["offline"]["human_id"]
+    factory = make_session_factory(make_engine(database_url))
+    with factory() as session:
+        brief = build_brief(session, session.get(Project, pid))
+        assert f"UNFINISHED: {offline} " in brief
+        decided = [line.split()[1] for line in brief.splitlines() if line.startswith("  - ")]
+        assert sorted(decided) == sorted(rec[k]["human_id"] for k in ("cap", "fresh", "bump"))
+        for detail in ("balanced", "minimal"):
+            mine = ContextService(session).build(
+                pid, query="Continue.", detail=detail, record_for="claude", global_rules=False
+            )
+            assert mine.task == offline, detail
+            held = {i.title for i in mine.items if i.kind.startswith("memory")}
+            assert {rec[k]["title"] for k in ("cap", "fresh", "bump")} <= held, detail
 
 
 async def test_records_the_work_names_join_its_pack(client: AsyncClient) -> None:
