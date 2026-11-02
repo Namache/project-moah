@@ -22,7 +22,7 @@ How many context packs agents asked for in the last 30 days. Agents save a check
 
 ## Learning
 
-How often agents said which memories helped, after working from a pack. That feedback is the only way the brain learns: links that lead to useful memory grow stronger, links nobody uses fade after a month. Below half, Brain health asks you to look.
+How often agents said which memories helped, after working from a pack. They say it by naming those records in their checkpoint, or with `brain_retrieval_feedback`. That feedback is the only way the brain learns: links that lead to useful memory grow stronger, links nobody uses fade after a month. Below half, Brain health asks you to look.
 
 ## Details and suggestions
 

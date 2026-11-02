@@ -250,7 +250,7 @@ export const ru: Record<string, Translation> = {
   "Feedback on {share}": "Отзывы: {share}",
   "No feedback": "Нет отзывов",
   "Agents said what helped after {given} of {count} packs. That feedback is the only way the brain learns which links and memories are worth following.": ["Агенты сказали, что помогло, после {given} из {count} пакета. Только по таким отзывам мозг узнаёт, какие связи и записи действительно полезны.", "Агенты сказали, что помогло, после {given} из {count} пакетов. Только по таким отзывам мозг узнаёт, какие связи и записи действительно полезны.", "Агенты сказали, что помогло, после {given} из {count} пакетов. Только по таким отзывам мозг узнаёт, какие связи и записи действительно полезны."],
-  "The brief asks agents to call brain_retrieval_feedback after working from a pack. Remind them in the project's agent instructions if they forget.": "Вводная просит агентов вызывать brain_retrieval_feedback после работы с пакетом. Если они забывают, напомните об этом в инструкциях для агентов проекта.",
+  "The brief asks agents to name the records that helped in their checkpoint, and every pack ends with a brain_retrieval_feedback call. Remind them in the project's agent instructions if they forget.": "Вводная просит агентов называть в контрольной точке записи, которые помогли, а каждый пакет заканчивается вызовом brain_retrieval_feedback. Если они забывают, напомните об этом в инструкциях для агентов проекта.",
   "File on a shelf": "Положить на полку",
   "File them": "Положить",
   "Filed on {name}.": "Положено на полку «{name}».",

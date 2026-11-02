@@ -374,9 +374,9 @@ def build_server(
         a task, a request names an ID, you need history or traps, before an unfamiliar area,
         when debugging, and before asking the person a question (query = the question). Skip
         it only for small edits or when a pack from this session already covers the work.
-        task is an ID such as CAMP-037; without it, the focus or the task the query names or
-        matches is used. detail is minimal, balanced or detailed. explain=true says why each
-        record came.
+        task is an ID such as CAMP-037; without it, the focus, the task the query names or
+        matches, or for a bare "continue" the brief's unfinished task is used. detail is
+        minimal, balanced or detailed. explain=true says why each record came.
         Rules your brief gave are left out; pass global_rules=true if you never got the brief.
         The pack's task becomes this session's task. A repeat sends only what is new; full=true
         sends everything again."""
@@ -850,8 +850,8 @@ def build_server(
         project: str | None = None,
         git_commit: str | None = None,
     ) -> dict:
-        """Record where work stands so the next session can resume. Do this after meaningful work.
-        task defaults to this session's task. The records the checkpoint names (DEC-004, BUG-2,
+        """Record where work stands so the next session can resume. Do this before your final
+        reply on work that changed files. task defaults to this session's task. The records the checkpoint names (DEC-004, BUG-2,
         a file with notes) are linked to its task, so the next pack for that task finds them.
         Records of your latest pack named in summary, completed_work or next_steps count as
         useful feedback."""

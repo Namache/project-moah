@@ -73,7 +73,7 @@ export function readHealth(p: ProjectHealth): Reading {
   if (packs >= 3 && r.feedback_recent / packs < FEEDBACK_FROM) {
     learning = { tone: "attention", text: r.feedback_recent ? t("Feedback on {share}", { share: pct(r.feedback_recent / packs) }) : t("No feedback") };
     issue("feedback", tp(packs, "Agents said what helped after {given} of {count} pack. That feedback is the only way the brain learns which links and memories are worth following.", "Agents said what helped after {given} of {count} packs. That feedback is the only way the brain learns which links and memories are worth following.", { given: r.feedback_recent }), {
-      help: t("The brief asks agents to call brain_retrieval_feedback after working from a pack. Remind them in the project's agent instructions if they forget."),
+      help: t("The brief asks agents to name the records that helped in their checkpoint, and every pack ends with a brain_retrieval_feedback call. Remind them in the project's agent instructions if they forget."),
     });
   }
   return { findable, used, learning, issues };

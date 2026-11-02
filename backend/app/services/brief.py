@@ -52,8 +52,8 @@ Follow every rule above. Moah also holds the person's earlier answers.
 - Writing to Moah is part of the work and needs no permission. Record the person's answers
   and choices as decisions (brain_create_memory) unless a record already says it, and new
   rules, facts, bugs and warnings with links. Before your final reply on work that changed
-  files, call brain_create_checkpoint (done, left, next). After using a pack, call
-  brain_retrieval_feedback.
+  files, call brain_create_checkpoint (done, left, next, and the IDs of records that
+  helped).
 - New global rules and decisions, locked memory and finishing a task need the person's review."""
 )
 
