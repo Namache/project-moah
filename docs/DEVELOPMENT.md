@@ -4,6 +4,23 @@
 
 `backend/` is the FastAPI service, SQLAlchemy models, Alembic migrations, and the MCP server (`app/mcp`). `frontend/` is the React app; its Help articles are Markdown in `src/content/help/`, and vendor setup commands live only in `src/content/integrations.ts`. `desktop/` is the Electron shell and Flatpak files. `scripts/` holds the checks and build scripts.
 
+## Run it while developing
+
+Run the backend and the frontend in two terminals, from the repository root:
+
+```bash
+./scripts/start-backend.sh    # local API on http://127.0.0.1:8000, restarts when Python files change
+./scripts/start-frontend.sh   # the app on http://127.0.0.1:5173, reloads when frontend files change
+```
+
+Open the frontend address in a browser. It sends `/api` requests to the backend, so start the backend first. The backend script uses the Python named in `PROJECT_BRAIN_PYTHON`, otherwise `.venv/bin/python` when that exists, otherwise `python3`. The frontend script needs Node.js and npm, with `npm ci --prefix frontend` run once.
+
+The backend uses the same database as an installed app outside Flatpak (`~/.local/share/project-brain/` on Linux, `%LOCALAPPDATA%\project-brain\` on Windows) and upgrades it to the code's schema. To keep development data apart, point it at another file first:
+
+```bash
+PROJECT_BRAIN_DB_PATH=~/moah-dev.db ./scripts/start-backend.sh
+```
+
 ## Everyday checks
 
 ```bash
