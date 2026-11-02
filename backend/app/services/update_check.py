@@ -3,6 +3,7 @@
 Project Moah never goes online. Instead, the first brief (or context pack) of the day tells the
 agent which version is installed and asks it to look up the latest release with its own tools,
 then ask the person before anything is updated. Turned off in Settings, it is never added.
+The install steps come only on request, from brain_brief(update_steps=true).
 """
 
 from __future__ import annotations
@@ -55,8 +56,14 @@ After their yes: {steps}
   If it did not come back, say so instead. Your Project Moah tools need a restart of your agent."""
 
 
-def instructions(version: str = APP_VERSION, install: str | None = None) -> str:
-    steps = update_steps(install or agent_launch()["install"])
+def install_steps(install: str | None = None) -> str:
+    """Only the steps for this install, for brain_brief(update_steps=true) after the person's
+    yes. Kept out of the daily check: they matter only on the rare day an update is taken."""
+    install = install or agent_launch()["install"]
+    return f"PROJECT MOAH UPDATE STEPS ({install})\n{update_steps(install)}"
+
+
+def instructions(version: str = APP_VERSION) -> str:
     return f"""\
 UPDATE CHECK (once a day; the person can turn it off in Settings > Agents)
 Installed Project Moah version: {version}. Project Moah itself never goes online, so you check:
@@ -64,8 +71,8 @@ look up the latest release of github.com/{REPOSITORY} with your own tools, for e
 `gh api repos/{REPOSITORY}/releases/latest` or https://api.github.com/repos/{REPOSITORY}/releases/latest
 (compare its tag_name, without the leading v, to {version}).
 - Newer: tell the person in one sentence (both versions) and ask whether they want to update.
-  Update nothing without their yes.
-  {steps}
+  Update nothing without their yes. If they say yes, get the steps for this system with
+  brain_brief(update_steps=true).
 - Same or older: say nothing about it.
 - No network: say exactly "{OFFLINE}"
 - Any other failure (not found, no permission): say exactly "{UNREACHABLE}"

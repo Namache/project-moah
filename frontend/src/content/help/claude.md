@@ -17,7 +17,7 @@ Project Moah gives agents a local MCP server. It runs on your computer and needs
 
 {{snippet:claude}}
 
-**Why load your rules at the start?** The second snippet hands Claude your Global rules and the project's rules, focus and latest checkpoint before your first message, every session. Without it, Claude gets them only if it decides to ask, and it often does not. If your rules already load on their own, this step is set up.
+**Why load your rules at the start?** The second snippet hands Claude your Global rules, the project's rules and its unfinished task, with what is already decided for it, before your first message, every session. Without it, Claude gets them only if it decides to ask, and it often does not. If your rules already load on their own, this step is set up.
 
 {{only flatpak}}
 Running your agent inside a container such as distrobox? The connection works as shown, because the `flatpak` command is forwarded to the host. To let Project Moah read your repository for Files and Git, see [[troubleshooting-container]].

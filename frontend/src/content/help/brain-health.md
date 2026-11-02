@@ -18,7 +18,7 @@ For **Global rules**, rules reach every agent in every project. Other Global mem
 
 ## Used lately
 
-How many context packs agents asked for in the last 30 days. Agents save a checkpoint after real work, so when a project has many checkpoints and few packs, agents are working without your memory. The brief tells them to call `brain_context_pack` when they start a task, need history, or debug, and to skip it for small follow-ups, so fewer packs than requests is normal. If they start tasks without one, add that line to the project's own agent instructions (CLAUDE.md or AGENTS.md).
+How many context packs agents asked for in the last 30 days. Agents save a checkpoint after real work, so when a project has many checkpoints and few packs, agents are working without your memory. The brief tells them to call `brain_context_pack` when they continue unfinished work, start or switch a task, need past decisions, or debug. They skip it only for small edits, or when a pack from the same session already covers the work, so fewer packs than requests is normal. If they start or continue tasks without one, add that line to the project's own agent instructions (CLAUDE.md or AGENTS.md).
 
 ## Learning
 
