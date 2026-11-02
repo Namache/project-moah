@@ -1,8 +1,9 @@
 """Regression guard for retrieval: precision, recall, unnecessary retrievals and tokens per
-completed task, measured by tests/retrieval_bench.py on a fixed made-up project.
+completed task, measured by tests/retrieval_bench.py on fixed made-up projects.
 
-The baseline (main 0632aa4, before on-demand retrieval) is in docs/benchmarks/. These limits
-only move in the better direction.
+The baseline (main 0632aa4, before on-demand retrieval) is in docs/benchmarks/, and so are the
+work-in-progress cases (retrieval-continue.json). These limits only move in the better
+direction.
 """
 
 import pytest
@@ -57,3 +58,23 @@ async def test_repeat_packs_send_only_what_is_new(database_url: str) -> None:
     assert aware["unnecessary_retrieval_tokens"]
     assert max(aware["unnecessary_retrieval_tokens"]) <= 35
     assert aware["tokens_per_completed_task"] < on_demand["tokens_per_completed_task"]
+
+
+async def test_packs_for_unfinished_work_find_what_its_checkpoint_names(database_url: str) -> None:
+    report = await run(database_url)
+    work = report["continue"]
+    rows = {(r["detail"], r["case"]): r for r in work["cases"]}
+    for detail in ("balanced", "minimal"):
+        # "Continue" with no task= and no focus: the request picks the task in progress, and
+        # the records its latest checkpoint names come along (main: recall 0.0).
+        for case in ("continue, query only", "continue, bare request"):
+            row = rows[(detail, case)]
+            assert row["task"] == work["task"] and row["task_source"] == "inferred", row
+            assert row["recall"] == 1.0 and row["precision"] >= 0.85, row
+        # With the task given, minimal detail keeps them too (main: recall 0.333).
+        row = rows[(detail, "continue, task given")]
+        assert row["task_source"] == "given" and row["recall"] == 1.0, row
+        # A question about something else stays a project overview.
+        row = rows[(detail, "off-topic question")]
+        assert row["task"] is None, row
+    assert rows[("balanced", "off-topic question")]["recall"] == 1.0

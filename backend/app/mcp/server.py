@@ -336,18 +336,17 @@ def build_server(
         global_rules: bool = False,
         full: bool = False,
     ) -> str:
-        """Get a compact, ranked context pack for a task (for example CAMP-037), when the work
-        needs more than the brief: a new task, an ID you have no pack for, history, an unfamiliar
-        area, or a bug. Not needed for follow-ups on the same work. detail is minimal,
-        balanced, or detailed. Omit task to use the project's current focus. operation (coding,
-        debugging, design, testing, art, documentation, planning) is detected from the task when
-        omitted. explain=true adds why each record was included and what came close. Global rules are left out
-        because the session brief already gave them; pass global_rules=true if you never got the
-        brief. The task
-        becomes this session's task: what you write afterwards is linked to it. The pack
-        carries a retrieval id: after the work, report what helped with brain_retrieval_feedback.
-        A repeat request in this session gets only what is new or changed, and names what you
-        already have; full=true sends everything again (if your context lost earlier packs)."""
+        """A compact, ranked context pack: the task with its decisions, rules, warnings, bugs,
+        files and latest checkpoint. Call it when you continue unfinished work, start or switch
+        a task, a request names an ID, you need history or traps, before an unfamiliar area,
+        when debugging, and before asking the person a question (query = the question). Skip
+        it only for small edits or when a pack from this session already covers the work.
+        task is an ID such as CAMP-037; without it, the focus or the task the query names or
+        matches is used. detail is minimal, balanced or detailed. explain=true says why each
+        record came.
+        Rules your brief gave are left out; pass global_rules=true if you never got the brief.
+        The pack's task becomes this session's task. A repeat sends only what is new; full=true
+        sends everything again."""
         found, _ = pick(session, project)
         if operation is not None and operation not in OPERATIONS:
             raise ValueError(f"operation must be one of: {', '.join(OPERATIONS)}")
@@ -365,10 +364,12 @@ def build_server(
             record_for=agent,
             global_rules=global_rules,
             sent=sent,
+            for_agent=not explain,
         )
         before = session_task(session, found.id)
-        if pack.task and (task or not query):
-            # The work this pack is for. A pack for a search alone only borrows the focus task.
+        if pack.task and (pack.task_source != "focus" or not query):
+            # The work this pack is for: the task asked for or the one the request names or
+            # plainly matches. A pack for a search alone only borrows the focus task.
             working.set(found.id, TaskService(session).get(found.id, pack.task).id)
         current = session_task(session, found.id)
         if pack.repeat_of is not None and not pack.retrieval_id:
@@ -380,21 +381,27 @@ def build_server(
             if check := take_daily_check(session):
                 text += "\n\n" + check
             return text
-        notes = [f"~{pack.estimated_tokens} tokens", f"operation {pack.operation}"] + pack.warnings
-        if pack.omitted:
-            notes.append("left out: " + ", ".join(f"{n} {why}" for why, n in pack.omitted.items()))
-        after = []
-        if pack.retrieval_id:
-            notes.append(f"retrieval R-{pack.retrieval_id[:8]}")
-            after.append(
-                f'After the work, call brain_retrieval_feedback(retrieval="R-{pack.retrieval_id[:8]}",'
-                " useful=[...], not_useful=[...]) with the IDs that helped and those that did not."
-            )
+        # The footer keeps to what the agent acts on. Sizes, the kind of work and what was left
+        # out are for explain=true.
+        footer = list(pack.warnings)
+        if explain:
+            notes = [f"~{pack.estimated_tokens} tokens", f"operation {pack.operation}"]
+            if pack.omitted:
+                notes.append(
+                    "left out: " + ", ".join(f"{n} {why}" for why, n in pack.omitted.items())
+                )
+            footer.insert(0, "; ".join(notes) + ".")
         if current and (current != before or pack.repeat_of is None):
-            after.append(f"This session's task is {current}: what you write now is linked to it.")
+            footer.append(f"This session's task is {current}: what you write now is linked to it.")
+        if pack.retrieval_id:
+            footer.append(
+                "When done: brain_create_checkpoint naming the records that helped (counts as"
+                " feedback), or brain_retrieval_feedback("
+                f'retrieval="R-{pack.retrieval_id[:8]}", useful=[...], not_useful=[...]).'
+            )
         if check := take_daily_check(session):
             # The day's check had not been given yet: this session started without a brief.
-            after.append("\n" + check)
+            footer.append("\n" + check)
         text = pack.text
         if explain:
             why = [
@@ -413,7 +420,7 @@ def build_server(
             text += "\n\nWHY THESE\n" + ("\n".join(why) or "- nothing beyond the task")
             if near:
                 text += "\n\nCAME CLOSE, LEFT OUT\n" + "\n".join(near)
-        return f"{text}\n\n---\n" + "; ".join(notes) + "".join(f"\n{line}" for line in after)
+        return text + ("\n\n---\n" + "\n".join(footer) if footer else "")
 
     @tool(WRITE)
     def brain_retrieval_feedback(
@@ -808,7 +815,9 @@ def build_server(
     ) -> dict:
         """Record where work stands so the next session can resume. Do this after meaningful work.
         task defaults to this session's task. The records the checkpoint names (DEC-004, BUG-2,
-        a file with notes) are linked to its task, so the next pack for that task finds them."""
+        a file with notes) are linked to its task, so the next pack for that task finds them.
+        Records of your latest pack named in summary, completed_work or next_steps count as
+        useful feedback."""
         found, _ = pick(session, project, write=True)
         if task is None and (current := working.current(session, found.id)) is not None:
             task = current.id
@@ -831,7 +840,7 @@ def build_server(
         if cp.task_id:
             working.set(found.id, cp.task_id)
         anchor = cp.task.human_id if cp.task else "this checkpoint"
-        return {
+        result = {
             "created": cp.id,
             "title": cp.title,
             "task": cp.task.human_id if cp.task else None,
@@ -840,6 +849,17 @@ def build_server(
                 for label in discover_checkpoint_quietly(session, found.id, cp.id, agent)
             ],
         }
+        # What the work used, in the agent's own words: the latest pack's records it names as
+        # done or as the next step (not its problems) helped, unless it already said so.
+        helped = RetrievalService(session).feedback_from_checkpoint(
+            found.id,
+            packs.get(session, found.id).last,
+            [summary, completed_work, next_steps],
+            actor=agent,
+        )
+        if helped is not None:
+            result["feedback"] = f"counted as feedback for {helped[0]}: {', '.join(helped[1])}"
+        return result
 
     @tool(WRITE)
     def brain_create_memory(

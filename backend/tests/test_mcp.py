@@ -459,8 +459,19 @@ async def test_agents_link_records_and_shape_shelves(database_url: str) -> None:
         failed, woke = await call(session, "brain_shelves", task=task["human_id"], project=pid)
         assert not failed and woke["activation"][0]["shelf"] == "Inventory"
         assert woke["activation"][0]["active"] is True
+        # The rule wakes with its shelf. An agent's pack leaves out the shelf line (and the rule,
+        # which its brief lists); explain=true shows both.
         failed, text = await call(session, "brain_context_pack", task=task["human_id"], project=pid)
-        assert not failed and "ACTIVE SHELVES\nInventory" in text and "B" in text
+        assert not failed and "ACTIVE SHELVES" not in text and rule["human_id"] not in text
+        failed, text = await call(
+            session,
+            "brain_context_pack",
+            task=task["human_id"],
+            project=pid,
+            explain=True,
+            global_rules=True,
+        )
+        assert not failed and "ACTIVE SHELVES\nInventory" in text and rule["human_id"] in text
 
 
 async def test_agent_packs_skip_global_rules_the_brief_gave(
@@ -479,7 +490,16 @@ async def test_agent_packs_skip_global_rules_the_brief_gave(
             session, "brain_context_pack", task="CAMP-001", project="trailhead"
         )
         assert not error and "Ask before building" not in pack and "GLOBAL RULES" not in pack
-        assert "already in your brief" in pack
+        assert "~" not in pack and "operation coding" not in pack  # sizes are for explain=true
+        error, pack = await call(
+            session,
+            "brain_context_pack",
+            task="CAMP-001",
+            project="trailhead",
+            explain=True,
+            full=True,
+        )
+        assert not error and "already in your brief" in pack and "operation coding" in pack
         error, pack = await call(
             session,
             "brain_context_pack",
@@ -531,7 +551,9 @@ async def test_projects_file_records_on_one_shared_tree(database_url: str) -> No
         assert {"shelf": path, "records": 1, "keywords": ["boss", "fight"]} in tree["shared_tree"]
 
         # Work that names the domain wakes the shared shelf, and its records come along.
-        failed, text = await call(session, "brain_context_pack", task=task["human_id"], project=a)
+        failed, text = await call(
+            session, "brain_context_pack", task=task["human_id"], project=a, explain=True
+        )
         assert not failed and f"Global: {path}" in text and "Bosses telegraph" in text
         assert "Dragon fights" not in text
 

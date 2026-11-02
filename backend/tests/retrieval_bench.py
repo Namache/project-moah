@@ -4,7 +4,7 @@ A fixed, made-up game project (no personal records) with words that overlap on p
 "save", "old", "party", "capacity", "settings", "screen", "crash", "loading". Any-word search
 matches many records for every task; only some of them help.
 
-Two measurements:
+Measurements:
 
 1. Pack quality. For each case (a task and/or a question), the records that should be in the
    pack are listed. Precision = needed memory records in the pack / memory records in the pack.
@@ -26,8 +26,20 @@ Two measurements:
    weights are sampled. The pack cases are run ``EXPLORE_RUNS`` times with exploring on and
    compared with the predictable run.
 
+4. Work in progress (``continue``). A second made-up project holds a half-done task (in
+   progress, no focus set) whose latest checkpoint names three records by ID. They have no links
+   a person made and share no words with the request, so only the task's own work leads to them.
+   "Continue" requests with and without task=, at balanced and minimal detail, must find all
+   three; a question about something else must not be pulled onto the task. Saved in
+   docs/benchmarks/retrieval-continue.json.
+
+Packs are built as an agent gets them (agent-shaped, Global rules and the project rules the
+brief lists left out), and the agent counts as knowing the brief's project rules: a needed rule
+the brief lists counts as found.
+
 Run ``python -m tests.retrieval_bench`` from backend/ to print the numbers as JSON.
-Real agents may not follow the brief literally; that needs live runs (see the 2026-10 logs).
+Real agents may not follow the brief literally; that needs live runs (see the 2026-10 and
+2026-11 logs).
 """
 
 from __future__ import annotations
@@ -43,7 +55,8 @@ from httpx import AsyncClient
 
 from app.models.project import Project
 from app.services import brief as brief_module
-from app.services.context import ContextService, SentRecords
+from app.services.context import ContextService, SentRecords, brief_project_rules
+from app.services.memory import MemoryService
 
 # ---- the fixture -----------------------------------------------------------------------------
 
@@ -210,6 +223,48 @@ POLICIES = {
 }
 EXPLORE_RUNS = 30
 
+# ---- the second fixture: work in progress ------------------------------------------------------
+
+CONTINUE_TASKS = {
+    "import": dict(
+        title="Import a reading list export",
+        prefix="READ",
+        status="in_progress",
+        description="Read the export file and add its rows to the library.",
+        acceptance_criteria=["import <file> adds the rows"],
+        next_action="Wire the parser into the CLI.",
+    ),
+    "stats": dict(title="Monthly reading stats", prefix="READ"),
+}
+# label: (type, title, content). The first three are what the work needs; the checkpoint names
+# them. None shares a word with the request or the task's title.
+CONTINUE_MEMORY: dict[str, tuple[str, str, str]] = {
+    "d_dates": (
+        "decision",
+        "Dates are stored as YYYY-MM-DD",
+        "Convert other formats on the way in.",
+    ),
+    "d_wish": (
+        "decision",
+        "Skip rows still on the wishlist",
+        "Wishlist rows stay in the other app.",
+    ),
+    "w_wrap": ("warning", "Identifiers arrive wrapped in quotes", "Strip the wrapper first."),
+    # noise
+    "n_colour": ("note", "Reading list colours in the README", ""),
+    "i_more": ("idea", "Import from more apps later", ""),
+    "f_alias": ("fact", "Shell alias for the tool", "alias rl=..."),
+}
+CONTINUE_NEEDED = {"d_dates", "d_wish", "w_wrap"}
+CONTINUE_CASES = [
+    Case("continue, query only", None, "Let's finish the reading list import.", CONTINUE_NEEDED),
+    Case("continue, bare request", None, "Continue.", CONTINUE_NEEDED),
+    Case("continue, task given", "import", None, CONTINUE_NEEDED),
+    # Not about the task: it must stay a project overview, not borrow the task in progress.
+    Case("off-topic question", None, "How do we store dates?", {"d_dates"}),
+]
+CONTINUE_DETAILS = ("balanced", "minimal")
+
 
 # ---- running it ------------------------------------------------------------------------------
 
@@ -276,6 +331,39 @@ async def seed(client: AsyncClient) -> tuple[str, dict[str, str], dict[str, str]
     )
 
 
+async def seed_continue(client: AsyncClient) -> tuple[str, dict[str, str], dict[str, str]]:
+    """The work-in-progress fixture. Returns project id, task label -> human id, memory label
+    -> id. The task is in progress but not the focus, like a task an agent moved with
+    brain_update_task."""
+    pid = (await _post(client, "/api/projects", name="Reading List"))["id"]
+    base = f"/api/projects/{pid}"
+    tasks = {
+        label: await _post(client, f"{base}/tasks", **body)
+        for label, body in CONTINUE_TASKS.items()
+    }
+    memory = {
+        label: await _post(client, f"{base}/memory", type=kind, title=title, content=content)
+        for label, (kind, title, content) in CONTINUE_MEMORY.items()
+    }
+    ref = {label: m["human_id"] for label, m in memory.items()}
+    await _post(
+        client,
+        f"{base}/checkpoints",
+        task_id=tasks["import"]["human_id"],
+        title="Parser started",
+        agent="claude",
+        completed_work="The parser reads the header and the rows.",
+        remaining_work=f"convert dates ({ref['d_dates']}); skip wishlist rows ({ref['d_wish']}); "
+        f"unwrap identifiers ({ref['w_wrap']}); tests.",
+        next_steps="Wire the parser into the CLI.",
+    )
+    return (
+        pid,
+        {label: t["human_id"] for label, t in tasks.items()},
+        {label: m["id"] for label, m in memory.items()},
+    )
+
+
 def _pack(
     session,
     pid: str,
@@ -284,6 +372,7 @@ def _pack(
     *,
     explore: bool = False,
     sent: SentRecords | None = None,
+    detail: str = "balanced",
 ):
     # A session that remembers what it was sent records its packs like the MCP server does, so
     # a repeat names the pack it repeats. Running last, it cannot change the other numbers.
@@ -291,12 +380,18 @@ def _pack(
         pid,
         task=task,
         query=query,
-        detail="balanced",
+        detail=detail,  # type: ignore[arg-type]
         global_rules=False,
         explore=explore,
         record_for="claude" if sent is not None else None,
         sent=sent,
+        for_agent=True,
     )
+
+
+def _in_brief(session, pid: str, label_of: dict[str, str]) -> set[str]:
+    """The project rules the agent read in its brief, by label."""
+    return {label_of.get(m.id, m.id) for m in brief_project_rules(MemoryService(session), pid)}
 
 
 def _count(text: str) -> int:
@@ -306,26 +401,34 @@ def _count(text: str) -> int:
     return count_tokens(text, "claude")
 
 
+def _case(session, pid, task_ids, label_of, case: Case, brief: set[str], **kwargs) -> dict:
+    """One pack case. Precision counts the pack; recall also counts what the agent's brief gave."""
+    task = task_ids.get(case.task) if case.task else None
+    pack = _pack(session, pid, task, case.query, **kwargs)
+    got = {label_of.get(i.ref, i.ref) for i in pack.items if i.kind.startswith("memory")}
+    got -= case.fine
+    hit = got & case.needed
+    have = hit | (brief & case.needed)
+    return {
+        "case": case.name,
+        "precision": round(len(hit) / len(got), 3) if got else 0.0,
+        "recall": round(len(have) / len(case.needed), 3),
+        "noise": sorted(got - case.needed),
+        "missing": sorted(case.needed - have),
+        "from_brief": sorted(have - hit),
+        "forbidden_found": sorted(got & case.forbidden),
+        "tokens": _count(pack.text),
+        "task": pack.task,
+        "task_source": pack.task_source,
+        "text": pack.text,
+    }
+
+
 def _quality(session, pid, task_ids, label_of, explore: bool = False) -> dict:
-    cases = []
-    for case in CASES:
-        task = task_ids.get(case.task) if case.task else None
-        pack = _pack(session, pid, task, case.query, explore=explore)
-        got = {label_of.get(i.ref, i.ref) for i in pack.items if i.kind.startswith("memory")}
-        got -= case.fine
-        hit = got & case.needed
-        cases.append(
-            {
-                "case": case.name,
-                "precision": round(len(hit) / len(got), 3) if got else 0.0,
-                "recall": round(len(hit) / len(case.needed), 3),
-                "noise": sorted(got - case.needed),
-                "missing": sorted(case.needed - got),
-                "forbidden_found": sorted(got & case.forbidden),
-                "tokens": _count(pack.text),
-                "text": pack.text,
-            }
-        )
+    brief = _in_brief(session, pid, label_of)
+    cases = [
+        _case(session, pid, task_ids, label_of, case, brief, explore=explore) for case in CASES
+    ]
     n = len(cases)
     return {
         "precision": round(sum(c["precision"] for c in cases) / n, 3),
@@ -373,7 +476,7 @@ def measure(session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, s
         total = retrievals = unnecessary = missed_requests = completed = 0
         unnecessary_tokens: list[int] = []
         for script in SESSIONS:
-            known: set[str] = set()
+            known = _in_brief(session, pid, label_of)  # the agent read its brief
             sent = SentRecords() if remembers else None
             tokens = brief_tokens
             failed = False
@@ -417,6 +520,21 @@ def measure(session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, s
     }
 
 
+def measure_continue(
+    session, pid: str, task_ids: dict[str, str], memory_ids: dict[str, str]
+) -> dict:
+    """The work-in-progress cases at each detail level."""
+    label_of = {v: k for k, v in memory_ids.items()}
+    brief = _in_brief(session, pid, label_of)
+    rows = []
+    for detail in CONTINUE_DETAILS:
+        for case in CONTINUE_CASES:
+            row = _case(session, pid, task_ids, label_of, case, brief, detail=detail)
+            del row["text"]
+            rows.append({"detail": detail, **row})
+    return {"task": task_ids["import"], "cases": rows}
+
+
 async def run(database_url: str) -> dict:
     from tests.conftest import app_client
 
@@ -424,7 +542,11 @@ async def run(database_url: str) -> dict:
         pid, task_ids, memory_ids = await seed(client)
         factory = client._transport.app.state.session_factory  # type: ignore[attr-defined]
         with factory() as session:
-            return measure(session, pid, task_ids, memory_ids)
+            report = measure(session, pid, task_ids, memory_ids)
+        pid, task_ids, memory_ids = await seed_continue(client)
+        with factory() as session:
+            report["continue"] = measure_continue(session, pid, task_ids, memory_ids)
+        return report
 
 
 def main() -> None:
