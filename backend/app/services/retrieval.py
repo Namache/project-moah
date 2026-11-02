@@ -6,8 +6,11 @@ path that brought each one. Feedback then moves those links:
 - an agent says a record did not help: the last link on its path is weakened for this kind of
   work only, so a link can stay strong for design while fading for debugging;
 - a checkpoint for the task counts as mild evidence that the pack was used;
-- records of the agent session's latest pack that its checkpoint names as done or as the next
-  step count as useful, as if the agent had said so (unless it already sent feedback).
+- records of the agent session's packs that its checkpoint names as done or as the next step
+  count as useful, as if the agent had said so.
+A verdict counts once per agent session: one the session already gave for a record, in this
+pack or another of its packs, is not counted again, and a changed verdict on the same pack
+moves the record's count instead of adding one.
 A record the agent found useful that the pack did not hold gets a link from the task, so the
 next pack finds it without searching. Two records that both helped in one pack, joined by a
 candidate link nobody confirmed, confirm it: the guess was right.
@@ -88,6 +91,11 @@ OPERATION_WORDS: dict[str, tuple[str, ...]] = {
 WORD = re.compile(r"[a-z][a-z'-]*")
 
 
+def _short(ref: str) -> str:
+    """A retrieval id as stored: "R-1a2b3c4d" -> "1a2b3c4d"."""
+    return ref.strip().lower().removeprefix("r-")
+
+
 def detect_operation(text: str) -> str:
     words = WORD.findall(text.casefold())
     for operation, cues in OPERATION_WORDS.items():
@@ -119,6 +127,9 @@ class RetrievalService:
         items: list[dict],
         tokens: int | None = None,
     ) -> RetrievalSession:
+        # A new pack has no verdicts yet: copies, so feedback written into one retrieval's items
+        # never shows up in another's.
+        items = [{k: v for k, v in i.items() if k != "verdict"} for i in items]
         found = RetrievalSession(
             project_id=project_id,
             task_id=task_id,
@@ -153,7 +164,7 @@ class RetrievalService:
 
     def get(self, project_id: str, ref: str) -> RetrievalSession:
         """By full id or by the short id shown to agents (its first 8 characters)."""
-        ref = ref.strip().lower().removeprefix("r-")
+        ref = _short(ref)
         if len(ref) < 6:
             raise invalid("Give the retrieval id from the context pack, e.g. R-1a2b3c4d")
         found = self.session.scalar(
@@ -173,12 +184,20 @@ class RetrievalService:
         useful: list[str],
         not_useful: list[str],
         actor: str,
+        session_refs: list[str] | None = None,
     ) -> dict:
+        """``session_refs`` are the agent session's other packs: a verdict one of them already
+        has for a record is not counted again here."""
         retrieval = self.get(project_id, ref)
         by_node = {(i["kind"], i["id"]): i for i in retrieval.items}
+        earlier = self.verdicts(
+            project_id,
+            [r for r in session_refs or [] if not retrieval.id.startswith(_short(r))],
+        )
         changed = 0
         added: list[str] = []
         unknown: list[str] = []
+        repeated: list[str] = []
         # Linking commits, so new links wait until the verdicts are saved.
         to_link: list[tuple[Node, str]] = []
         helped: set[Node] = {Node("task", retrieval.task_id)} if retrieval.task_id else set()
@@ -191,8 +210,14 @@ class RetrievalService:
                     continue
                 item = by_node.get((node.kind, node.id))
                 verdict = "useful" if delta > 0 else "not useful"
+                prior = item.get("verdict") if item is not None else None
+                if verdict in (prior, earlier.get((node.kind, node.id))):
+                    repeated.append(raw)  # already counted: once per session is enough
+                    continue
                 if delta > 0:
                     helped.add(node)
+                if prior is not None:  # changed its mind about this pack: move the count
+                    self._count(project_id, node, retrieval.operation, prior == "useful", -1)
                 self._count(project_id, node, retrieval.operation, delta > 0)
                 if item is not None:
                     item["verdict"] = verdict
@@ -225,7 +250,25 @@ class RetrievalService:
         for node, note in to_link:
             self._link_from_task(project_id, task_id, node, note, actor)
         self._teach_shelves(project_id, retrieval, helped - {Node("task", task_id or "")})
-        return {"links_changed": changed, "links_added": added, "not_found": unknown}
+        return {
+            "links_changed": changed,
+            "links_added": added,
+            "not_found": unknown,
+            **({"already_counted": repeated} if repeated else {}),
+        }
+
+    def verdicts(self, project_id: str, refs: list[str]) -> dict[tuple[str, str], str]:
+        """(kind, id) -> the verdict the retrievals ``refs`` hold for it; a later one wins."""
+        out: dict[tuple[str, str], str] = {}
+        for ref in refs:
+            try:
+                found = self.get(project_id, ref)
+            except Exception:  # noqa: BLE001 - pruned since, or from another project
+                continue
+            for i in found.items:
+                if i.get("verdict"):
+                    out[(i["kind"], i["id"])] = i["verdict"]
+        return out
 
     def _teach_shelves(self, project_id: str, retrieval: RetrievalSession, helped: set) -> None:
         """The words of this work found useful records: their shelves note them, and learn
@@ -287,44 +330,56 @@ class RetrievalService:
         )
 
     def feedback_from_checkpoint(
-        self, project_id: str, ref: str | None, texts: list[str], *, actor: str
-    ) -> tuple[str, list[str]] | None:
-        """Implicit feedback: records of the retrieval ``ref`` (an agent session's latest pack)
-        that a checkpoint names in ``texts`` (its summary, completed work and next steps, not
-        its problems) helped. Counted as if the agent had sent them as useful, unless it
-        already sent feedback for that pack. Returns the retrieval's short id and the IDs
-        counted, or None. Never raises: learning never fails a checkpoint."""
+        self, project_id: str, refs: list[str], texts: list[str], *, actor: str
+    ) -> list[tuple[str, list[str]]] | None:
+        """Implicit feedback: records of the agent session's packs ``refs`` (short retrieval
+        ids, oldest first) that a checkpoint names in ``texts`` (its summary, completed work
+        and next steps, not its problems) helped. Each counts for the latest pack that held it,
+        as if the agent had sent it as useful, unless the session already gave a verdict on it
+        in any of those packs. Returns each retrieval's short id with the IDs counted, or None.
+        Never raises: learning never fails a checkpoint."""
         from app.services.context import REF_PATTERN
         from app.services.memory import MemoryService
 
-        if not ref:
+        if not refs:
             return None
         try:
-            retrieval = self.get(project_id, ref)
-            if retrieval.outcome == "feedback":
-                return None
-            held = {i["id"] for i in retrieval.items if i.get("kind") == "memory"}
             named: dict[str, None] = {}
             for text in texts:
                 for found in REF_PATTERN.findall(text or ""):
                     prefix, number = found.rsplit("-", 1)
                     named.setdefault(found.upper())
                     named.setdefault(f"{prefix.upper()}-{int(number):03d}")
-            if not named or not held:
+            if not named:
                 return None
+            retrievals = []
+            for ref in refs:
+                try:
+                    retrievals.append(self.get(project_id, ref))
+                except Exception:  # noqa: BLE001 - pruned since
+                    continue
+            judged = self.verdicts(project_id, [r.id for r in retrievals])
             rows = MemoryService(self.session).list(
                 project_id, statuses=["active"], refs=list(named), limit=50
             )
             order = {r: k for k, r in enumerate(named)}
-            useful = [
-                m.human_id
-                for m in sorted(rows, key=lambda m: order.get(m.human_id.upper(), 0))
-                if m.id in held
-            ]
-            if not useful:
-                return None
-            self.feedback(project_id, retrieval.id, useful=useful, not_useful=[], actor=actor)
-            return f"R-{retrieval.id[:8]}", useful
+            groups: dict[str, list[str]] = {}
+            for m in sorted(rows, key=lambda m: order.get(m.human_id.upper(), 0)):
+                if ("memory", m.id) in judged:
+                    continue
+                holder = next(
+                    (
+                        r
+                        for r in reversed(retrievals)
+                        if any(i.get("kind") == "memory" and i["id"] == m.id for i in r.items)
+                    ),
+                    None,
+                )
+                if holder is not None:
+                    groups.setdefault(holder.id, []).append(m.human_id)
+            for retrieval_id, useful in groups.items():
+                self.feedback(project_id, retrieval_id, useful=useful, not_useful=[], actor=actor)
+            return [(f"R-{r[:8]}", useful) for r, useful in groups.items()] or None
         except Exception:  # noqa: BLE001
             self.session.rollback()
             logging.getLogger(__name__).exception("Feedback from a checkpoint failed")
@@ -378,7 +433,9 @@ class RetrievalService:
                 out[Node(row.node_kind, row.node_id)] = factor
         return out
 
-    def _count(self, project_id: str, node: Node, operation: str, useful: bool) -> None:
+    def _count(
+        self, project_id: str, node: Node, operation: str, useful: bool, step: int = 1
+    ) -> None:
         if node.kind not in ("task", "memory", "file"):
             return
         operation = operation if operation in OPERATIONS else "coding"
@@ -394,9 +451,9 @@ class RetrievalService:
             )
             self.session.add(row)
         if useful:
-            row.useful += 1
+            row.useful = max(0, row.useful + step)
         else:
-            row.not_useful += 1
+            row.not_useful = max(0, row.not_useful + step)
         row.updated_at = utc_now()
 
     def _reinforce(

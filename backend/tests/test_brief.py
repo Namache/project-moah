@@ -155,8 +155,8 @@ async def test_unfinished_task_lists_what_is_decided_and_left(database_url: str)
         f"{old_bug} stays fixed."
     )
     assert block[8] == (
-        f'  Continuing it? Call brain_context_pack(task="{ref}") before you plan or ask: '
-        "it has the full records."
+        f'  Continuing it? Call brain_context_pack(task="{ref}", query="<the request>") before '
+        "you plan or ask: it has the full records."
     )
     assert len(block) == 9
     for left_out in (hidden, gems, idea, guess, f"- {old_bug}", f"- {rule}"):
@@ -169,10 +169,104 @@ async def test_unfinished_task_lists_what_is_decided_and_left(database_url: str)
 async def test_several_tasks_in_progress_and_no_checkpoint_shows_none(database_url: str) -> None:
     async with app_client(database_url) as client:
         pid = await make_project(client)
-        for title in ("Offline gold", "Shop screen"):
+        offline, _ = [
             await task(client, pid, title, status="in_progress")
+            for title in ("Offline gold", "Shop screen")
+        ]
     brief, _ = brief_for(database_url, pid)
     assert "UNFINISHED" not in brief and "LATEST CHECKPOINT" not in brief
+    # A checkpoint on one of them tells which: then it is shown.
+    async with app_client(database_url) as client:
+        await checkpoint(client, pid, "Gold started", task_id=offline["human_id"])
+    brief, _ = brief_for(database_url, pid)
+    assert f"UNFINISHED: {offline['human_id']} Offline gold (in progress)" in brief
+
+
+async def test_a_checkpoint_without_a_task_does_not_hide_the_task_before_it(
+    database_url: str,
+) -> None:
+    async with app_client(database_url) as client:
+        pid = await make_project(client)
+        offline, _ = [
+            await task(client, pid, title, status="in_progress")
+            for title in ("Offline gold", "Shop screen")
+        ]
+        await checkpoint(
+            client, pid, "Gold started", task_id=offline["human_id"], remaining_work="The cap."
+        )
+        await checkpoint(client, pid, "README typo fixed", next_steps="Nothing.")
+    brief, _ = brief_for(database_url, pid)
+    assert f"UNFINISHED: {offline['human_id']} Offline gold (in progress)" in brief
+    assert 'Left to do (checkpoint "Gold started"): The cap.' in brief
+    assert "LATEST CHECKPOINT: README typo fixed (next: Nothing.)" in brief
+
+
+async def test_a_parked_or_reviewed_checkpoint_task_is_not_unfinished(database_url: str) -> None:
+    async with app_client(database_url) as client:
+        pid = await make_project(client)
+        offline = await task(client, pid, "Offline gold", status="in_progress")
+        popup = await task(client, pid, "Welcome back popup")
+        await checkpoint(
+            client, pid, "Gold done", task_id=offline["human_id"], next_steps="Julia reviews it."
+        )
+        await set_status(client, pid, offline["human_id"], "review")
+    brief, _ = brief_for(database_url, pid)
+    # Finished and waiting in review: one checkpoint line, not an UNFINISHED block.
+    assert "UNFINISHED" not in brief
+    assert "LATEST CHECKPOINT: Gold done (next: Julia reviews it.)" in brief
+    async with app_client(database_url) as client:
+        await set_status(client, pid, popup["human_id"], "in_progress")
+        await set_status(client, pid, offline["human_id"], "backlog")
+    brief, _ = brief_for(database_url, pid)
+    # Parked in the backlog: the task in progress is the unfinished one.
+    assert f"UNFINISHED: {popup['human_id']} Welcome back popup (in progress)" in brief
+    assert "LATEST CHECKPOINT: Gold done" in brief
+
+
+async def test_with_no_remaining_work_the_next_step_is_the_handoff(database_url: str) -> None:
+    async with app_client(database_url) as client:
+        pid = await make_project(client)
+        offline = await task(client, pid, "Offline gold", status="in_progress")
+        await checkpoint(
+            client, pid, "Gold started", task_id=offline["human_id"], next_steps="Add lastSeen."
+        )
+    brief, _ = brief_for(database_url, pid)
+    assert "  Next: Add lastSeen." in brief and "Left to do" not in brief
+    # The focus task with no checkpoint of its own: its next action.
+    async with app_client(database_url) as client:
+        popup = await task(client, pid, "Welcome back popup", next_action="Draw the popup.")
+        started = await client.post(f"/api/projects/{pid}/tasks/{popup['human_id']}/start")
+        assert started.status_code == 200, started.text
+    brief, _ = brief_for(database_url, pid)
+    assert f"UNFINISHED: {popup['human_id']} Welcome back popup (in progress)" in brief
+    assert "  Next: Draw the popup." in brief
+
+
+async def test_records_kept_apart_from_the_task_are_not_decided_for_it(database_url: str) -> None:
+    async with app_client(database_url) as client:
+        pid = await make_project(client)
+        offline = await task(client, pid, "Offline gold", status="in_progress")
+        ref = offline["human_id"]
+        kept = await memory(client, pid, "decision", "Half rate offline")
+        apart = await memory(client, pid, "decision", "Building prices grow")
+        never = await memory(client, pid, "fact", "Balance spreadsheet")
+        wrong = await memory(client, pid, "decision", "Offline pays double")
+        for relationship, target in (
+            ("uses", kept),
+            ("independent_of", apart),
+            ("must_not_depend_on", never),
+            ("contradicts", wrong),
+        ):
+            made = await client.post(
+                f"/api/projects/{pid}/links",
+                json={"source": ref, "relationship": relationship, "target": target},
+            )
+            assert made.status_code == 201, made.text
+        await checkpoint(client, pid, "Gold started", task_id=ref)
+    brief, _ = brief_for(database_url, pid)
+    assert f"  - {kept} Half rate offline" in brief
+    for left_out in (apart, never, wrong):
+        assert f"  - {left_out}" not in brief, left_out
 
 
 async def test_a_closed_checkpoint_task_falls_back_to_the_one_in_progress(
@@ -251,6 +345,11 @@ async def test_the_brief_stays_cheap(database_url: str) -> None:
 def test_how_to_says_to_look_before_asking_and_to_write_back() -> None:
     assert "earlier answers" in HOW_TO and "before you ask the person" in HOW_TO
     assert "needs no permission" in HOW_TO and "brain_create_checkpoint" in HOW_TO
+    # Writing more must not mean writing trivia or linking everything.
+    assert "Skip trivia" in HOW_TO and "link only real relationships" in HOW_TO
+    # Only Global rules and decisions need review, not the answers recorded as decisions.
+    assert "global rules, global decisions" in HOW_TO and "New global" not in HOW_TO
+    assert "status review" in HOW_TO
     assert "follow-ups on the same work" not in HOW_TO
     assert "this session's task" not in HOW_TO  # mechanics agents do not need up front
     assert base_tokens(HOW_TO) <= 287  # the October-to-November HOW_TO cost
@@ -264,3 +363,5 @@ def test_server_instructions_stay_short_and_defer_to_the_brief() -> None:
     assert "follow-ups on the same work" not in INSTRUCTIONS
     assert "brain_brief" in INSTRUCTIONS and "before you ask" in INSTRUCTIONS
     assert "needs no" in INSTRUCTIONS and "permission" in INSTRUCTIONS
+    assert "global rules, global decisions" in " ".join(INSTRUCTIONS.split()).casefold()
+    assert "status review" in INSTRUCTIONS and "finishing a task go" not in INSTRUCTIONS

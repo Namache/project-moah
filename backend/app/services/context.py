@@ -8,7 +8,8 @@ Safety rules, applied before anything is ranked (all enforced here, not in the U
 - Ideas are included only when tied to the task (linked, named, every word matching, or over
   verified links), and are labelled as not requirements.
 
-The task: the one asked for, else the project's current focus, else the task a request plainly
+The task: the one asked for, else the agent session's task (the one its earlier pack or
+checkpoint was for), else the project's current focus, else the task a request plainly
 continues (it names the task by ID, or its words match one task in motion; see _infer_task),
 else none, and the pack is a project overview.
 
@@ -61,6 +62,7 @@ from sqlalchemy.orm import Session
 
 from app.models.app_setting import AppSetting
 from app.models.project import GLOBAL_PROJECT_ID, Project, utc_now
+from app.models.task import Task
 from app.schemas.context import (
     ContextItem,
     ContextPack,
@@ -73,8 +75,9 @@ from app.schemas.memory import MemoryRead
 from app.schemas.task import TaskDetail
 from app.services.activity import ActivityService
 from app.services.brief import (
+    LEFT_LIMIT,
+    brief_decided,
     brief_project_rules,
-    latest_checkpoint,
     unfinished_task,
     work_refs,
 )
@@ -353,6 +356,9 @@ class SentRecords:
 
     items: dict[str, str] = field(default_factory=dict)  # item key -> fingerprint of its text
     last: str = ""  # short retrieval id of the latest pack that sent anything
+    # Short retrieval ids of every pack that sent anything, oldest first: a checkpoint's
+    # feedback goes to whichever of them held the records it names.
+    retrievals: list[str] = field(default_factory=list)
 
     @staticmethod
     def key(item: Item) -> str:
@@ -370,10 +376,18 @@ class SentRecords:
     def add(self, item: Item, retrieval: str) -> None:
         self.items[self.key(item)] = self.fingerprint(item)
         self.last = retrieval or self.last
+        if retrieval and retrieval not in self.retrievals:
+            self.retrievals.append(retrieval)
 
-    def clear(self) -> None:
+    def resend(self) -> None:
+        """Send everything again (full=true). The packs already sent still count for this
+        session's feedback."""
         self.items.clear()
         self.last = ""
+
+    def clear(self) -> None:
+        self.resend()
+        self.retrievals.clear()
 
 
 # Set by the session start-up hook (``project-moah-mcp --brief``), which Claude Code runs when a
@@ -441,7 +455,12 @@ class ContextService:
         # memory id -> where the task's own work names it (see _work_named)
         self.work_named: dict[str, str] = {}
         self.brief_rules: set[str] = set()  # project rules the agent's brief already listed
-        self.task_source: str | None = None  # given, focus or inferred; None for an overview
+        # The records the brief lists as already decided for the task (brief.brief_decided):
+        # kept whatever the detail level, so the brief's promise holds.
+        self.promised: set[str] = set()
+        self.in_brief = False  # the agent's session brief covered this project
+        # given, session, focus or inferred; None for an overview
+        self.task_source: str | None = None
         # An agent's pack leaves out what only a person reading it can use (see build).
         self.for_agent = False
         # Set only when exploring (Settings > Agents, off by default): link weights are then
@@ -466,6 +485,8 @@ class ContextService:
         provider: str | None = None,
         sent: SentRecords | None = None,
         for_agent: bool | None = None,
+        session_task: str | None = None,
+        in_brief: bool | None = None,
     ) -> ContextPack:
         """``record_for`` names the agent asking; its pack is kept as a retrieval session so
         feedback can teach the links. Previews in the app are not recorded. An agent's pack
@@ -476,7 +497,11 @@ class ContextService:
         (kept by the MCP server): those items are named instead of repeated, and a pack with
         nothing new is not recorded. ``for_agent`` (by default: when ``record_for`` is set)
         leaves out the awake shelves line and recent activity, which help a person see why a
-        pack holds what it does but give an agent nothing to act on."""
+        pack holds what it does but give an agent nothing to act on. ``session_task`` is the
+        task the agent's session works on (kept by the MCP server): a pack with no ``task`` is
+        for it, ahead of the focus or a guess. ``in_brief`` says the agent's session brief
+        covered this project (by default: when ``global_rules`` is False); only then are the
+        project rules and the "Left to do" the brief showed left out."""
         if explore is None:
             # PROJECT_BRAIN_EXPLORE=0 keeps exploring off even when the setting is on, for
             # tests and side-by-side trials.
@@ -503,6 +528,8 @@ class ContextService:
             operation=operation,
             global_rules=global_rules,
             sent=sent,
+            session_task=session_task,
+            in_brief=in_brief,
         )
         retrieval_id = None
         new = [i for i in kept if not i.repeat]
@@ -634,6 +661,8 @@ class ContextService:
         operation: str | None = None,
         global_rules: bool = True,
         sent: SentRecords | None = None,
+        session_task: str | None = None,
+        in_brief: bool | None = None,
     ):
         """Select and budget the items. Shared by context packs and handoffs. Items in
         ``sent`` cost no budget: they are named, not sent again."""
@@ -648,9 +677,15 @@ class ContextService:
         omitted: Counter[str] = Counter()
         warnings: list[str] = []
 
-        # The task: the one asked for, else the project's current focus, else the one the
-        # request is plainly about (see _infer_task), else none: a project overview.
+        # The task: the one asked for, else the session's own, else the project's current
+        # focus, else the one the request is plainly about (see _infer_task), else none: a
+        # project overview. A question asked in the middle of a task is about that task.
         task_ref, self.task_source, why = task, "given" if task else None, ""
+        if task_ref is None and session_task:
+            own = self._task_by_id(project_id, session_task)
+            if own is not None and own.status not in CLOSED_STATUSES:
+                task_ref, self.task_source = own.id, "session"
+                why = f"{own.human_id} is this session's task"
         if task_ref is None and project.current_focus_task_id:
             task_ref, self.task_source = project.current_focus_task_id, "focus"
         if task_ref is None and query:
@@ -667,7 +702,7 @@ class ContextService:
             warnings.append(
                 f"No task was given, so the current focus {detail_task.human_id} was used."
             )
-        elif self.task_source == "inferred":
+        elif self.task_source in ("inferred", "session"):
             warnings.append(f"No task was given; {why}, so it was used. Pass task= for another.")
 
         items: list[Item] = [
@@ -678,9 +713,14 @@ class ContextService:
         )
         self._named(project_id, query, detail_task)
         self.work_named = self._work_named(project_id, detail_task)
+        self.in_brief = (not global_rules) if in_brief is None else in_brief
         self.brief_rules = (
-            set() if global_rules else {m.id for m in brief_project_rules(self.memory, project_id)}
+            {m.id for m in brief_project_rules(self.memory, project_id)} if self.in_brief else set()
         )
+        self.promised = set()
+        if detail_task is not None:
+            model = self.session.get(Task, detail_task.id)
+            self.promised = {m.id for m in brief_decided(self.session, project, model)}
         related_memory = self._memory_relevance(
             project_id, detail_task.title if detail_task else None, query
         )
@@ -728,7 +768,7 @@ class ContextService:
             graph,
         )
         items += self._routed_items(project_id, graph, detail)
-        items += self._checkpoint_items(project_id, detail_task, detail)
+        items += self._checkpoint_items(project_id, detail_task, detail, project)
         items += self._file_items(project_id, detail_task, query, detail, graph)
         if CAPS["activity"][detail] and not self.for_agent:
             # An agent has the latest checkpoint, which the newest events mostly repeat.
@@ -1103,7 +1143,6 @@ class ContextService:
         from sqlalchemy import select
 
         from app.models.graph import RetrievalSession
-        from app.models.task import Task
         from app.services.shelves import stems
 
         sessions = [
@@ -1234,6 +1273,12 @@ class ContextService:
 
     # ---- memory -------------------------------------------------------------------------
 
+    def _task_by_id(self, project_id: str, task_id: str):
+        try:
+            return self.tasks.get(project_id, task_id)
+        except Exception:  # noqa: BLE001 - deleted since, or in another project
+            return None
+
     def _task_by_ref(self, project_id: str, ref: str):
         """The task a typed ID names, or None. AUDIO-1 is how people type AUDIO-001."""
         prefix, number = ref.rsplit("-", 1)
@@ -1253,8 +1298,9 @@ class ContextService:
            "finish" do not count), share at least two of them (one, for a one-word request),
            and cover more than any other such task does.
         3. Else, for a request with no meaningful words at all ("Continue."), the unfinished
-           task the session brief shows (brief.unfinished_task: the latest checkpoint's task
-           while it is open, else the only task in progress), so the two never disagree.
+           task the session brief shows (brief.unfinished_task: the task of the latest
+           checkpoint that has one, while it is in progress or blocked, else the only task in
+           progress), so the two never disagree.
         A vague request matches nothing and gets a project overview, as before."""
         project_id = project.id
         for ref in REF_PATTERN.findall(query):
@@ -1263,9 +1309,7 @@ class ContextService:
                 return found.id, f"the request names {found.human_id}"
         wanted = match_keys(query) - WORK_KEYS
         if not wanted:
-            shown = unfinished_task(
-                self.session, project, latest_checkpoint(self.session, project_id)
-            )
+            shown = unfinished_task(self.session, project)
             if shown is None:
                 return None
             return shown.id, f"{shown.human_id} is the unfinished task in your brief"
@@ -1415,6 +1459,8 @@ class ContextService:
             add(self.memory.list(project_id, statuses=["active"], ids=sorted(self.named_memory)))
         if self.work_named:
             add(self.memory.list(project_id, statuses=["active"], ids=sorted(self.work_named)))
+        if self.promised:
+            add(self.memory.list(project_id, statuses=["active"], ids=sorted(self.promised)))
         for standing in ({"pinned": True}, {"locked_only": True}, {"visibility": ["always"]}):
             add(self.memory.list(project_id, statuses=["active"], limit=STANDING_LIMIT, **standing))
         return list(found.values())
@@ -1468,6 +1514,8 @@ class ContextService:
             )
             work = self.work_named.get(m.id)  # named by the task or its latest checkpoint
             named = m.id in self.named_memory or work is not None
+            # Listed in the brief as already decided for this task (linked or named by it).
+            promised = m.id in self.promised
             path = graph.paths.get(Node("memory", m.id))
             reach = 20 * graph.score(Node("memory", m.id)) if m.id in connected else 0.0
             if reach and not verified(path):
@@ -1488,7 +1536,7 @@ class ContextService:
             always = m.ai_visibility == "always"
             standing = m.is_pinned or (m.is_locked and m.type in ("decision", "rule"))
             if Node("memory", m.id) in graph.dormant and not (
-                manual or always or linked or standing or named or named_task
+                manual or always or linked or standing or named or named_task or promised
             ):
                 omitted["dormant shelf"] += 1
                 if matched > 0:
@@ -1510,7 +1558,7 @@ class ContextService:
                 and m.id not in related
                 and m.type in ("decision", "fact", "note", "idea")  # traps wake with their domain
                 and graph.score(node) < SHELF_ONLY_MIN
-                and not (manual or always or linked or named or named_task or standing)
+                and not (manual or always or linked or named or named_task or standing or promised)
             ):
                 # Only a shelf woken by one keyword says it belongs: too weak to cost tokens.
                 omitted["weak shelf match"] += 1
@@ -1521,6 +1569,7 @@ class ContextService:
                 or always
                 or linked
                 or named_task
+                or promised
                 or matched > 0
                 or (standing and task_id is None)
             ):
@@ -1566,6 +1615,8 @@ class ContextService:
                 if m.id not in connected and matched
                 else connected[m.id]
                 if m.id in connected
+                else "linked to this task"
+                if promised
                 else "pinned or locked"
             )
             section = {
@@ -1593,17 +1644,23 @@ class ContextService:
                     or e[1].importance in ("critical", "high")
                     or e[2] == "linked to this task"
                     or e[1].id in self.work_named
+                    or e[1].id in self.promised
                 ]
                 omitted["detail level"] += len(ranked) - len(strong)
                 ranked = strong
             if section in ("warnings", "issues") and detail == "minimal":
                 # Minimal keeps only the ones this work reached, not every pinned one.
-                matching = [e for e in ranked if e[2] != "pinned or locked"]
+                matching = [
+                    e for e in ranked if e[2] != "pinned or locked" or e[1].id in self.promised
+                ]
                 omitted["detail level"] += len(ranked) - len(matching)
                 ranked = matching
             chosen = ranked[:cap] if cap else []
             for entry in manual_entries:  # a person asked for these; the cap does not apply
                 if entry not in chosen:
+                    chosen.append(entry)
+            for entry in ranked:  # the brief promised these; the cap does not apply either
+                if entry[1].id in self.promised and entry not in chosen:
                     chosen.append(entry)
             omitted["detail level"] += len(ranked) - len([e for e in chosen if e in ranked])
             for score, m, reason in chosen:
@@ -1623,8 +1680,9 @@ class ContextService:
                     # Reached through other records: useful, never ahead of essentials such as
                     # the latest checkpoint or memory linked to the task.
                     item.tier = max(item.tier, 3)
-                if m.id in self.work_named:
-                    # The work names it as what it needs: ahead of anything found by words.
+                if m.id in self.work_named or m.id in self.promised:
+                    # The work names it, or the brief listed it as decided: ahead of anything
+                    # found by words.
                     item.tier = 1 if section in ("decisions", "rules", "warnings") else 2
                 items.append(item)
         if detail == "detailed":
@@ -1690,12 +1748,28 @@ class ContextService:
     # ---- checkpoints, files, activity ---------------------------------------------------
 
     def _checkpoint_items(
-        self, project_id: str, task: TaskDetail | None, detail: str
+        self,
+        project_id: str,
+        task: TaskDetail | None,
+        detail: str,
+        project: Project | None = None,
     ) -> list[Item]:
         scope = task.human_id if task else None
         found = self.checkpoints.list(project_id, task=scope, limit=4)
+        own = bool(found)
         if not found and task is not None:
             found = self.checkpoints.list(project_id, limit=4)  # fall back to the project's latest
+        # The brief showed this checkpoint's remaining work in full under UNFINISHED: say so
+        # instead of sending it again.
+        shown = (
+            own
+            and task is not None
+            and project is not None
+            and self.in_brief
+            and len(" ".join(found[0].remaining_work.split())) <= LEFT_LIMIT
+            and getattr(unfinished_task(self.session, project), "id", None) == task.id
+        )
+        next_action = " ".join((task.next_action or "").split()).casefold() if task else ""
         items: list[Item] = []
         for index, cp in enumerate(found):
             lines = [cp.title]
@@ -1707,8 +1781,14 @@ class ContextService:
                 ("Problems", cp.problems),
                 ("Next", cp.next_steps),
             ):
-                if value.strip():
-                    lines.append(f"{label}: {' '.join(value.split())}")
+                text = " ".join(value.split())
+                if not text:
+                    continue
+                if index == 0 and label == "Remaining" and shown:
+                    text = "as in your brief"
+                if index == 0 and label == "Next" and text.casefold() == next_action:
+                    continue  # the same as the task's NEXT ACTION above
+                lines.append(f"{label}: {text}")
             if index == 0:
                 items.append(
                     Item(

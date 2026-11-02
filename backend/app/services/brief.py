@@ -26,8 +26,7 @@ from app.services.proposals import ProposalService
 # When an agent should fetch a context pack. The brief lists these, and the retrieval benchmark
 # (tests/retrieval_bench.py) replays sessions against the same list, so the two cannot drift.
 RETRIEVE_WHEN: dict[str, str] = {
-    "continue_task": "you continue unfinished work from an earlier session "
-    "(this brief has titles only)",
+    "continue_task": "you continue unfinished work (this brief has titles only)",
     "start_task": "you start or switch tasks",
     "names_record": "a request names an ID you have no pack for",
     "history": "you need past decisions, known bugs or traps",
@@ -49,15 +48,19 @@ Follow every rule above. Moah also holds the person's earlier answers.
     + "\n".join(f"  * {when}" for when in RETRIEVE_WHEN.values())
     + """
   Skip it only for small edits, or when a pack from this session already covers the work.
-- Writing to Moah is part of the work and needs no permission. Record the person's answers
-  and choices as decisions (brain_create_memory) unless a record already says it, and new
-  rules, facts, bugs and warnings with links. Before your final reply on work that changed
-  files, call brain_create_checkpoint (done, left, next, and the IDs of records that
-  helped).
-- New global rules and decisions, locked memory and finishing a task need the person's review."""
+- Writing to Moah needs no permission. Record the person's answers as decisions
+  (brain_create_memory) unless a record already says it, and new rules, facts, bugs and
+  warnings. Skip trivia and what the code or Git shows; link only real relationships.
+- After task work, before your final reply: brain_create_checkpoint (done, left, next,
+  and the IDs that helped).
+- The person reviews global rules, global decisions, locked records and completed tasks.
+  Set a finished task to status review."""
 )
 
 CLOSED_TASK = ("completed", "archived")
+# A checkpoint's task counts as unfinished only while work on it goes on: not parked in the
+# backlog or todo, and not finished and waiting in review.
+UNFINISHED_STATUSES = ("in_progress", "blocked")
 # How many project rules and standing decisions the brief lists. Packs for an agent leave out
 # exactly the rules listed here (see brief_project_rules), so nothing is sent twice.
 BRIEF_PROJECT_RULES = 12
@@ -104,6 +107,13 @@ def listed_rules(project_id: str, visible: list[MemoryRead]) -> list[MemoryRead]
     return rules if project_id == GLOBAL_PROJECT_ID else rules[:BRIEF_PROJECT_RULES]
 
 
+def standing_records(visible: list[MemoryRead]) -> list[MemoryRead]:
+    """The locked or pinned decisions and warnings the brief lists."""
+    return [
+        m for m in visible if m.type in ("decision", "warning") and (m.is_locked or m.is_pinned)
+    ][:BRIEF_STANDING]
+
+
 def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
     """The project rules the session brief lists, for context packs to leave out."""
     return listed_rules(
@@ -111,18 +121,25 @@ def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRe
     )
 
 
-def unfinished_task(session: Session, project: Project, latest: Checkpoint | None) -> Task | None:
-    """The task the person is most likely in the middle of: the focus task, else the latest
-    checkpoint's task while it is open, else the only task in progress. Never a guess between
-    several. Reading it changes nothing: the focus and the session's task stay as they are.
-    A context pack asked to just "continue" uses the same task (context._infer_task)."""
+def unfinished_task(session: Session, project: Project) -> Task | None:
+    """The task the person is most likely in the middle of: the focus task, else the task of
+    the latest checkpoint that has one, while work on it goes on (in progress or blocked),
+    else the only task in progress. Never a guess between several. A checkpoint with no task
+    (a small edit) does not hide the task before it. Reading it changes nothing: the focus and
+    the session's task stay as they are. A context pack asked to just "continue" uses the same
+    task (context._infer_task)."""
     if project.current_focus_task_id:
         focus = session.get(Task, project.current_focus_task_id)
         if focus is not None and focus.status not in CLOSED_TASK:
             return focus
-    if latest is not None and latest.task_id:
+    latest = latest_checkpoint(session, project.id, with_task=True)
+    if latest is not None:
         task = session.get(Task, latest.task_id)
-        if task is not None and task.project_id == project.id and task.status not in CLOSED_TASK:
+        if (
+            task is not None
+            and task.project_id == project.id
+            and task.status in UNFINISHED_STATUSES
+        ):
             return task
     started = list(
         session.scalars(
@@ -133,11 +150,15 @@ def unfinished_task(session: Session, project: Project, latest: Checkpoint | Non
 
 
 def latest_checkpoint(
-    session: Session, project_id: str, task_id: str | None = None
+    session: Session, project_id: str, task_id: str | None = None, *, with_task: bool = False
 ) -> Checkpoint | None:
+    """The project's latest checkpoint: of ``task_id`` when given, or the latest that has a
+    task at all with ``with_task``."""
     statement = select(Checkpoint).where(Checkpoint.project_id == project_id)
     if task_id is not None:
         statement = statement.where(Checkpoint.task_id == task_id)
+    elif with_task:
+        statement = statement.where(Checkpoint.task_id.is_not(None))
     return session.scalars(
         statement.order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc()).limit(1)
     ).first()
@@ -215,6 +236,40 @@ def decided_for(
     return sorted(picked, key=order)[:DECIDED_LIMIT]
 
 
+def brief_decided(session: Session, project: Project, task: Task) -> list[Memory]:
+    """The records the brief lists as already decided for ``task``, chosen exactly as
+    build_brief does. Context packs keep every one of them, whatever their detail level."""
+    records = _visible(MemoryService(session).list(project.id, statuses=["active"], limit=300))
+    shown = {m.human_id for m in listed_rules(project.id, records) + standing_records(records)}
+    own = latest_checkpoint(session, project.id, task.id)
+    return decided_for(session, project, task, own, shown)
+
+
+def checkpoint_task(session: Session, project: Project, texts: Iterable[str | None]) -> Task | None:
+    """For a checkpoint written with no task and no session task: the brief's unfinished task,
+    when the checkpoint names it or a record the brief lists as decided for it. An agent that
+    worked from the brief alone never fetched a pack, so its session has no task; without this
+    the next brief would still show the old "Left to do". A checkpoint naming none of them (a
+    small edit) stays without a task."""
+    task = unfinished_task(session, project)
+    if task is None:
+        return None
+    named = set()
+    for text in texts:
+        for found in MENTION_PATTERN.finditer(text or ""):
+            if found.group("scope"):
+                continue
+            ref = found.group("ref").upper()
+            prefix, number = ref.rsplit("-", 1)
+            named |= {ref, f"{prefix}-{int(number):03d}"}
+    if not named:
+        return None
+    ties = {task.human_id.upper()} | {
+        m.human_id.upper() for m in brief_decided(session, project, task)
+    }
+    return task if named & ties else None
+
+
 def unfinished_lines(
     session: Session, project: Project, task: Task, checkpoint: Checkpoint | None, shown: set[str]
 ) -> list[str]:
@@ -227,9 +282,14 @@ def unfinished_lines(
     if checkpoint is not None and checkpoint.remaining_work.strip():
         left = _cut(checkpoint.remaining_work, LEFT_LIMIT)
         lines.append(f'  Left to do (checkpoint "{checkpoint.title}"): {left}')
+    else:
+        # No remaining work written down: the next step is the handoff instead.
+        step = (checkpoint.next_steps if checkpoint is not None else "") or task.next_action
+        if step and step.strip():
+            lines.append(f"  Next: {_cut(step, LEFT_LIMIT)}")
     lines.append(
-        f'  Continuing it? Call brain_context_pack(task="{task.human_id}") before you plan or'
-        " ask: it has the full records."
+        f'  Continuing it? Call brain_context_pack(task="{task.human_id}", query="<the request>")'
+        " before you plan or ask: it has the full records."
     )
     return lines
 
@@ -253,16 +313,14 @@ def build_brief(session: Session, project: Project | None, note: str | None = No
             lines.append(note)
         records = _visible(MemoryService(session).list(project.id, statuses=["active"], limit=300))
         project_rules = listed_rules(project.id, records)
-        standing = [
-            m for m in records if m.type in ("decision", "warning") and (m.is_locked or m.is_pinned)
-        ][:BRIEF_STANDING]
+        standing = standing_records(records)
         if project_rules:
             lines += ["PROJECT RULES"] + [_rule_line(m) for m in project_rules]
         if standing:
             lines += ["KEY DECISIONS AND WARNINGS"]
             lines += [f"- {m.human_id} {m.title}" for m in standing]
         latest = latest_checkpoint(session, project.id)
-        task = unfinished_task(session, project, latest)
+        task = unfinished_task(session, project)
         if task is not None:
             shown = {m.human_id for m in project_rules + standing}
             own = latest if latest is not None and latest.task_id == task.id else None

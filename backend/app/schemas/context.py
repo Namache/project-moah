@@ -43,10 +43,10 @@ class ContextPack(BaseModel):
     project_id: str
     project_name: str
     task: str | None
-    # How the pack's task was chosen: given (task=), focus (the project's current focus) or
-    # inferred (the request names it, or plainly matches the one task in motion). None for a
-    # project overview.
-    task_source: Literal["given", "focus", "inferred"] | None = None
+    # How the pack's task was chosen: given (task=), session (the agent session's own task),
+    # focus (the project's current focus) or inferred (the request names it, or plainly matches
+    # the one task in motion). None for a project overview.
+    task_source: Literal["given", "session", "focus", "inferred"] | None = None
     detail_level: DetailLevel
     budget: int
     estimated_tokens: int

@@ -36,7 +36,7 @@ function packNote(text: string): string {
   return text;
 }
 
-const omittedLabels: Record<string, string> = labels({ hidden: msg("hidden from AI"), "manual only": msg("manual only, not selected"), "not related": msg("not related to this task"), "detail level": msg("left out at this detail level"), budget: msg("left out to stay within the size"), "excluded by you": msg("excluded by you") });
+const omittedLabels: Record<string, string> = labels({ hidden: msg("hidden from AI"), "manual only": msg("manual only, not selected"), "not related": msg("not related to this task"), "detail level": msg("left out at this detail level"), budget: msg("left out to stay within the size"), "excluded by you": msg("excluded by you"), "weak shelf match": msg("matched only one shelf keyword"), "dormant shelf": msg("only on shelves not active for this task"), resolved: msg("already resolved"), repeats: msg("repeating another item"), "already in your brief": msg("already in the agent's brief") });
 
 export function ContextInspector({ projectId, focusTaskId }: { projectId: string; focusTaskId: string | null }) {
   const tasks = useTasks(projectId);

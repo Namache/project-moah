@@ -42,7 +42,7 @@ from app.services.activity import acting_as
 from app.services.agent_prompts import second_opinion
 from app.services.agent_sessions import SessionTracker, read_hook_input, record_start
 from app.services.agent_sync import sync_quietly
-from app.services.brief import build_brief
+from app.services.brief import build_brief, checkpoint_task
 from app.services.builds import UpdateWatch, register_build
 from app.services.checkpoints import CheckpointService
 from app.services.context import ContextService, mark_context_reset
@@ -68,8 +68,8 @@ and checkpoints for every project. At the start of a session, call brain_brief w
 folder as cwd, unless a Project Moah brief is already in your context, and follow it. The
 person's earlier answers are recorded here, so check Moah (brain_context_pack or brain_search)
 before you ask them anything. Writing records and checkpoints is part of the work and needs no
-permission. Locked records, new global rules and decisions, and finishing a task go to the
-person for review (brain_create_proposal)."""
+permission. Global rules, global decisions, locked records and completing a task go to the
+person for review (brain_create_proposal); set a finished task to status review."""
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 WRITE = ToolAnnotations(
@@ -78,6 +78,9 @@ WRITE = ToolAnnotations(
 
 
 ANY_WORD_NOTE = "any word: no record has every word of the query, so these share some of them"
+# A plain question matches many records on one word each: the best few are enough.
+ANY_WORD_LIMIT = 5
+DUPLICATE_SHARED = 2  # meaningful title words a possible duplicate must share
 DUPLICATE_HINT = (
     "If one of these already says it, use brain_update_memory or brain_supersede_memory "
     "instead of keeping two records."
@@ -99,8 +102,18 @@ def refuse_global_rule(project: Project, memory: Memory) -> None:
 def possible_duplicates(
     session: Session, project_id: str, memory_id: str, memory_type: str, title: str
 ) -> dict:
-    """Up to three active records of the same type whose titles share words with ``title``, so
-    an agent recording an answer can see whether Moah already said it. Empty when none do."""
+    """Up to three active records of the same type whose titles share at least two meaningful
+    words with ``title`` (its only one, for a one-word title), so an agent recording an answer
+    can see whether Moah already said it. Words in a record's content do not count: a shared
+    word there says little about the same thing being said twice. Empty when none match."""
+    from app.services.context import match_keys
+
+    def words(text: str) -> set[str]:
+        return {k for k in match_keys(text) if len(k) > 2}  # "no", "up": no topic of their own
+
+    own = words(title)
+    if not own:
+        return {}
     try:
         hits = SearchService(session).search(
             title,
@@ -109,7 +122,7 @@ def possible_duplicates(
             memory_types=[memory_type],
             for_agent=True,
             any_word=True,
-            limit=4,
+            limit=20,
         )
     except Exception:  # noqa: BLE001 - the record is saved; a hint must never fail the write
         session.rollback()
@@ -118,6 +131,7 @@ def possible_duplicates(
         {"id": h["human_id"], "title": h["title"]}
         for h in hits["items"]
         if h["entity_id"] != memory_id
+        and len(own & words(h["title"])) >= min(DUPLICATE_SHARED, len(own))
     ][:3]
     return {"possible_duplicates": same, "duplicates_hint": DUPLICATE_HINT} if same else {}
 
@@ -160,6 +174,9 @@ def build_server(
     watch = UpdateWatch()
     sessions = SessionTracker(agent.strip().casefold())
     packs = SessionPacks()
+    # Which project this session's brief covered, once brain_brief was called. Until then the
+    # brief is the start-up hook's, for the folder the client started this server in.
+    briefed: dict[str, str | None] = {}
 
     def tool(annotations: ToolAnnotations):
         """Register a tool that gets a session, attribution, and readable errors."""
@@ -174,6 +191,7 @@ def build_server(
                         if sessions.refresh(session):
                             working.clear()  # /clear started a new session: no task of its own
                             packs.clear()  # and none of the packs sent before are in its context
+                            briefed.clear()  # and the start-up hook gave it a new brief
                         with acting_as(actor, agent):
                             result = fn(session, *args, **kwargs)
                         sessions.record_tasks(session, working.tasks())
@@ -250,6 +268,19 @@ def build_server(
         task = working.current(session, project_id)
         return task.human_id if task else None
 
+    def in_brief(session: Session, project_id: str) -> bool:
+        """Whether this session's brief showed the project's rules and unfinished task. Every
+        brief shows the Global rules."""
+        if project_id == GLOBAL_PROJECT_ID:
+            return True
+        if "project" not in briefed:
+            try:  # the start-up hook's brief: the folder this server was started in
+                found, _ = resolve_project(session, None, None, default_project)
+            except ProjectChoiceError:
+                return False
+            return found.id == project_id
+        return briefed["project"] == project_id
+
     @tool(READ)
     def brain_brief(
         session: Session,
@@ -272,6 +303,7 @@ def build_server(
             note = None
         except ProjectChoiceError as error:
             found, note = None, str(error)
+        briefed["project"] = found.id if found is not None and found.kind != "global" else None
         return with_update_check(session, build_brief(session, found, note))
 
     @tool(READ)
@@ -374,9 +406,9 @@ def build_server(
         a task, a request names an ID, you need history or traps, before an unfamiliar area,
         when debugging, and before asking the person a question (query = the question). Skip
         it only for small edits or when a pack from this session already covers the work.
-        task is an ID such as CAMP-037; without it, the pack picks the task the work is about
-        and says which. detail is minimal, balanced or detailed. explain=true says why each
-        record came.
+        task is an ID such as CAMP-037; without it, the pack keeps to this session's task, or
+        picks the task the work is about, and says which. detail is minimal, balanced or
+        detailed. explain=true says why each record came.
         Rules your brief gave are left out; pass global_rules=true if you never got the brief.
         The pack's task becomes this session's task. A repeat sends only what is new; full=true
         sends everything again."""
@@ -385,7 +417,8 @@ def build_server(
             raise ValueError(f"operation must be one of: {', '.join(OPERATIONS)}")
         sent = packs.get(session, found.id)
         if full:
-            sent.clear()  # send everything; later repeats count from this pack
+            sent.resend()  # send everything; later repeats count from this pack
+        own = working.current(session, found.id)
         pack = ContextService(session).build(
             found.id,
             task=task,
@@ -398,11 +431,15 @@ def build_server(
             global_rules=global_rules,
             sent=sent,
             for_agent=not explain,
+            session_task=own.id if own is not None else None,
+            # The brief left out of the pack must be one this session got.
+            in_brief=not global_rules and in_brief(session, found.id),
         )
-        before = session_task(session, found.id)
+        before = own.human_id if own is not None else None
         if pack.task and (pack.task_source != "focus" or not query):
-            # The work this pack is for: the task asked for or the one the request names or
-            # plainly matches. A pack for a search alone only borrows the focus task.
+            # The work this pack is for: the task asked for, the session's own, or (with no
+            # session task yet) the one the request names or plainly matches. A pack for a
+            # search alone only borrows the focus task.
             working.set(found.id, TaskService(session).get(found.id, pack.task).id)
         current = session_task(session, found.id)
         if pack.repeat_of is not None and not pack.retrieval_id:
@@ -463,16 +500,22 @@ def build_server(
         not_useful: list[str] | None = None,
         project: str | None = None,
     ) -> dict:
-        """After working from a context pack, say which records helped (useful) and which were
-        noise (not_useful), by ID (DEC-003, file:src/a.gd). retrieval is the R-... id at the end
-        of the pack. Links that brought useful records grow stronger for this kind of work;
-        links that brought noise grow weaker for it. A useful record the pack missed gets linked
-        to the task, so the next pack finds it."""
+        """Say which records of a context pack helped (useful) and which were noise
+        (not_useful), by ID (DEC-003, file:src/a.gd). retrieval is the R-... id at the end of
+        the pack. A checkpoint naming the records that helped already counts them; each verdict
+        counts once. Links that brought useful records grow stronger for this kind of work,
+        links that brought noise weaker. A useful record the pack missed gets linked to the
+        task."""
         if not useful and not not_useful:
             raise ValueError("Name at least one record in useful or not_useful.")
         found, _ = pick(session, project, write=True)
         return RetrievalService(session).feedback(
-            found.id, retrieval, useful=useful or [], not_useful=not_useful or [], actor=agent
+            found.id,
+            retrieval,
+            useful=useful or [],
+            not_useful=not_useful or [],
+            actor=agent,
+            session_refs=packs.get(session, found.id).retrievals,
         )
 
     @tool(READ)
@@ -610,26 +653,19 @@ def build_server(
         loose = False
         if not result["total"]:
             # Agents type questions, not keywords: "which day does the week start" has no
-            # record with every word, but "Weeks start on Monday" shares some of them.
+            # record with every word, but "Weeks start on Monday" shares some of them. Checking
+            # before asking the person must stay cheaper than a pack: the best few only.
+            options["limit"] = min(options["limit"], ANY_WORD_LIMIT)
             result = search.search(query, any_word=True, **options)
             loose = bool(result["total"])
+        # In one project the project's name says nothing; loose matches skip status too.
+        keys = ["entity_type", "human_id", "title", "snippet"]
+        keys += [] if loose else ["status"]
+        keys += ["project_name"] if scope == "all" else []
         return {
             **({"matched": ANY_WORD_NOTE} if loose else {}),
             "total": result["total"],
-            "results": [
-                {
-                    k: h[k]
-                    for k in (
-                        "entity_type",
-                        "human_id",
-                        "title",
-                        "snippet",
-                        "status",
-                        "project_name",
-                    )
-                }
-                for h in result["items"]
-            ],
+            "results": [{k: h[k] for k in keys} for h in result["items"]],
         }
 
     @tool(READ)
@@ -850,14 +886,21 @@ def build_server(
         project: str | None = None,
         git_commit: str | None = None,
     ) -> dict:
-        """Record where work stands so the next session can resume. Do this before your final
-        reply on work that changed files. task defaults to this session's task. The records the checkpoint names (DEC-004, BUG-2,
-        a file with notes) are linked to its task, so the next pack for that task finds them.
-        Records of your latest pack named in summary, completed_work or next_steps count as
-        useful feedback."""
+        """Record where work stands so the next session can resume: after task work, before
+        your final reply. task defaults to this session's task, else to the brief's unfinished
+        task if the checkpoint names it or its records. Records it names (DEC-004, BUG-2, a file
+        with notes) are linked to its task. Records your packs held that summary,
+        completed_work or next_steps name count as useful feedback."""
         found, _ = pick(session, project, write=True)
+        guessed = None
         if task is None and (current := working.current(session, found.id)) is not None:
             task = current.id
+        elif task is None:
+            # Worked from the brief alone, with no pack: the brief's unfinished task, when the
+            # checkpoint is about it, so the next brief does not show its old "Left to do".
+            texts = [title, summary, completed_work, remaining_work, problems, next_steps]
+            guessed = checkpoint_task(session, found, texts)
+            task = guessed.id if guessed is not None else None
         cp = CheckpointService(session).create(
             found.id,
             CheckpointCreate(
@@ -886,16 +929,23 @@ def build_server(
                 for label in discover_checkpoint_quietly(session, found.id, cp.id, agent)
             ],
         }
-        # What the work used, in the agent's own words: the latest pack's records it names as
-        # done or as the next step (not its problems) helped, unless it already said so.
+        if guessed is not None:
+            result["task_note"] = (
+                f"{guessed.human_id} is the unfinished task in your brief and this checkpoint "
+                "names it or its records. Pass task= for another."
+            )
+        # What the work used, in the agent's own words: records of this session's packs it
+        # names as done or as the next step (not its problems) helped, unless it already said.
         helped = RetrievalService(session).feedback_from_checkpoint(
             found.id,
-            packs.get(session, found.id).last,
+            packs.get(session, found.id).retrievals,
             [summary, completed_work, next_steps],
             actor=agent,
         )
-        if helped is not None:
-            result["feedback"] = f"counted as feedback for {helped[0]}: {', '.join(helped[1])}"
+        if helped:
+            result["feedback"] = "; ".join(
+                f"counted as feedback for {short}: {', '.join(ids)}" for short, ids in helped
+            )
         return result
 
     @tool(WRITE)

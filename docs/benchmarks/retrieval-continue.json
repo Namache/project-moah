@@ -1,5 +1,5 @@
 {
-  "code": "fix-packs: infer the task from the request, records the task's own work names, weak shelf matches left out, agent packs without the shelf line, activity and the brief's rules",
+  "code": "cheaper-moah (fix-brief and fix-packs merged, then review fixes): packs keep to the session's task, leave out only the brief's own project rules and \"Left to do\", and keep every record the brief lists as decided",
   "token_counter": "services/tokens.py, Claude",
   "measured": "2026-11-02",
   "on_main_33d29dd": {
@@ -161,7 +161,8 @@
         ],
         "forbidden_found": [],
         "tokens": 80,
-        "task": "SAVE-001"
+        "task": "SAVE-001",
+        "task_source": "given"
       },
       {
         "case": "task with a superseded decision",
@@ -172,7 +173,8 @@
         "from_brief": [],
         "forbidden_found": [],
         "tokens": 51,
-        "task": "CAMP-001"
+        "task": "CAMP-001",
+        "task_source": "given"
       },
       {
         "case": "decision question, no task",
@@ -185,7 +187,8 @@
         "from_brief": [],
         "forbidden_found": [],
         "tokens": 50,
-        "task": null
+        "task": null,
+        "task_source": null
       },
       {
         "case": "small task, one fact",
@@ -196,7 +199,8 @@
         "from_brief": [],
         "forbidden_found": [],
         "tokens": 52,
-        "task": "AUDIO-001"
+        "task": "AUDIO-001",
+        "task_source": "given"
       },
       {
         "case": "bug question, no task",
@@ -207,7 +211,8 @@
         "from_brief": [],
         "forbidden_found": [],
         "tokens": 54,
-        "task": null
+        "task": null,
+        "task_source": null
       }
     ],
     "repeatable": true
@@ -270,15 +275,15 @@
       "retrievals": 7,
       "unnecessary_retrievals": 3,
       "unnecessary_retrieval_tokens": [
-        27,
-        22,
+        24,
+        20,
         27
       ],
       "missed_requests": 0,
       "completed_tasks": 3,
       "tasks": 3,
-      "total_tokens": 1549,
-      "tokens_per_completed_task": 516
+      "total_tokens": 1544,
+      "tokens_per_completed_task": 515
     }
   },
   "continue": {
@@ -293,7 +298,7 @@
         "missing": [],
         "from_brief": [],
         "forbidden_found": [],
-        "tokens": 221,
+        "tokens": 184,
         "task": "READ-001",
         "task_source": "inferred"
       },
@@ -306,7 +311,7 @@
         "missing": [],
         "from_brief": [],
         "forbidden_found": [],
-        "tokens": 221,
+        "tokens": 184,
         "task": "READ-001",
         "task_source": "inferred"
       },
@@ -319,7 +324,7 @@
         "missing": [],
         "from_brief": [],
         "forbidden_found": [],
-        "tokens": 221,
+        "tokens": 184,
         "task": "READ-001",
         "task_source": "given"
       },
@@ -345,7 +350,7 @@
         "missing": [],
         "from_brief": [],
         "forbidden_found": [],
-        "tokens": 192,
+        "tokens": 155,
         "task": "READ-001",
         "task_source": "inferred"
       },
@@ -358,7 +363,7 @@
         "missing": [],
         "from_brief": [],
         "forbidden_found": [],
-        "tokens": 192,
+        "tokens": 155,
         "task": "READ-001",
         "task_source": "inferred"
       },
@@ -371,7 +376,7 @@
         "missing": [],
         "from_brief": [],
         "forbidden_found": [],
-        "tokens": 192,
+        "tokens": 155,
         "task": "READ-001",
         "task_source": "given"
       },

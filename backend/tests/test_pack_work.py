@@ -184,26 +184,113 @@ def test_work_refs_read_both_spellings_and_skip_global_records() -> None:
     assert "RULE-003" not in where and "RULE-3" not in where  # a Global record
 
 
+def assert_pack_holds_the_brief(session, pid: str, task: str) -> None:
+    """Every record the brief lists as already decided for ``task`` is a memory item of the
+    pack it tells the agent to fetch, and of a bare "Continue." pack: at minimal detail by
+    title, at balanced with its text."""
+    brief = build_brief(session, session.get(Project, pid))
+    assert f"UNFINISHED: {task} " in brief
+    decided = [line.split()[1] for line in brief.splitlines() if line.startswith("  - ")]
+    assert decided
+    records = {m.human_id: m for m in MemoryService(session).list(pid, statuses=["active"])}
+    for detail in ("balanced", "minimal"):
+        for asked in ({"task": task}, {"query": "Continue."}):
+            mine = ContextService(session).build(
+                pid, detail=detail, record_for="claude", global_rules=False, **asked
+            )
+            assert mine.task == task, (detail, asked)
+            held = {i.ref for i in mine.items if i.kind.startswith("memory")}
+            missing = [d for d in decided if records[d].id not in held]
+            assert not missing, (detail, asked, missing, mine.omitted)
+            if detail == "balanced":
+                for ref in decided:
+                    assert records[ref].content in mine.text, ref
+
+
 async def test_the_brief_and_the_pack_agree_on_the_work(
     client: AsyncClient, database_url: str
 ) -> None:
     """The brief's UNFINISHED task is the task a bare "Continue." pack uses, and every record
-    the brief lists as already decided for it is in that pack, in full."""
+    the brief lists as already decided for it is in that pack."""
     pid, rec = await build_camp(client)
     offline = rec["offline"]["human_id"]
     factory = make_session_factory(make_engine(database_url))
     with factory() as session:
         brief = build_brief(session, session.get(Project, pid))
-        assert f"UNFINISHED: {offline} " in brief
         decided = [line.split()[1] for line in brief.splitlines() if line.startswith("  - ")]
         assert sorted(decided) == sorted(rec[k]["human_id"] for k in ("cap", "fresh", "bump"))
-        for detail in ("balanced", "minimal"):
-            mine = ContextService(session).build(
-                pid, query="Continue.", detail=detail, record_for="claude", global_rules=False
+        assert_pack_holds_the_brief(session, pid, offline)
+
+
+async def test_the_pack_keeps_every_record_the_brief_lists_past_its_caps(
+    client: AsyncClient, database_url: str
+) -> None:
+    """Section caps and the minimal filter used to drop records the brief promised: facts past
+    three (none at minimal), decisions past three at minimal, and records tied to the task by a
+    stored link rather than by the memory's own tasks."""
+    base = "/api/projects"
+    # A: five facts linked to the task, nothing else.
+    a = (await post(client, base, name="Shop"))["id"]
+    work = await post(
+        client, f"{base}/{a}/tasks", title="Tune the shop", prefix="SHOP", status="in_progress"
+    )
+    for n in range(5):
+        await post(
+            client,
+            f"{base}/{a}/memory",
+            type="fact",
+            title=f"Shop fact {n}",
+            content=f"Body of fact {n}.",
+            task_ids=[work["id"]],
+        )
+    await post(client, f"{base}/{a}/checkpoints", task_id=work["human_id"], title="Started")
+    # B: four decisions the checkpoint names, one tied by a typed link, a fact the next action
+    # names.
+    b = (await post(client, base, name="Named"))["id"]
+    named = [
+        (
+            await post(
+                client,
+                f"{base}/{b}/memory",
+                type="decision",
+                title=f"Choice {n}",
+                content=f"Why choice {n}.",
             )
-            assert mine.task == offline, detail
-            held = {i.title for i in mine.items if i.kind.startswith("memory")}
-            assert {rec[k]["title"] for k in ("cap", "fresh", "bump")} <= held, detail
+        )["human_id"]
+        for n in range(4)
+    ]
+    typed = await post(
+        client, f"{base}/{b}/memory", type="decision", title="Typed", content="Why typed."
+    )
+    fact = await post(client, f"{base}/{b}/memory", type="fact", title="Known", content="Known.")
+    gold = await post(
+        client,
+        f"{base}/{b}/tasks",
+        title="Offline gold",
+        prefix="GOLD",
+        status="in_progress",
+        next_action=f"Read {fact['human_id']} first.",
+    )
+    made = await client.post(
+        f"{base}/{b}/links",
+        json={
+            "source": typed["human_id"],
+            "relationship": "applies_to",
+            "target": gold["human_id"],
+        },
+    )
+    assert made.status_code == 201, made.text
+    await post(
+        client,
+        f"{base}/{b}/checkpoints",
+        task_id=gold["human_id"],
+        title="Gold started",
+        remaining_work="Follow " + ", ".join(named) + ".",
+    )
+    factory = make_session_factory(make_engine(database_url))
+    with factory() as session:
+        assert_pack_holds_the_brief(session, a, work["human_id"])
+        assert_pack_holds_the_brief(session, b, gold["human_id"])
 
 
 async def test_records_the_work_names_join_its_pack(client: AsyncClient) -> None:
@@ -266,8 +353,11 @@ async def test_the_pack_leaves_out_exactly_the_rules_the_brief_lists(
     client: AsyncClient, database_url: str
 ) -> None:
     pid = (await post(client, "/api/projects", name="Rulebook"))["id"]
-    for n in range(14):
-        await post(client, f"/api/projects/{pid}/memory", type="rule", title=f"Rule number {n}")
+    words = "apple banana cherry damson elder fig grape hazel iris juniper kiwi lime mango nectar"
+    word_of = {}
+    for word in words.split():
+        made = await post(client, f"/api/projects/{pid}/memory", type="rule", title=f"On {word}")
+        word_of[made["id"]] = word
     await post(
         client,
         f"/api/projects/{pid}/memory",
@@ -283,6 +373,23 @@ async def test_the_pack_leaves_out_exactly_the_rules_the_brief_lists(
         everything = MemoryService(session).list(pid, statuses=["active"], limit=300)
         for m in everything:
             assert (f"- {m.human_id} {m.title}" in brief) == (m in chosen), m.title
+    # A task whose words match one rule the brief lists and one it does not.
+    listed = chosen[1].id
+    [unlisted] = [m.id for m in everything if m.id in word_of and m not in chosen][:1]
+    title = f"{word_of[listed].title()} {word_of[unlisted]}"
+    work = await post(client, f"/api/projects/{pid}/tasks", title=title)
+    with factory() as session:
+        mine = ContextService(session).build(
+            pid, task=work["human_id"], record_for="claude", global_rules=False
+        )
+        held = {i.ref for i in mine.items}
+        assert unlisted in held and listed not in held
+        assert mine.omitted["already in your brief"] == 1
+        # A session whose brief did not cover this project gets both.
+        theirs = ContextService(session).build(
+            pid, task=work["human_id"], record_for="claude", global_rules=False, in_brief=False
+        )
+        assert {listed, unlisted} <= {i.ref for i in theirs.items}
 
 
 async def test_a_continue_request_through_mcp_sets_the_task_and_feedback(
@@ -342,3 +449,167 @@ async def test_a_continue_request_through_mcp_sets_the_task_and_feedback(
         assert stored.outcome == "feedback"
         assert verdicts[rec["cap"]["title"]] == "useful"
         assert verdicts[rec["bump"]["title"]] is None
+
+
+def retrieval_of(text: str) -> str:
+    return re.search(r'retrieval="(R-[0-9a-f]{8})"', text).group(1)
+
+
+async def test_a_pack_with_no_task_stays_on_the_session_task(database_url: str) -> None:
+    """A question asked in the middle of a task is about that task: it never moves the session
+    to the task the brief shows or a request matches, so later records and checkpoints stay
+    on the task the agent works on."""
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+    offline, sound = rec["offline"]["human_id"], rec["sound"]["human_id"]
+    async with agent(database_url) as session:
+        failed, _ = await call(session, "brain_context_pack", task=sound, project=pid)
+        assert not failed
+        failed, text = await call(session, "brain_context_pack", query="Continue.", project=pid)
+        assert not failed and text.startswith("Nothing new since R-")  # the same pack
+        for query in ("Finish the offline progress feature.", "Continue."):
+            failed, text = await call(
+                session, "brain_context_pack", query=query, project=pid, full=True
+            )
+            assert not failed and f"CURRENT TASK\n{sound}" in text, query
+            assert f"No task was given; {sound} is this session's task, so it was used." in text, (
+                query
+            )
+            assert "project overview" not in text
+        failed, made = await call(
+            session,
+            "brain_create_memory",
+            type="decision",
+            title="The sound menu has a mute toggle",
+            project=pid,
+        )
+        assert not failed and sound in str(made)
+        failed, cp = await call(session, "brain_create_checkpoint", title="Menu drawn", project=pid)
+        assert not failed and cp["task"] == sound
+        # Naming a task is how to switch.
+        failed, text = await call(session, "brain_context_pack", task=offline, project=pid)
+        assert not failed and f"This session's task is {offline}" in text
+
+
+async def test_packs_leave_out_only_the_rules_of_the_project_the_brief_showed(
+    database_url: str,
+) -> None:
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+    task, floor = rec["offline"]["human_id"], rec["floor"]["human_id"]
+    async with agent(database_url) as session:
+        failed, _ = await call(session, "brain_brief", cwd="/nonexistent/elsewhere")
+        assert not failed
+        failed, text = await call(session, "brain_context_pack", task=task, project=pid)
+        assert not failed and f"\n{floor}\n" in text  # that brief showed no project rules
+        failed, _ = await call(session, "brain_brief", project=pid)
+        assert not failed
+        failed, text = await call(
+            session, "brain_context_pack", task=task, project=pid, explain=True
+        )
+        assert not failed and f"\n{floor}\n" not in text and "already in your brief" in text
+
+
+async def test_a_task_pack_after_the_brief_sends_its_left_to_do_once(database_url: str) -> None:
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+        task = rec["offline"]["human_id"]
+        changed = await client.patch(
+            f"/api/projects/{pid}/tasks/{task}", json={"next_action": "Store lastSeen."}
+        )
+        assert changed.status_code == 200, changed.text
+    async with agent(database_url) as session:
+        failed, _ = await call(session, "brain_brief", project=pid)
+        failed, text = await call(session, "brain_context_pack", task=task, project=pid)
+        assert not failed and "Remaining: as in your brief" in text
+        # The checkpoint's next step is the task's next action: shown once.
+        assert text.count("Store lastSeen.") == 1
+    async with agent(database_url) as session:  # no brief for this project: all of it
+        failed, text = await call(session, "brain_context_pack", task=task, project=pid)
+        assert not failed and f"Remaining: Apply the cap ({rec['cap']['human_id']})" in text
+
+
+async def test_feedback_counts_once_per_session_and_reaches_every_pack(database_url: str) -> None:
+    from app.models.graph import NodeUsefulness
+
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+    task = rec["offline"]["human_id"]
+    cap, bump, floor = (rec[k]["human_id"] for k in ("cap", "bump", "floor"))
+    async with agent(database_url) as session:
+        failed, first = await call(session, "brain_context_pack", task=task, project=pid)
+        assert not failed and f"\n{floor}\n" in first
+        failed, second = await call(
+            session,
+            "brain_context_pack",
+            query="Is the cap 8 hours?",
+            detail="minimal",
+            full=True,
+            project=pid,
+        )
+        assert not failed and f"\n{floor}\n" not in second  # minimal: no rules
+        a, b = retrieval_of(first), retrieval_of(second)
+        # Each record counts for the latest pack that held it.
+        failed, made = await call(
+            session,
+            "brain_create_checkpoint",
+            title="Cap done",
+            completed_work=f"Capped ({cap}), following {floor}.",
+            project=pid,
+        )
+        assert not failed
+        assert made["feedback"] == (
+            f"counted as feedback for {b}: {cap}; counted as feedback for {a}: {floor}"
+        )
+        # Saying it again, on either pack, does not count again; a new verdict does.
+        failed, said = await call(
+            session,
+            "brain_retrieval_feedback",
+            retrieval=a,
+            useful=[cap, floor],
+            not_useful=[bump],
+            project=pid,
+        )
+        assert not failed and said["already_counted"] == [cap, floor]
+        # Changing a verdict on the same pack moves the count.
+        failed, said = await call(
+            session, "brain_retrieval_feedback", retrieval=b, not_useful=[cap], project=pid
+        )
+        assert not failed and "already_counted" not in said
+    factory = make_session_factory(make_engine(database_url))
+    with factory() as db:
+        ids = {m.human_id: m.id for m in MemoryService(db).list(pid, statuses=["active"])}
+        counts: dict[str, list[int]] = {}
+        for row in db.query(NodeUsefulness).filter(NodeUsefulness.project_id == pid):
+            total = counts.setdefault(row.node_id, [0, 0])
+            total[0] += row.useful
+            total[1] += row.not_useful
+        assert counts[ids[cap]] == [0, 1]
+        assert counts[ids[floor]] == [1, 0]
+        assert counts[ids[bump]] == [0, 1]
+
+
+async def test_a_checkpoint_after_working_from_the_brief_alone_finds_its_task(
+    database_url: str,
+) -> None:
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+    task, cap = rec["offline"]["human_id"], rec["cap"]["human_id"]
+    async with agent(database_url) as session:
+        failed, _ = await call(session, "brain_brief", project=pid)
+        # No pack, so no session task: a checkpoint that names nothing of the task keeps none.
+        failed, small = await call(session, "brain_create_checkpoint", title="Typo", project=pid)
+        assert not failed and small["task"] is None
+        failed, done = await call(
+            session,
+            "brain_create_checkpoint",
+            title="Feature finished",
+            completed_work=f"Offline gold capped per {cap}.",
+            project=pid,
+        )
+        assert not failed and done["task"] == task and task in done["task_note"]
+    factory = make_session_factory(make_engine(database_url))
+    with factory() as db:
+        brief = build_brief(db, db.get(Project, pid))
+        # The old checkpoint's "Left to do" is gone with it.
+        assert f"UNFINISHED: {task} " in brief and "Offline formula started" not in brief

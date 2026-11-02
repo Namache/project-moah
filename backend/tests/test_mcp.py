@@ -461,6 +461,8 @@ async def test_agents_link_records_and_shape_shelves(database_url: str) -> None:
         assert woke["activation"][0]["active"] is True
         # The rule wakes with its shelf. An agent's pack leaves out the shelf line (and the rule,
         # which its brief lists); explain=true shows both.
+        failed, _ = await call(session, "brain_brief", project=pid)
+        assert not failed
         failed, text = await call(session, "brain_context_pack", task=task["human_id"], project=pid)
         assert not failed and "ACTIVE SHELVES" not in text and rule["human_id"] not in text
         failed, text = await call(
@@ -632,13 +634,17 @@ async def test_search_answers_plain_questions_and_new_records_show_lookalikes(
 ) -> None:
     async with app_client(database_url) as client:
         a = (await seed(client, tmp_path))["a"]
-        for type_, title in (
-            ("decision", "Weeks start on Monday"),
-            ("decision", "The current week can't break a weekly streak"),
-            ("fact", "Monday is the quietest day"),
+        for type_, title, content in (
+            ("decision", "Weeks start on Monday", ""),
+            ("decision", "The current week can't break a weekly streak", ""),
+            ("fact", "Monday is the quietest day", ""),
+            # Shares the words only in its content: not the same thing said twice.
+            ("decision", "Streak colours", "Green once a week starts, from Monday on."),
+            *(("fact", f"Day {n} reward", "") for n in range(6)),
         ):
             made = await client.post(
-                f"/api/projects/{a}/memory", json={"type": type_, "title": title}
+                f"/api/projects/{a}/memory",
+                json={"type": type_, "title": title, "content": content},
             )
             assert made.status_code == 201, made.text
     question = "which day does the week start"
@@ -650,6 +656,10 @@ async def test_search_answers_plain_questions_and_new_records_show_lookalikes(
             )
             assert not error and found["matched"].startswith("any word"), found
             assert "Weeks start on Monday" in [r["title"] for r in found["results"]]
+            # Checking before a question stays cheap: the best few, without repeated fields.
+            assert found["total"] > 5 and len(found["results"]) == 5
+            assert ("project_name" in found["results"][0]) == (scope == "all")
+            assert "status" not in found["results"][0]
         error, found = await call(
             session, "brain_search", query="weeks monday", project="trailhead"
         )
@@ -669,6 +679,11 @@ async def test_search_answers_plain_questions_and_new_records_show_lookalikes(
         assert "Weeks start on Monday" in [d["title"] for d in lookalikes]
         assert created["created"] not in [d["id"] for d in lookalikes]
         assert "Monday is the quietest day" not in [d["title"] for d in lookalikes]  # a fact
+        # One shared title word is not enough, and words in the content do not count.
+        assert "The current week can't break a weekly streak" not in [
+            d["title"] for d in lookalikes
+        ]
+        assert "Streak colours" not in [d["title"] for d in lookalikes]
         assert len(lookalikes) <= 3 and "brain_supersede_memory" in created["duplicates_hint"]
         error, created = await call(
             session, "brain_create_memory", type="decision", title="Zebra crossings", project=a

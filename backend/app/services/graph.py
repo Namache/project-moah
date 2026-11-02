@@ -355,11 +355,23 @@ class GraphService:
 
     def linked_memory(self, project_id: str, node: Node) -> list[str]:
         """Ids of the memory tied to ``node`` by an active link, stored or built in (a memory's
-        tasks count), strongest first. Candidate and rejected links are left out."""
+        tasks count), strongest first. Candidate and rejected links are left out, and so is
+        memory a person marked as unrelated (a negative link such as independent_of, which
+        retrieval never crosses) or as contradicting it."""
+        near = self.neighbours(project_id, node)
+        kept_apart = {
+            other
+            for edge, other, _ in near
+            if edge.relationship in NEGATIVE and edge.status in TRAVERSABLE_STATUSES
+        }
         found = (
             other.id
-            for edge, other, _ in self.neighbours(project_id, node)
-            if other.kind == "memory" and edge.status == "active"
+            for edge, other, _ in near
+            if other.kind == "memory"
+            and edge.status == "active"
+            and edge.relationship not in NEGATIVE
+            and edge.relationship != "contradicts"
+            and other not in kept_apart
         )
         return list(dict.fromkeys(found))
 
