@@ -688,8 +688,10 @@ class ContextService:
                 why = f"{own.human_id} is this session's task"
         if task_ref is None and project.current_focus_task_id:
             task_ref, self.task_source = project.current_focus_task_id, "focus"
-        if task_ref is None and query:
-            inferred = self._infer_task(project, query)
+        if task_ref is None and (query or self.for_agent):
+            # An agent's pack with no request is read like a bare "Continue.": the unfinished
+            # task its brief showed. The app's pack with nothing chosen stays an overview.
+            inferred = self._infer_task(project, query or "")
             if inferred is not None:
                 (task_ref, why), self.task_source = inferred, "inferred"
         detail_task = self.tasks.detail(project_id, task_ref) if task_ref else None
@@ -1297,8 +1299,8 @@ class ContextService:
            ``INFER_COVER`` of the request's meaningful words (work words such as "continue" or
            "finish" do not count), share at least two of them (one, for a one-word request),
            and cover more than any other such task does.
-        3. Else, for a request with no meaningful words at all ("Continue."), the unfinished
-           task the session brief shows (brief.unfinished_task: the task of the latest
+        3. Else, for a request with no meaningful words at all ("Continue.", or none), the
+           unfinished task the session brief shows (brief.unfinished_task: the task of the latest
            checkpoint that has one, while it is in progress or blocked, else the only task in
            progress), so the two never disagree.
         A vague request matches nothing and gets a project overview, as before."""

@@ -451,6 +451,22 @@ async def test_a_continue_request_through_mcp_sets_the_task_and_feedback(
         assert verdicts[rec["bump"]["title"]] is None
 
 
+async def test_a_pack_with_no_arguments_uses_the_unfinished_task_in_the_brief(
+    database_url: str,
+) -> None:
+    """An agent's first call can be brain_context_pack() with nothing in it. It means the work
+    the brief shows as unfinished, never a project overview that disagrees with the brief."""
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+    task = rec["offline"]["human_id"]
+    async with agent(database_url) as session:
+        failed, text = await call(session, "brain_context_pack", project=pid)
+        assert not failed and f"CURRENT TASK\n{task}" in text
+        assert f"No task was given; {task} is the unfinished task in your brief" in text
+        failed, state = await call(session, "brain_project_state", project=pid)
+        assert not failed and state["session_task"] == task
+
+
 def retrieval_of(text: str) -> str:
     return re.search(r'retrieval="(R-[0-9a-f]{8})"', text).group(1)
 

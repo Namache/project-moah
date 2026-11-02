@@ -14,7 +14,7 @@ This reduces repeated explaining, helps agents resume work, and reduces project 
 
 ## Which task
 
-A pack is for the task the agent names. Without one, it stays on the task the agent's session already works on, so a question asked in the middle of a task is about that task. Otherwise it uses the current focus. Without a focus, it uses the task the request names or plainly matches, and a bare "continue" gets the unfinished task the brief shows. The pack says which task it used. If nothing fits, it is an overview of the project.
+A pack is for the task the agent names. Without one, it stays on the task the agent's session already works on, so a question asked in the middle of a task is about that task. Otherwise it uses the current focus. Without a focus, it uses the task the request names or plainly matches, and a bare "continue", or an agent's pack with no request at all, gets the unfinished task the brief shows. The pack says which task it used. If nothing fits, it is an overview of the project.
 
 ## What agents get
 
