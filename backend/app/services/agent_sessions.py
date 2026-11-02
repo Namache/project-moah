@@ -191,13 +191,3 @@ def session_tasks(
     for items in found.values():
         items.sort()
     return found
-
-
-def session_projects(session: Session, since: datetime) -> dict[tuple[str, str], str]:
-    """(agent, session id) -> the project its hook or tasks named last."""
-    rows = session.execute(
-        select(AgentSessionEvent.agent, AgentSessionEvent.session_id, AgentSessionEvent.project_id)
-        .where(AgentSessionEvent.project_id.is_not(None), AgentSessionEvent.created_at >= since)
-        .order_by(AgentSessionEvent.created_at)
-    )
-    return {(agent, sid): pid for agent, sid, pid in rows}

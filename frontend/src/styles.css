@@ -73,9 +73,7 @@
 
 /*
  * Dark theme. src/lib/theme.ts sets data-theme on <html> from the person's choice (System, Light or Dark).
- * Only tokens change here: the semantic colours above, and the tinted Tailwind shades the app uses for
- * status colours (light tints become dark tints, dark text becomes light text). Red 700 stays as it is,
- * because it is the solid fill of danger buttons.
+ * Only tokens change here: the semantic colours and status tones above.
  */
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -109,75 +107,6 @@
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
   --shadow-card-hover: 0 4px 16px rgb(0 0 0 / 0.45);
   --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.06);
-  --color-stone-50: #1d2220;
-  --color-stone-100: #222825;
-  --color-stone-200: #2e3531;
-  --color-stone-700: #c4ccc8;
-  --color-stone-800: #dce2df;
-  --color-amber-50: color-mix(in oklab, var(--color-amber-500) 9%, var(--color-surface));
-  --color-amber-100: color-mix(in oklab, var(--color-amber-500) 17%, var(--color-surface));
-  --color-amber-200: color-mix(in oklab, var(--color-amber-500) 28%, var(--color-surface));
-  --color-amber-300: color-mix(in oklab, var(--color-amber-500) 40%, var(--color-surface));
-  --color-amber-800: color-mix(in oklab, var(--color-amber-500) 42%, white);
-  --color-amber-900: color-mix(in oklab, var(--color-amber-500) 34%, white);
-  --color-amber-950: color-mix(in oklab, var(--color-amber-500) 26%, white);
-  --color-emerald-50: color-mix(in oklab, var(--color-emerald-500) 9%, var(--color-surface));
-  --color-emerald-100: color-mix(in oklab, var(--color-emerald-500) 17%, var(--color-surface));
-  --color-emerald-200: color-mix(in oklab, var(--color-emerald-500) 28%, var(--color-surface));
-  --color-emerald-300: color-mix(in oklab, var(--color-emerald-500) 40%, var(--color-surface));
-  --color-emerald-800: color-mix(in oklab, var(--color-emerald-500) 42%, white);
-  --color-emerald-900: color-mix(in oklab, var(--color-emerald-500) 34%, white);
-  --color-emerald-950: color-mix(in oklab, var(--color-emerald-500) 26%, white);
-  --color-green-50: color-mix(in oklab, var(--color-green-500) 9%, var(--color-surface));
-  --color-green-100: color-mix(in oklab, var(--color-green-500) 17%, var(--color-surface));
-  --color-green-200: color-mix(in oklab, var(--color-green-500) 28%, var(--color-surface));
-  --color-green-300: color-mix(in oklab, var(--color-green-500) 40%, var(--color-surface));
-  --color-green-800: color-mix(in oklab, var(--color-green-500) 42%, white);
-  --color-green-900: color-mix(in oklab, var(--color-green-500) 34%, white);
-  --color-green-950: color-mix(in oklab, var(--color-green-500) 26%, white);
-  --color-orange-50: color-mix(in oklab, var(--color-orange-500) 9%, var(--color-surface));
-  --color-orange-100: color-mix(in oklab, var(--color-orange-500) 17%, var(--color-surface));
-  --color-orange-200: color-mix(in oklab, var(--color-orange-500) 28%, var(--color-surface));
-  --color-orange-300: color-mix(in oklab, var(--color-orange-500) 40%, var(--color-surface));
-  --color-orange-800: color-mix(in oklab, var(--color-orange-500) 42%, white);
-  --color-orange-900: color-mix(in oklab, var(--color-orange-500) 34%, white);
-  --color-orange-950: color-mix(in oklab, var(--color-orange-500) 26%, white);
-  --color-red-50: color-mix(in oklab, var(--color-red-500) 9%, var(--color-surface));
-  --color-red-100: color-mix(in oklab, var(--color-red-500) 17%, var(--color-surface));
-  --color-red-200: color-mix(in oklab, var(--color-red-500) 28%, var(--color-surface));
-  --color-red-300: color-mix(in oklab, var(--color-red-500) 40%, var(--color-surface));
-  --color-red-800: color-mix(in oklab, var(--color-red-500) 42%, white);
-  --color-red-900: color-mix(in oklab, var(--color-red-500) 34%, white);
-  --color-red-950: color-mix(in oklab, var(--color-red-500) 26%, white);
-  --color-rose-50: color-mix(in oklab, var(--color-rose-500) 9%, var(--color-surface));
-  --color-rose-100: color-mix(in oklab, var(--color-rose-500) 17%, var(--color-surface));
-  --color-rose-200: color-mix(in oklab, var(--color-rose-500) 28%, var(--color-surface));
-  --color-rose-300: color-mix(in oklab, var(--color-rose-500) 40%, var(--color-surface));
-  --color-rose-800: color-mix(in oklab, var(--color-rose-500) 42%, white);
-  --color-rose-900: color-mix(in oklab, var(--color-rose-500) 34%, white);
-  --color-rose-950: color-mix(in oklab, var(--color-rose-500) 26%, white);
-  --color-sky-50: color-mix(in oklab, var(--color-sky-500) 9%, var(--color-surface));
-  --color-sky-100: color-mix(in oklab, var(--color-sky-500) 17%, var(--color-surface));
-  --color-sky-200: color-mix(in oklab, var(--color-sky-500) 28%, var(--color-surface));
-  --color-sky-300: color-mix(in oklab, var(--color-sky-500) 40%, var(--color-surface));
-  --color-sky-700: color-mix(in oklab, var(--color-sky-500) 70%, white);
-  --color-sky-800: color-mix(in oklab, var(--color-sky-500) 42%, white);
-  --color-sky-900: color-mix(in oklab, var(--color-sky-500) 34%, white);
-  --color-sky-950: color-mix(in oklab, var(--color-sky-500) 26%, white);
-  --color-blue-50: color-mix(in oklab, var(--color-blue-500) 9%, var(--color-surface));
-  --color-blue-100: color-mix(in oklab, var(--color-blue-500) 17%, var(--color-surface));
-  --color-blue-200: color-mix(in oklab, var(--color-blue-500) 28%, var(--color-surface));
-  --color-blue-300: color-mix(in oklab, var(--color-blue-500) 40%, var(--color-surface));
-  --color-blue-800: color-mix(in oklab, var(--color-blue-500) 42%, white);
-  --color-blue-900: color-mix(in oklab, var(--color-blue-500) 34%, white);
-  --color-blue-950: color-mix(in oklab, var(--color-blue-500) 26%, white);
-  --color-violet-50: color-mix(in oklab, var(--color-violet-500) 9%, var(--color-surface));
-  --color-violet-100: color-mix(in oklab, var(--color-violet-500) 17%, var(--color-surface));
-  --color-violet-200: color-mix(in oklab, var(--color-violet-500) 28%, var(--color-surface));
-  --color-violet-300: color-mix(in oklab, var(--color-violet-500) 40%, var(--color-surface));
-  --color-violet-800: color-mix(in oklab, var(--color-violet-500) 42%, white);
-  --color-violet-900: color-mix(in oklab, var(--color-violet-500) 34%, white);
-  --color-violet-950: color-mix(in oklab, var(--color-violet-500) 26%, white);
 }
 
 /* In the base layer so text-size utilities on buttons and fields (e.g. text-sm in Button) still apply. */
@@ -219,7 +148,7 @@
 .sidebar-link-active svg { color: var(--color-side-accent); }
 .sidebar-section { padding: 0 0.625rem; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-side-muted); }
 .sidebar-link:focus-visible, .project-nav-link:focus-visible { outline: 2px solid var(--color-side-accent); outline-offset: 1px; }
-.section-tab:focus-visible, .filter-tab:focus-visible, .feature-link:focus-visible { outline: 2px solid var(--color-forest); outline-offset: 2px; }
+.section-tab:focus-visible, .filter-tab:focus-visible { outline: 2px solid var(--color-forest); outline-offset: 2px; }
 
 .field-label { display: block; margin-bottom: 0.375rem; font-size: 0.8125rem; font-weight: 600; color: var(--color-ink); }
 /* A component layer, so utilities such as text-xs or font-mono on a field win over these defaults. */
@@ -251,12 +180,6 @@
 .section-tab:hover { color: var(--color-ink); }
 .section-tab-active, .section-tab-active:hover { border-color: var(--color-forest); color: var(--color-ink); font-weight: 600; }
 
-.feature-link { display: flex; align-items: center; gap: 0.75rem; min-width: 0; border: 1px solid var(--color-line); border-radius: 0.625rem; padding: 0.75rem; color: var(--color-ink-muted); transition: background-color 120ms ease, border-color 120ms ease; }
-.feature-link:hover { background: var(--color-canvas); border-color: var(--color-line-strong); color: var(--color-forest); }
-.feature-link-icon { display: flex; height: 2.25rem; width: 2.25rem; flex: none; align-items: center; justify-content: center; border-radius: 0.5rem; background: var(--color-sage-pale); color: var(--color-forest); }
-.feature-link strong, .feature-link small { display: block; }
-.feature-link strong { color: var(--color-ink); font-size: 0.875rem; font-weight: 600; }
-.feature-link small { margin-top: 0.1rem; color: var(--color-ink-subtle); font-size: 0.75rem; }
 
 .inline-field { display: block; width: 100%; resize: vertical; border: 1px solid transparent; border-radius: 0.5rem; background: transparent; padding: 0.4rem 0.55rem; margin-left: -0.55rem; color: var(--color-ink); font-size: 0.875rem; line-height: 1.5; outline: none; }
 .inline-field:hover { border-color: var(--color-line); }

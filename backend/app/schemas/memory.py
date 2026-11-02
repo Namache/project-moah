@@ -13,7 +13,6 @@ Importance = Literal["low", "normal", "high", "critical"]
 AiVisibility = Literal["always", "relevant_only", "manual_only", "hidden"]
 MemorySort = Literal["priority", "updated_desc", "updated_asc", "title_asc"]
 # Who is acting. Humans may override a lock; every other actor may not.
-Actor = str
 HUMAN = "human"
 
 

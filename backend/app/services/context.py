@@ -200,7 +200,6 @@ SECTIONS: list[tuple[str, str]] = [
     ("superseded", "REPLACED DECISIONS"),
     ("activity", "RECENT ACTIVITY"),
 ]
-HEADING = dict(SECTIONS)
 HEADING_TOKENS = {key: base_tokens(heading) for key, heading in SECTIONS}
 SECTION_ORDER = {key: i for i, (key, _) in enumerate(SECTIONS)}
 # Header sections print their text directly under the heading.
