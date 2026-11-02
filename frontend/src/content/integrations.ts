@@ -41,7 +41,7 @@ export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH):
   const windows = launch.install === "windows";
   // The command an agent runs to start Project Moah's local MCP server.
   const command = [...launch.command, "--agent", agent];
-  // Prints the session brief (global rules, project rules, focus) for the folder Claude Code opened.
+  // Prints the session brief (rules and the unfinished task) for the folder Claude Code opened.
   // Claude Code runs hooks through a shell and has no "args" field. On Windows that shell is cmd.exe
   // or Git Bash, which spell "$VAR" differently, so there the brief reads CLAUDE_PROJECT_DIR itself.
   const hook = windows

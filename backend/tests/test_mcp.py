@@ -603,3 +603,53 @@ async def test_repeat_packs_in_a_session_send_only_what_is_new(
             session, "brain_context_pack", task="CAMP-001", project="trailhead"
         )
         assert not error and "CURRENT TASK" in after_brief
+
+
+async def test_search_answers_plain_questions_and_new_records_show_lookalikes(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        for type_, title in (
+            ("decision", "Weeks start on Monday"),
+            ("decision", "The current week can't break a weekly streak"),
+            ("fact", "Monday is the quietest day"),
+        ):
+            made = await client.post(
+                f"/api/projects/{a}/memory", json={"type": type_, "title": title}
+            )
+            assert made.status_code == 201, made.text
+    question = "which day does the week start"
+    async with agent(database_url) as session:
+        # No record has every word, so any word counts, and the result says so.
+        for scope in ("project", "all"):
+            error, found = await call(
+                session, "brain_search", query=question, project="trailhead", scope=scope
+            )
+            assert not error and found["matched"].startswith("any word"), found
+            assert "Weeks start on Monday" in [r["title"] for r in found["results"]]
+        error, found = await call(
+            session, "brain_search", query="weeks monday", project="trailhead"
+        )
+        assert not error and found["total"] == 1 and "matched" not in found
+        error, found = await call(session, "brain_search", query="zebra", project="trailhead")
+        assert not error and found == {"total": 0, "results": []}
+
+        error, created = await call(
+            session,
+            "brain_create_memory",
+            type="decision",
+            title="The week starts on Monday",
+            project="trailhead",
+        )
+        assert not error
+        lookalikes = created["possible_duplicates"]
+        assert "Weeks start on Monday" in [d["title"] for d in lookalikes]
+        assert created["created"] not in [d["id"] for d in lookalikes]
+        assert "Monday is the quietest day" not in [d["title"] for d in lookalikes]  # a fact
+        assert len(lookalikes) <= 3 and "brain_supersede_memory" in created["duplicates_hint"]
+        error, created = await call(
+            session, "brain_create_memory", type="decision", title="Zebra crossings", project=a
+        )
+        assert not error and "possible_duplicates" not in created
+        assert "duplicates_hint" not in created

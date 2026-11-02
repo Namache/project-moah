@@ -38,7 +38,7 @@
 | | What Moah does | Where |
 |---|---|---|
 | **Remembers** | Tasks, decisions, rules, facts, known issues and warnings, in one local database. Lock what agents must not change. | Tasks, Memory |
-| **Briefs** | Every agent session starts with your rules and a short, ranked pack for its task, instead of your whole history. | Context packs |
+| **Briefs** | Every agent session starts with your rules and the unfinished task, with what is already decided for it. When the work needs more, the agent fetches a short, ranked pack, never your whole history. | Context packs |
 | **Links** | Records are connected the way they relate: a bug *caused by* a decision, a task that *uses* a rule. | Brain |
 | **Learns** | Links that lead to useful records get stronger, unused ones fade. | Brain health |
 | **Asks first** | Agents suggest changes to locked things; nothing changes until you accept. | Inbox |

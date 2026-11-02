@@ -353,6 +353,16 @@ class GraphService:
         out = [(e, e.other(node), e.read_from(node)) for e in self.edges(project_id, [node])]
         return sorted(out, key=lambda x: (-x[0].weight, x[2]))
 
+    def linked_memory(self, project_id: str, node: Node) -> list[str]:
+        """Ids of the memory tied to ``node`` by an active link, stored or built in (a memory's
+        tasks count), strongest first. Candidate and rejected links are left out."""
+        found = (
+            other.id
+            for edge, other, _ in self.neighbours(project_id, node)
+            if other.kind == "memory" and edge.status == "active"
+        )
+        return list(dict.fromkeys(found))
+
     def _stored_edges(self, project_id: str, nodes: set[Node]) -> list[Edge]:
         if not nodes:
             return []

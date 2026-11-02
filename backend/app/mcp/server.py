@@ -58,32 +58,30 @@ from app.services.search import SearchService
 from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
 from app.services.tasks import TaskService
-from app.services.update_check import take_daily_check
+from app.services.update_check import install_steps, take_daily_check
 
+# In the system prompt of every session, next to the brief, so it says only what a client
+# without the start-up hook needs to get the brief. The brief itself says when to fetch more.
 INSTRUCTIONS = """\
-Project Moah is the person's source of truth for rules, decisions, tasks, checkpoints and memory,
-shared by Claude Code and Codex across every project. At the start of a session, call brain_brief
-with your working folder as cwd (skip it if a Project Moah brief is already in your context) and
-follow the global and project rules it returns. Fetch more only when the work needs it: call
-brain_context_pack when you start or switch tasks, when a request names an ID you have no pack
-for, when you need the history behind something (decisions, known bugs, traps), before changing
-an area you have not touched this session, and when debugging. Skip it for follow-ups and small
-edits. The pack's task becomes this session's task, and what you write afterwards is linked to it.
-Record settled decisions, rules, facts, bugs and warnings with brain_create_memory as you go.
-When you know how a record relates to others, say so in the same call with links, each written
-"relationship target" (links=["caused_by DEC-002", "uses file:src/save.gd"]); use brain_link for
-records you did not just write. Link only real relationships, never a rule to everything. A
-project record can link to a Global record as global:RULE-3, so that Global knowledge reaches this
-project's packs. After working from a context pack, report what helped with
-brain_retrieval_feedback. After meaningful work, call brain_create_checkpoint. Locked memory
-cannot be changed by you; use brain_create_proposal for a person to review. Completing or
-archiving a task also needs review. Ideas are not requirements."""
+Project Moah is the person's shared memory for Claude Code and Codex: rules, decisions, tasks
+and checkpoints for every project. At the start of a session, call brain_brief with your working
+folder as cwd, unless a Project Moah brief is already in your context, and follow it. The
+person's earlier answers are recorded here, so check Moah (brain_context_pack or brain_search)
+before you ask them anything. Writing records and checkpoints is part of the work and needs no
+permission. Locked records, new global rules and decisions, and finishing a task go to the
+person for review (brain_create_proposal)."""
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 WRITE = ToolAnnotations(
     readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
 )
 
+
+ANY_WORD_NOTE = "any word: no record has every word of the query, so these share some of them"
+DUPLICATE_HINT = (
+    "If one of these already says it, use brain_update_memory or brain_supersede_memory "
+    "instead of keeping two records."
+)
 
 GLOBAL_PERSON_TYPES = ("rule", "decision")
 GLOBAL_RULE_MESSAGE = (
@@ -96,6 +94,32 @@ def refuse_global_rule(project: Project, memory: Memory) -> None:
     """Agents may not change a global rule or decision directly; it must be proposed."""
     if project.kind == "global" and memory.type in GLOBAL_PERSON_TYPES:
         raise ValueError(GLOBAL_RULE_MESSAGE.format(kind="update_memory"))
+
+
+def possible_duplicates(
+    session: Session, project_id: str, memory_id: str, memory_type: str, title: str
+) -> dict:
+    """Up to three active records of the same type whose titles share words with ``title``, so
+    an agent recording an answer can see whether Moah already said it. Empty when none do."""
+    try:
+        hits = SearchService(session).search(
+            title,
+            project_id=project_id,
+            entity_types=["memory"],
+            memory_types=[memory_type],
+            for_agent=True,
+            any_word=True,
+            limit=4,
+        )
+    except Exception:  # noqa: BLE001 - the record is saved; a hint must never fail the write
+        session.rollback()
+        return {}
+    same = [
+        {"id": h["human_id"], "title": h["title"]}
+        for h in hits["items"]
+        if h["entity_id"] != memory_id
+    ][:3]
+    return {"possible_duplicates": same, "duplicates_hint": DUPLICATE_HINT} if same else {}
 
 
 def with_update_check(session: Session, brief: str) -> str:
@@ -227,10 +251,19 @@ def build_server(
         return task.human_id if task else None
 
     @tool(READ)
-    def brain_brief(session: Session, cwd: str | None = None, project: str | None = None) -> str:
+    def brain_brief(
+        session: Session,
+        cwd: str | None = None,
+        project: str | None = None,
+        update_steps: bool = False,
+    ) -> str:
         """Start here, once per session. Returns the person's global rules, the project's rules,
-        focus and latest checkpoint, and how to keep Project Moah current. Pass your working
-        folder as cwd. Works outside any project too: then only global rules apply."""
+        the unfinished task with what is already decided for it, the latest checkpoint, and how
+        to keep Project Moah current. Pass your working folder as cwd. Works outside any project
+        too: then only global rules apply. update_steps=true returns only the steps to install a
+        Project Moah update on this system, once the person said yes to one."""
+        if update_steps:
+            return install_steps()  # mid-session: the session and its packs stay as they are
         working.clear()  # a new session starts with no task of its own
         packs.clear()  # and has been sent nothing yet
         sync_quietly(session)  # a folder first seen in this session gets its project now
@@ -552,25 +585,29 @@ def build_server(
         types: list[str] | None = None,
         limit: int = 10,
     ) -> dict:
-        """Search tasks, memory, checkpoints and files. scope is 'project' (default) or 'all'; results
-        from all projects are for reading only and must not be treated as this project's truth."""
+        """Search tasks, memory, checkpoints and files. A plain question works: when no record has
+        every word, records with any of them are returned, best first. scope is 'project'
+        (default) or 'all'; results from all projects are for reading only and must not be
+        treated as this project's truth."""
         search = SearchService(session)
-        if scope == "all":
-            result = search.search(
-                query, entity_types=types, for_agent=True, limit=max(1, min(limit, 50))
-            )
-        elif scope == "project":
-            found, _ = pick(session, project)
-            result = search.search(
-                query,
-                project_id=found.id,
-                entity_types=types,
-                for_agent=True,
-                limit=max(1, min(limit, 50)),
-            )
-        else:
+        options: dict[str, Any] = {
+            "entity_types": types,
+            "for_agent": True,
+            "limit": max(1, min(limit, 50)),
+        }
+        if scope == "project":
+            options["project_id"] = pick(session, project)[0].id
+        elif scope != "all":
             raise ValueError("scope must be 'project' or 'all'")
+        result = search.search(query, **options)
+        loose = False
+        if not result["total"]:
+            # Agents type questions, not keywords: "which day does the week start" has no
+            # record with every word, but "Weeks start on Monday" shares some of them.
+            result = search.search(query, any_word=True, **options)
+            loose = bool(result["total"])
         return {
+            **({"matched": ANY_WORD_NOTE} if loose else {}),
             "total": result["total"],
             "results": [
                 {
@@ -861,8 +898,9 @@ def build_server(
         names the tasks it applies to; links adds typed links, each written "relationship
         target" ("caused_by DEC-002", "resolved_by PROJ-6"). Without tasks, it is linked to this
         session's task. Records its text names are linked too. A name that matches nothing is
-        reported in not_linked, and the memory is still saved. Agent-created memory is unlocked
-        and marked as agent-written. An idea is never a requirement. project="global" is for
+        reported in not_linked, and the memory is still saved. possible_duplicates lists records
+        of the same type with similar titles. Agent-created memory is unlocked and marked as
+        agent-written. An idea is never a requirement. project="global" is for
         memory true in every project; global rules and decisions must be proposed with
         brain_create_proposal instead."""
         found, _ = pick(session, project, write=True)
@@ -898,6 +936,7 @@ def build_server(
                 session_task=None if created.tasks else working.current(session, found.id),
                 not_linked=named.not_linked,
             ),
+            **possible_duplicates(session, found.id, created.id, created.type, created.title),
         }
 
     @tool(WRITE)

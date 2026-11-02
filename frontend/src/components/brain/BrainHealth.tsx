@@ -64,7 +64,7 @@ export function readHealth(p: ProjectHealth): Reading {
   else if (sessions >= 3 && packs < sessions / 2) {
     used = { tone: "attention", text: tp(packs, "{count} pack", "{count} packs") };
     issue("unused", tp(packs, "Agents saved {checkpoints} in the last 30 days but asked for context {count} time. Without a context pack they work without your memory, and the brain has nothing to learn from.", "Agents saved {checkpoints} in the last 30 days but asked for context {count} times. Without a context pack they work without your memory, and the brain has nothing to learn from.", { checkpoints: tp(sessions, "{count} checkpoint", "{count} checkpoints") }), {
-      help: t("The brief asks agents to call brain_context_pack before substantial work. If they skip it, add that line to the project's own agent instructions (CLAUDE.md or AGENTS.md)."),
+      help: t("The brief asks agents to call brain_context_pack when they start, continue or switch a task. If they skip it, add that line to the project's own agent instructions (CLAUDE.md or AGENTS.md)."),
     });
   }
 

@@ -244,7 +244,7 @@ export const ru: Record<string, Translation> = {
   "{count} packs": ["{count} пакет", "{count} пакета", "{count} пакетов"],
   "Quiet lately": "Давно не использовался",
   "Agents saved {checkpoints} in the last 30 days but asked for context {count} times. Without a context pack they work without your memory, and the brain has nothing to learn from.": ["За 30 дней агенты сохранили {checkpoints}, но запросили контекст только {count} раз. Без пакета контекста они работают без вашей памяти, и мозгу не на чем учиться.", "За 30 дней агенты сохранили {checkpoints}, но запросили контекст только {count} раза. Без пакета контекста они работают без вашей памяти, и мозгу не на чем учиться.", "За 30 дней агенты сохранили {checkpoints}, но запросили контекст только {count} раз. Без пакета контекста они работают без вашей памяти, и мозгу не на чем учиться."],
-  "The brief asks agents to call brain_context_pack before substantial work. If they skip it, add that line to the project's own agent instructions (CLAUDE.md or AGENTS.md).": "Вводная просит агентов вызывать brain_context_pack перед серьёзной работой. Если они это пропускают, добавьте эту строку в инструкции для агентов самого проекта (CLAUDE.md или AGENTS.md).",
+  "The brief asks agents to call brain_context_pack when they start, continue or switch a task. If they skip it, add that line to the project's own agent instructions (CLAUDE.md or AGENTS.md).": "Вводная просит агентов вызывать brain_context_pack, когда они начинают, продолжают или меняют задачу. Если они это пропускают, добавьте эту строку в инструкции для агентов самого проекта (CLAUDE.md или AGENTS.md).",
   "No feedback yet": "Отзывов пока нет",
   "No packs yet": "Пакетов пока нет",
   "Feedback on {share}": "Отзывы: {share}",
