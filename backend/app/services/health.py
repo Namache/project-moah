@@ -455,8 +455,11 @@ class HealthService:
                     }
                 )
                 continue
+            # A linked cluster backs up a single word: one keyword is enough here.
             target = self.shelves.suggest(
-                project_id, " ".join(titles.get(k, "") for k in sorted(members))
+                project_id,
+                " ".join(titles.get(k, "") for k in sorted(members)),
+                min_evidence=1.0,
             )
             if target is not None and target.id in shelves:
                 out.append(

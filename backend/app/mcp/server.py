@@ -43,7 +43,7 @@ from app.services.checkpoints import CheckpointService
 from app.services.context import ContextService
 from app.services.discovery import DiscoveryService, discover_checkpoint_quietly
 from app.services.files import FileService
-from app.services.graph import GraphService, Node
+from app.services.graph import TRAVERSABLE_STATUSES, GraphService, Node
 from app.services.images import ImageService
 from app.services.memory import MemoryService
 from app.services.projects import ProjectService
@@ -226,7 +226,8 @@ def build_server(
         kind: str = "memory",
     ) -> dict:
         """Put a new record on the shelf named, or, when it is on none yet (a tag with a shelf's
-        name counts), on the most specific one its words wake."""
+        name counts), on the shelf its words, its project's other records and the records it is
+        linked to support best. Call it after the record's links are written."""
         service = ShelfService(session)
         node = f"{kind}:{memory_id}"
         if shelf is not None:
@@ -240,7 +241,13 @@ def build_server(
         _, shared = service.shared(project_id)
         if any(Node(kind, memory_id) in nodes for nodes in [*own.values(), *shared.values()]):
             return {}
-        best = service.suggest(project_id, text)
+        record = Node(kind, memory_id)
+        near = {
+            other
+            for edge, other, _ in service.graph.neighbours(project_id, record)
+            if edge.status in TRAVERSABLE_STATUSES and other != record
+        }
+        best = service.suggest(project_id, text, near)
         if best is None:
             return {}
         service.place(project_id, best.id, [node], actor=agent)
@@ -753,6 +760,14 @@ def build_server(
                 milestone_id=milestone,
             ),
         )
+        linked = link_written(
+            session,
+            found.id,
+            f"task:{task.id}",
+            actor=agent,
+            links=links or [],
+            session_task=working.current(session, found.id),
+        )
         return {
             "created": task.human_id,
             "title": task.title,
@@ -760,14 +775,7 @@ def build_server(
             **file_on_shelf(
                 session, found.id, task.id, f"{title} {description or ''}", None, kind="task"
             ),
-            **link_written(
-                session,
-                found.id,
-                f"task:{task.id}",
-                actor=agent,
-                links=links or [],
-                session_task=working.current(session, found.id),
-            ),
+            **linked,
         }
 
     @tool(WRITE)
@@ -975,6 +983,15 @@ def build_server(
             ),
             actor=agent,
         )
+        linked = link_written(
+            session,
+            found.id,
+            f"memory:{created.id}",
+            actor=agent,
+            links=[*named.links, *(links or [])],
+            session_task=None if created.tasks else working.current(session, found.id),
+            not_linked=named.not_linked,
+        )
         return {
             "created": created.human_id,
             "type": created.type,
@@ -982,15 +999,7 @@ def build_server(
             "linked_to": [r.human_id for r in created.related],
             "tasks": [t.human_id for t in created.tasks],
             **file_on_shelf(session, found.id, created.id, f"{title} {content}", shelf),
-            **link_written(
-                session,
-                found.id,
-                f"memory:{created.id}",
-                actor=agent,
-                links=[*named.links, *(links or [])],
-                session_task=None if created.tasks else working.current(session, found.id),
-                not_linked=named.not_linked,
-            ),
+            **linked,
             **possible_duplicates(session, found.id, created.id, created.type, created.title),
         }
 
