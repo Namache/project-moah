@@ -240,6 +240,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Get the release notes
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/release-notes
+
       - name: Download the packages
         uses: actions/download-artifact@v4
         with:
@@ -265,4 +270,9 @@ jobs:
           The Windows installer is not code-signed yet, so Windows may say "Windows protected your PC". Choose **More info**, then **Run anyway**. See the [code signing policy]($home/blob/main/CODE_SIGNING.md).
 
           EOF
+          # A summary of what changed, when the version has one in .github/release-notes.
+          if [ -f ".github/release-notes/$TAG.md" ]; then
+            { cat ".github/release-notes/$TAG.md"; echo; cat notes.md; } > notes-full.md
+            mv notes-full.md notes.md
+          fi
           gh release create "$TAG" dist/*.flatpak dist/*.deb dist/*.exe --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Project Moah $TAG" --notes "$(cat notes.md)" --generate-notes
