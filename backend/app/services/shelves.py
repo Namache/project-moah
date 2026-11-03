@@ -20,6 +20,7 @@ stay dormant.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from functools import lru_cache
 
 from sqlalchemy import func, select
@@ -50,6 +51,11 @@ from app.services.text import name_key
 ACTIVATION_THRESHOLD = 0.3
 WORD_EVIDENCE = "shelf_word_evidence"  # {shelf id: {word: [retrieval ids]}}
 EVIDENCE_WORDS = 40  # words remembered per shelf, the best supported kept
+# Support a new record needs before it is filed on a shelf by itself: one plain keyword on a
+# branch the project never uses is not enough, a keyword of several words or the name is.
+FILE_EVIDENCE = 1.5
+# A project with this many records filed is settled: a branch it has never used weighs half.
+SETTLED = 5
 LEARNABLE = re.compile(r"[a-z][a-z']{3,}")
 WORD = re.compile(r"[\w']+")
 
@@ -77,6 +83,15 @@ def signal_hit(signal: str, words: set[str]) -> bool:
     """Every word of the signal appears in the text."""
     parts = _signal_parts(signal)
     return bool(parts) and all(p in words for p in parts)
+
+
+def _chain(shelf: Shelf, by_id: dict[str, Shelf]) -> list[Shelf]:
+    """The shelf with its parents, broadest first."""
+    out, seen = [shelf], {shelf.id}
+    while out[0].parent_id in by_id and out[0].parent_id not in seen:
+        seen.add(out[0].parent_id)
+        out.insert(0, by_id[out[0].parent_id])
+    return out
 
 
 class ShelfService:
@@ -441,19 +456,116 @@ class ShelfService:
         self.session.commit()
         return shelf
 
-    def suggest(self, project_id: str, text: str) -> ShelfActivation | None:
-        """The most specific shelf this text belongs on, in the project or the shared tree: the
-        deepest shelf it wakes, the most strongly woken among equals."""
+    def suggest(
+        self,
+        project_id: str,
+        text: str,
+        near: set[Node] | None = None,
+        *,
+        min_evidence: float = FILE_EVIDENCE,
+    ) -> ShelfActivation | None:
+        """The shelf this text belongs on, in the project or the shared tree, or None when the
+        evidence is too thin to file it anywhere (an unfiled record is found by upkeep later; a
+        misfiled one quietly misleads every pack).
+
+        One word is weak evidence: "needs" or "settings" sit on game shelves and in every other
+        kind of work. So a shelf is scored on what supports it:
+        - its words in the text: its name counts 2, a keyword of several words 1.5, a single
+          word 1, and a word that several shelves share is split between them;
+        - its parents' words in the text, at half weight;
+        - the branch of the tree where the project already keeps its records: a project whose
+          records sit under Software engineering rarely writes about game mechanics, so a
+          branch it has never used needs much more than one word;
+        - the shelves of the records the new one is linked to (``near``), such as the task it
+          was written for.
+        The best supported shelf wins, the deeper one among equals. ``min_evidence`` is lower
+        for a cluster of linked records, whose links are evidence of their own."""
         if not text.strip():
             return None
-        woken = self.activate(project_id, text, set(), memberships={})
+        words = stems(text)
+        trees = [(self._shelves(project_id), self.memberships(project_id))]
         if project_id != GLOBAL_PROJECT_ID:
-            woken += self.activate(GLOBAL_PROJECT_ID, text, set(), memberships={})
-        # Only shelves the words name themselves; a parent lifted by its sub-shelf is not one.
-        named = [a for a in woken if a.active and not a.reason.startswith("through sub-shelf")]
-        if not named:
-            return None
-        return max(named, key=lambda a: (a.path.count(">"), a.activation, a.name))
+            trees.append(self.shared(project_id))
+        trees = [(shelves, members) for shelves, members in trees if shelves]
+        signals: dict[str, list[tuple[tuple[str, ...], float]]] = {}
+        sharing: Counter[tuple[str, ...]] = Counter()
+        for shelves, _ in trees:
+            for s in shelves:
+                found: dict[tuple[str, ...], float] = {}
+                for index, signal in enumerate([s.name, *self._keywords(s)]):
+                    parts = _signal_parts(signal)
+                    if parts and parts not in found:
+                        found[parts] = 2.0 if index == 0 else 1.5 if len(parts) > 1 else 1.0
+                signals[s.id] = list(found.items())
+                sharing.update(found.keys())  # how many shelves carry each signal
+        best: tuple[float, int, str] | None = None
+        chosen: ShelfActivation | None = None
+        for shelves, members in trees:
+            by_id = {s.id: s for s in shelves}
+            children: Counter[str | None] = Counter(
+                s.parent_id if s.parent_id in by_id else None for s in shelves
+            )
+            own = self.owned({n for nodes in members.values() for n in nodes}, project_id)
+            filed = {sid: nodes & own for sid, nodes in members.items()}
+            close = {sid: nodes & (near or set()) for sid, nodes in members.items()}
+
+            under: dict[str, set[Node]] = {sid: set() for sid in by_id}
+            near_under: dict[str, set[Node]] = {sid: set() for sid in by_id}
+            for s in shelves:
+                for above in _chain(s, by_id):
+                    under[above.id] |= filed.get(s.id, set())
+                    near_under[above.id] |= close.get(s.id, set())
+            total = len(own)
+            for s in shelves:
+                path = _chain(s, by_id)
+                hits: list[str] = []
+                own_words = 0.0
+                for parts, weight in signals[s.id]:
+                    if all(p in words for p in parts):
+                        own_words += weight / sharing[parts]
+                        hits.append(" ".join(parts))
+                if own_words == 0:
+                    continue  # a shelf is only ever chosen for words of its own
+                parents = sum(
+                    weight / sharing[parts]
+                    for above in path[:-1]
+                    for parts, weight in signals[above.id]
+                    if all(p in words for p in parts)
+                )
+                # The branch: the broadest shelf on the path that has siblings ("Knowledge"
+                # alone at the top says nothing; "Software engineering" beside "Game
+                # development" does).
+                branch = next(
+                    (
+                        a
+                        for a in path
+                        if children[a.parent_id if a.parent_id in by_id else None] > 1
+                    ),
+                    path[0],
+                )
+                share = len(under[branch.id]) / total if total else 0.0
+                if share == 0 and total >= SETTLED:
+                    factor = 0.5  # a settled project that never filed anything here
+                else:
+                    factor = 1 + 2 * share
+                score = (own_words + parents / 2) * factor
+                if near:
+                    score += len(near_under[branch.id]) / len(near)
+                    score += len(near_under[s.id]) / len(near)
+                key = (round(score, 6), len(path), s.name)
+                if score >= min_evidence and (best is None or key > best):
+                    best = key
+                    chosen = ShelfActivation(
+                        id=s.id,
+                        name=s.name,
+                        activation=round(min(1.0, score / 3), 2),
+                        active=True,
+                        reason="mentions " + ", ".join(hits[:3]),
+                        path=" > ".join(a.name for a in path),
+                        parent_id=s.parent_id,
+                        scope="global" if s.project_id == GLOBAL_PROJECT_ID else "project",
+                    )
+        return chosen
 
     def note_helpful(self, project_id: str, text: str, nodes: set[Node], retrieval: str) -> int:
         """Remember the words of work whose pack had useful records, on the shelves those
