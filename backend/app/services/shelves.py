@@ -86,14 +86,14 @@ def signal_hit(signal: str, words: set[str]) -> bool:
 
 
 # Everyday words name no field of knowledge: "after", "need" or "next" turn up in work of every
-# kind. A shelf keyword made only of them never files a record and is never learned.
+# kind. A one-word shelf keyword that is one of them never files a record and is never learned.
 COMMON_WORDS = frozenset(
     stem(w)
     for w in (
         "about above after again against ago ahead all almost along already also always among"
         " another any anything around away back because been before being below best better"
         " between both bring came can cannot come comes could day days does doing done down"
-        " during each early either else end enough even ever every few find first found full"
+        " during each early either else enough even ever every few find first found full"
         " get gets give given goes going gone good got great had half happen hard have having"
         " help here high just keep kept kind know last late later least left less let like"
         " little long look looks lot low made main make many may maybe might more most much"
@@ -109,9 +109,10 @@ COMMON_WORDS = frozenset(
 
 
 def is_common(signal: str) -> bool:
-    """Whether every word of the signal is an everyday word."""
+    """Whether the signal is a single everyday word. A phrase of everyday words ("how we
+    work", "ask before") still names its topic."""
     parts = _signal_parts(signal)
-    return bool(parts) and all(p in COMMON_WORDS or p in STOPWORDS for p in parts)
+    return len(parts) == 1 and (parts[0] in COMMON_WORDS or parts[0] in STOPWORDS)
 
 
 def _chain(shelf: Shelf, by_id: dict[str, Shelf]) -> list[Shelf]:

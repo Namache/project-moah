@@ -220,7 +220,9 @@ async def test_everyday_words_never_file_and_leave_the_keywords(
         rewards = (await client.get("/api/projects/global/shelves/Economy and items")).json()
         await client.patch(
             f"/api/projects/global/shelves/{rewards['id']}",
-            json={"keywords": ["shop", "price", "items", "currency", "after", "target"]},
+            json={
+                "keywords": ["shop", "price", "items", "currency", "after", "target", "ask before"]
+            },
         )
     factory = make_session_factory(make_engine(database_url))
     with factory() as session:
@@ -236,3 +238,4 @@ async def test_everyday_words_never_file_and_leave_the_keywords(
         assert organized["dropped_word"] == 2  # "after" here, "needs" on Idle loops
         keywords = session.get(Shelf, rewards["id"]).keywords.split(",")
         assert "after" not in keywords and "target" in keywords
+        assert "ask before" in keywords  # a phrase of everyday words still names its topic
