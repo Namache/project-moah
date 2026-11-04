@@ -13,6 +13,8 @@ import pytest
 from httpx import AsyncClient
 
 from app.db.session import make_engine, make_session_factory
+from app.models.graph import Shelf
+from app.services.health import HealthService
 from app.services.shelves import ShelfService
 from tests.conftest import app_client
 from tests.test_mcp import agent, call
@@ -206,3 +208,31 @@ async def test_a_new_project_files_only_on_strong_words(database_url: str, tmp_p
         assert best is not None and best.name == "Open source"
         best = shelves.suggest(new, "Build the installer")
         assert best is not None and best.name == "Build and release"
+
+
+async def test_everyday_words_never_file_and_leave_the_keywords(
+    database_url: str, tmp_path: Path
+) -> None:
+    """Keywords a shelf picked up from the words of the work ("after", "need") woke game
+    shelves for software tasks. They no longer count, and the daily upkeep drops them."""
+    async with app_client(database_url) as client:
+        ids = await seed(client, tmp_path)
+        rewards = (await client.get("/api/projects/global/shelves/Economy and items")).json()
+        await client.patch(
+            f"/api/projects/global/shelves/{rewards['id']}",
+            json={"keywords": ["shop", "price", "items", "currency", "after", "target"]},
+        )
+    factory = make_session_factory(make_engine(database_url))
+    with factory() as session:
+        shelves = ShelfService(session)
+        # A Notebook task: only "after" names a game shelf, and an everyday word names nothing.
+        best = shelves.suggest(ids["notebook"], "Ship the branch ruleset after the review")
+        assert best is None or GAME not in best.path
+        # Game work still finds the shelf by its real words.
+        best = shelves.suggest(ids["camp"], "Shop price for the camp axe")
+        assert best is not None and best.name == "Economy and items"
+
+        organized = HealthService(session).organize(ids["notebook"])
+        assert organized["dropped_word"] == 2  # "after" here, "needs" on Idle loops
+        keywords = session.get(Shelf, rewards["id"]).keywords.split(",")
+        assert "after" not in keywords and "target" in keywords
