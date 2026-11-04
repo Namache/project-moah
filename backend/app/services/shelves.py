@@ -85,6 +85,36 @@ def signal_hit(signal: str, words: set[str]) -> bool:
     return bool(parts) and all(p in words for p in parts)
 
 
+# Everyday words name no field of knowledge: "after", "need" or "next" turn up in work of every
+# kind. A one-word shelf keyword that is one of them never files a record and is never learned.
+COMMON_WORDS = frozenset(
+    stem(w)
+    for w in (
+        "about above after again against ago ahead all almost along already also always among"
+        " another any anything around away back because been before being below best better"
+        " between both bring came can cannot come comes could day days does doing done down"
+        " during each early either else enough even ever every few find first found full"
+        " get gets give given goes going gone good got great had half happen hard have having"
+        " help here high just keep kept kind know last late later least left less let like"
+        " little long look looks lot low made main make many may maybe might more most much"
+        " must near need needs never new next nothing now number off often old once one only"
+        " other others our out over own part place point put quite rather ready real really"
+        " right run same see seem seems set several shall should show side since small some"
+        " something soon start still stop such sure take taken than thing things think those"
+        " though through time times today together too took top try turn two under until up"
+        " upon very via want wants way ways well went where whether while whole within"
+        " without work works would yes yet"
+    ).split()
+)
+
+
+def is_common(signal: str) -> bool:
+    """Whether the signal is a single everyday word. A phrase of everyday words ("how we
+    work", "ask before") still names its topic."""
+    parts = _signal_parts(signal)
+    return len(parts) == 1 and (parts[0] in COMMON_WORDS or parts[0] in STOPWORDS)
+
+
 def _chain(shelf: Shelf, by_id: dict[str, Shelf]) -> list[Shelf]:
     """The shelf with its parents, broadest first."""
     out, seen = [shelf], {shelf.id}
@@ -471,7 +501,8 @@ class ShelfService:
         One word is weak evidence: "needs" or "settings" sit on game shelves and in every other
         kind of work. So a shelf is scored on what supports it:
         - its words in the text: its name counts 2, a keyword of several words 1.5, a single
-          word 1, and a word that several shelves share is split between them;
+          word 1, a word that several shelves share is split between them, and an everyday
+          word ("after", "need") not at all;
         - its parents' words in the text, at half weight;
         - the branch of the tree where the project already keeps its records: a project whose
           records sit under Software engineering rarely writes about game mechanics, so a
@@ -494,8 +525,9 @@ class ShelfService:
                 found: dict[tuple[str, ...], float] = {}
                 for index, signal in enumerate([s.name, *self._keywords(s)]):
                     parts = _signal_parts(signal)
-                    if parts and parts not in found:
-                        found[parts] = 2.0 if index == 0 else 1.5 if len(parts) > 1 else 1.0
+                    if not parts or parts in found or (index > 0 and is_common(signal)):
+                        continue
+                    found[parts] = 2.0 if index == 0 else 1.5 if len(parts) > 1 else 1.0
                 signals[s.id] = list(found.items())
                 sharing.update(found.keys())  # how many shelves carry each signal
         best: tuple[float, int, str] | None = None

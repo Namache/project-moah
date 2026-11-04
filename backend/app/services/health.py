@@ -41,7 +41,7 @@ from app.services.discovery import DiscoveryService, in_every_pack
 from app.services.errors import invalid, not_found
 from app.services.graph import GraphService, Node
 from app.services.search import STOPWORDS
-from app.services.shelves import WORD_EVIDENCE, ShelfService
+from app.services.shelves import WORD_EVIDENCE, ShelfService, is_common
 from app.services.text import name_key
 from app.services.upkeep import DECAY_SETTING, _aware
 
@@ -786,6 +786,7 @@ class HealthService:
                 done[found["kind"]] += 1
             except Exception:  # noqa: BLE001 - one bad suggestion never stops the rest
                 self.session.rollback()
+        done["dropped_word"] += self._drop_common_words(project_id)
         done["learned_word"] += self._learn_words(project_id)
         return dict(done)
 
@@ -805,11 +806,13 @@ class HealthService:
                 continue
             if shelf.project_id not in (project_id, GLOBAL_PROJECT_ID):
                 continue
+            # Everyday words ("after", "next") turn up in packs of every kind: never learned.
             ready = [
                 w
                 for w, ids in words.items()
                 if len(set(ids)) >= LEARN_SESSIONS
                 and w not in STATUS_WORDS
+                and not is_common(w)
                 and everywhere[w] / total < NAME_COMMON
             ]
             if not ready:
@@ -824,6 +827,24 @@ class HealthService:
         row.updated_at = utc_now()
         self.session.commit()
         return learned
+
+    def _drop_common_words(self, project_id: str) -> int:
+        """Take everyday words ("after", "need") off the shelves' keywords: they wake a shelf
+        for work of every kind and file records where they don't belong."""
+        dropped = 0
+        for shelf in self.session.scalars(
+            select(Shelf).where(Shelf.project_id.in_([project_id, GLOBAL_PROJECT_ID]))
+        ):
+            words = [w.strip() for w in (shelf.keywords or "").split(",") if w.strip()]
+            keep = [w for w in words if not is_common(w)]
+            if len(keep) < len(words):
+                shelf.keywords = ",".join(keep)
+                shelf.updated_at = utc_now()
+                self.shelves._log(shelf, "SHELF_UPDATED", ORGANIZER)
+                dropped += len(words) - len(keep)
+        if dropped:
+            self.session.commit()
+        return dropped
 
     def _tune(self, project_id: str, found: dict, actor: str = HUMAN) -> dict:
         shelf = self.session.get(Shelf, found["shelf"]["id"])
