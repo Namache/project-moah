@@ -6,7 +6,22 @@ export const TARGET_RATE = 16_000;
 /** The local service refuses longer clips; stop a little before that. */
 export const MAX_SECONDS = 295;
 
-export interface Recording { stop: () => Promise<Blob>; cancel: () => void }
+/**
+ * A running recording. Positions count samples at the microphone's own rate (rate), so parts of the
+ * recording can be sent while it goes on: live words come from the newest part, then a final pass.
+ */
+export interface Recording {
+  rate: number;
+  /** Samples recorded so far. */
+  length: () => number;
+  /** The recording between two positions, as WAV for the local speech service. */
+  clip: (from: number, to: number) => Blob;
+  /** Whether the half second before a position is quiet: a pause, a good place to split. */
+  quietBefore: (at: number) => boolean;
+  /** Stop the microphone. The recorded sound stays readable through clip(). */
+  stop: () => void;
+  cancel: () => void;
+}
 
 export async function startRecording(onLimit?: () => void): Promise<Recording> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
@@ -14,20 +29,21 @@ export async function startRecording(onLimit?: () => void): Promise<Recording> {
   const source = context.createMediaStreamSource(stream);
   // ScriptProcessor needs no separate worklet file, which the app's content policy would have to allow.
   const processor = context.createScriptProcessor(4096, 1, 1);
-  const chunks: Float32Array[] = [];
-  let length = 0;
+  const rate = context.sampleRate;
+  const store = new SampleStore();
   let limited = false;
   processor.onaudioprocess = (event) => {
     if (limited) return;
-    const input = event.inputBuffer.getChannelData(0);
-    chunks.push(new Float32Array(input));
-    length += input.length;
-    if (length / context.sampleRate >= MAX_SECONDS) { limited = true; onLimit?.(); }
+    store.push(event.inputBuffer.getChannelData(0));
+    if (store.length / rate >= MAX_SECONDS) { limited = true; onLimit?.(); }
   };
   source.connect(processor);
   processor.connect(context.destination);
 
+  let released = false;
   const release = () => {
+    if (released) return;
+    released = true;
     processor.onaudioprocess = null;
     source.disconnect();
     processor.disconnect();
@@ -35,16 +51,39 @@ export async function startRecording(onLimit?: () => void): Promise<Recording> {
     void context.close();
   };
   return {
-    async stop() {
-      const rate = context.sampleRate;
-      release();
-      const samples = new Float32Array(length);
-      let offset = 0;
-      for (const chunk of chunks) { samples.set(chunk, offset); offset += chunk.length; }
-      return encodeWav(downsample(samples, rate, TARGET_RATE), TARGET_RATE);
-    },
+    rate,
+    length: () => store.length,
+    clip: (from, to) => encodeWav(downsample(store.slice(from, to), rate, TARGET_RATE), TARGET_RATE),
+    quietBefore: (at) => isQuiet(store.slice(Math.max(0, at - Math.round(rate / 2)), at)),
+    stop: release,
     cancel: release,
   };
+}
+
+/** Recorded sound in one growing buffer, so reading a part of it does not copy every chunk again. */
+export class SampleStore {
+  private buffer = new Float32Array(16_000 * 30);
+  length = 0;
+  push(input: Float32Array) {
+    if (this.length + input.length > this.buffer.length) {
+      const bigger = new Float32Array(Math.max(this.buffer.length * 2, this.length + input.length));
+      bigger.set(this.buffer.subarray(0, this.length));
+      this.buffer = bigger;
+    }
+    this.buffer.set(input, this.length);
+    this.length += input.length;
+  }
+  slice(from: number, to: number): Float32Array {
+    return this.buffer.slice(Math.max(0, from), Math.min(to, this.length));
+  }
+}
+
+/** Quiet enough to count as a pause between phrases (a little above what the speech service treats as silence). */
+export function isQuiet(samples: Float32Array): boolean {
+  if (!samples.length) return true;
+  let sum = 0;
+  for (const value of samples) sum += value * value;
+  return Math.sqrt(sum / samples.length) < 0.01;
 }
 
 /** Averages each run of input samples into one output sample: a simple low-pass that keeps speech clear. */
