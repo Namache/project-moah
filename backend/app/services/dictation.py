@@ -20,6 +20,10 @@ from app.core.resources import resource_path
 MODEL_FILE = "ggml-base-q5_1.bin"
 # "auto" lets whisper detect the language, which adds about a second; a fixed language is faster.
 LANGUAGE = re.compile(r"^(auto|[a-z]{2,3})$")
+# Live words: a shorter audio window makes each update about three times quicker, for clips up to
+# about ten seconds. The final pass always uses the full window.
+LIVE_AUDIO_CTX = 512
+LIVE_MAX_SECONDS = 10
 # whisper often writes Mandarin in traditional characters; a simplified hint steers it.
 PROMPTS = {"zh": "以下是普通话的句子。"}
 SAMPLE_RATE = 16_000
@@ -41,7 +45,7 @@ class DictationError(Exception):
 
 
 class Engine(Protocol):
-    def transcribe(self, samples: Any, language: str) -> str: ...
+    def transcribe(self, samples: Any, language: str, live: bool) -> tuple[str, str]: ...
 
 
 def model_path() -> Path | None:
@@ -72,11 +76,30 @@ class WhisperEngine:
             redirect_whispercpp_logs_to=None,
         )
 
-    def transcribe(self, samples: Any, language: str) -> str:
+    def transcribe(self, samples: Any, language: str, live: bool) -> tuple[str, str]:
+        """The words, and the language they were in (detected when language is "auto")."""
+        quick = live and len(samples) <= LIVE_MAX_SECONDS * SAMPLE_RATE
+        # The binding keeps these settings between calls, so every call sets all of them.
         segments = self._model.transcribe(
-            samples, language=language, no_context=True, initial_prompt=PROMPTS.get(language, "")
+            samples,
+            language=language,
+            no_context=True,
+            initial_prompt=PROMPTS.get(language, ""),
+            audio_ctx=LIVE_AUDIO_CTX if quick else 0,
+            single_segment=quick,
+            no_timestamps=quick,
         )
-        return " ".join(segment.text for segment in segments)
+        return " ".join(segment.text for segment in segments), self._language(language)
+
+    def _language(self, asked: str) -> str:
+        if asked != "auto":
+            return asked
+        try:
+            import _pywhispercpp as binding
+
+            return binding.whisper_lang_str(binding.whisper_full_lang_id(self._model._ctx))
+        except Exception:  # noqa: BLE001 - the detected language is only a speed hint
+            return "auto"
 
 
 @dataclass
@@ -103,17 +126,21 @@ class Dictation:
             return Status(False, reason="The speech engine is not part of this build.")
         return Status(True)
 
-    def transcribe_wav(self, data: bytes, language: str = "auto") -> str:
+    def transcribe_wav(
+        self, data: bytes, language: str = "auto", live: bool = False
+    ) -> tuple[str, str]:
+        """The words in a clip and the language they were in. Live clips trade a little accuracy
+        for speed; they are previews that the final pass replaces."""
         if not LANGUAGE.match(language):
             raise DictationError("Choose a language code such as en, or auto.")
         samples = decode_wav(data)
         if is_silent(samples):
-            return ""
+            return "", language
         with self._lock:
             engine = self._load()
-            text = engine.transcribe(samples, language)
+            text, detected = engine.transcribe(samples, language, live)
             self._schedule_unload()
-        return clean_text(text)
+        return clean_text(text), detected
 
     def _load(self) -> Engine:
         if self._engine is None:

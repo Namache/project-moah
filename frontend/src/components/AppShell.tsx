@@ -4,6 +4,7 @@ import { useProject, useProjects } from "../hooks/useProjects";
 import { usePendingProposals } from "../hooks/useProposals";
 import { useKnowledgeUpdates } from "../hooks/useGraph";
 import { CommandPalette } from "./CommandPalette";
+import { DictationDock } from "./dictation/DictationDock";
 import { primaryNav, secondaryNav, supportNav } from "./navItems";
 import { ProjectsNav } from "./ProjectsNav";
 import { SidebarResizer, useSidebarWidth } from "./SidebarResizer";
@@ -137,6 +138,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
       <Notices />
+      <DictationDock />
       {paletteOpen && <CommandPalette projects={availableProjects} current={selectedProject} onClose={() => setPaletteOpen(false)} />}
     </div>
   );

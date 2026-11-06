@@ -5,7 +5,6 @@ import { useCreateTask, useMilestones } from "../../hooks/useTasks";
 import type { TaskDetail, TaskStatus } from "../../types/task";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { t } from "../../lib/i18n";
-import { DictationButton } from "../dictation/DictationButton";
 
 export function NewTaskDialog({ projectId, defaultStatus = "todo", defaultMilestone = "", onClose, onCreated }: { projectId: string; defaultStatus?: TaskStatus; defaultMilestone?: string; onClose: () => void; onCreated: (task: TaskDetail) => void }) {
   const ref = useModalDialog();
@@ -41,7 +40,7 @@ export function NewTaskDialog({ projectId, defaultStatus = "todo", defaultMilest
         </div>
         <div className="space-y-4 px-6 py-5">
           <div><label htmlFor="task-title" className="field-label">{t("Title")} <span aria-hidden="true">*</span></label><input id="task-title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder={t("Implement save migration")} autoFocus required /></div>
-          <div><div className="flex items-end justify-between gap-2"><label htmlFor="task-description" className="field-label">{t("Description")} <span className="font-normal text-ink-subtle">{t("Optional")}</span></label><DictationButton className="mb-1" field={t("Description")} target={() => document.getElementById("task-description") as HTMLTextAreaElement | null} value={description} onChange={setDescription} /></div><textarea id="task-description" className="field-input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <div><label htmlFor="task-description" className="field-label">{t("Description")} <span className="font-normal text-ink-subtle">{t("Optional")}</span></label><textarea id="task-description" className="field-input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
           <div><label htmlFor="task-criteria" className="field-label">{t("Acceptance criteria")} <span className="font-normal text-ink-subtle">{t("One per line, optional")}</span></label><textarea id="task-criteria" className="field-input" rows={3} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder={t("Old saves load safely\nA migration test exists")} /></div>
           {milestones && milestones.length > 0 && <div><label htmlFor="task-milestone" className="field-label">{t("Milestone")}</label><select id="task-milestone" className="field-input" value={milestone} onChange={(e) => setMilestone(e.target.value)}><option value="">{t("No milestone")}</option>{milestones.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>}
           {create.isError && <p role="alert" className="text-sm text-danger-ink">{create.error.message}</p>}

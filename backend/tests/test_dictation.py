@@ -37,10 +37,13 @@ class FakeEngine:
         self.path = path
 
     languages: list[str] = []
+    live: list[bool] = []
 
-    def transcribe(self, samples, language: str) -> str:
+    def transcribe(self, samples, language: str, live: bool) -> tuple[str, str]:
         FakeEngine.languages.append(language)
-        return " [BLANK_AUDIO] The save   migration needs a test. (keyboard clicking) "
+        FakeEngine.live.append(live)
+        detected = "en" if language == "auto" else language
+        return " [BLANK_AUDIO] The save   migration needs a test. (keyboard clicking) ", detected
 
 
 @pytest.fixture
@@ -50,6 +53,7 @@ def fake_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("PROJECT_MOAH_DICTATION_MODEL", str(model))
     FakeEngine.loads = 0
     FakeEngine.languages = []
+    FakeEngine.live = []
     monkeypatch.setattr(speech, "dictation", speech.Dictation(engine_factory=FakeEngine))
     return model
 
@@ -75,8 +79,15 @@ async def test_status_and_transcription_with_the_model(
     )
     assert response.status_code == 200
     # Sound markers whisper adds for non-speech are dropped, and spacing is tidied.
-    assert response.json() == {"text": "The save migration needs a test."}
+    assert response.json() == {"text": "The save migration needs a test.", "language": "en"}
     assert FakeEngine.languages == ["auto"]
+    assert FakeEngine.live == [False]
+
+
+async def test_live_words_ask_for_the_quick_pass(client: AsyncClient, fake_model: Path) -> None:
+    response = await client.post("/api/dictation/transcribe?live=true&language=ru", content=wav())
+    assert response.json()["language"] == "ru"
+    assert FakeEngine.live == [True]
 
 
 async def test_a_chosen_language_reaches_the_engine(client: AsyncClient, fake_model: Path) -> None:
@@ -100,7 +111,7 @@ async def test_silence_gives_no_text_without_loading_the_engine(
     client: AsyncClient, fake_model: Path
 ) -> None:
     response = await client.post("/api/dictation/transcribe", content=wav(loud=False))
-    assert response.json() == {"text": ""}
+    assert response.json() == {"text": "", "language": "auto"}
     assert FakeEngine.loads == 0
 
 
@@ -140,7 +151,7 @@ SAMPLE = os.getenv("PROJECT_MOAH_DICTATION_SAMPLE")
 def test_the_real_model_turns_speech_into_text() -> None:
     """Run with PROJECT_MOAH_DICTATION_SAMPLE=<16 kHz mono WAV of speech> and the model fetched."""
     language = os.getenv("PROJECT_MOAH_DICTATION_LANGUAGE", "auto")
-    text = speech.Dictation().transcribe_wav(Path(SAMPLE).read_bytes(), language)
+    text, _ = speech.Dictation().transcribe_wav(Path(SAMPLE).read_bytes(), language)
     expected = os.getenv("PROJECT_MOAH_DICTATION_EXPECT", "")
     assert text
     assert expected.lower() in text.lower()
