@@ -60,6 +60,7 @@ npm run build --prefix frontend
 flatpak run --share=network --filesystem="$PWD" --cwd="$PWD" --command=sh org.freedesktop.Sdk//25.08 -c '
   python3 -m venv .venv-flatpak
   .venv-flatpak/bin/python -m pip install -e ./backend pyinstaller
+  .venv-flatpak/bin/python scripts/fetch-dictation-model.py
   .venv-flatpak/bin/python scripts/build-backend-sidecar.py
 '
 npm ci --prefix desktop
@@ -77,6 +78,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e ./backend pyinstaller
 npm ci --prefix frontend
 npm run build --prefix frontend
+.venv/bin/python scripts/fetch-dictation-model.py
 .venv/bin/python scripts/build-backend-sidecar.py
 npm ci --prefix desktop
 npm run build:deb --prefix desktop
@@ -93,6 +95,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .\backend pyinstaller
 npm ci --prefix frontend
 npm run build --prefix frontend
+.\.venv\Scripts\python.exe scripts\fetch-dictation-model.py
 .\.venv\Scripts\python.exe scripts\build-backend-sidecar.py
 npm ci --prefix desktop
 npm run build:windows --prefix desktop

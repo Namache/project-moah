@@ -15,6 +15,7 @@ from app.api.activity import workspace_router as workspace_activity_router
 from app.api.agent_folders import router as agent_folders_router
 from app.api.checkpoints import router as checkpoints_router
 from app.api.context import router as context_router
+from app.api.dictation import router as dictation_router
 from app.api.files import router as files_router
 from app.api.graph import router as graph_router
 from app.api.graph import workspace_router as brain_router
@@ -119,6 +120,7 @@ def create_app(
     application.include_router(system_router)
     application.include_router(memory_router)
     application.include_router(images_router)
+    application.include_router(dictation_router)
     application.include_router(checkpoints_router)
     application.include_router(project_activity_router)
     application.include_router(workspace_activity_router)

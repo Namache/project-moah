@@ -12,6 +12,8 @@ dependencies = [
   "fastapi>=0.115,<1",
   "mcp>=2.3,<3",
   "pydantic>=2.9,<3",
+  # Offline dictation: whisper.cpp. numpy comes with it.
+  "pywhispercpp>=1.5.1,<2",
   "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.30,<1",
 ]

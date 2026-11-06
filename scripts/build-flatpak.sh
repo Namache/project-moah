@@ -68,6 +68,7 @@ flatpak build-finish \
   --socket=x11 \
   --share=ipc \
   --device=dri \
+  --socket=pulseaudio \
   --talk-name=org.kde.StatusNotifierWatcher \
   --talk-name=org.freedesktop.Notifications \
   --filesystem=~/.claude/projects:ro \

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Flag, Link2Off, Pencil, Target } from "lucide-react";
 import { useTimeout } from "../../hooks/useTimeout";
 import type { TaskPriority, TaskStatus, TaskSummary } from "../../types/task";
@@ -6,6 +6,7 @@ import { priorityLabels, statusLabels } from "../../types/task";
 import { taskStatusStyle } from "../../lib/tones";
 import { Badge } from "../ui";
 import { t, tp } from "../../lib/i18n";
+import { DictationButton } from "../dictation/DictationButton";
 
 /** A task's status as a coloured label with its icon, the same everywhere a task is listed. */
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
@@ -55,15 +56,16 @@ export function FocusMark({ compact = false }: { compact?: boolean }) {
  * A text field that saves on blur or Enter, and only when the value changed. A required field puts back its value when cleared.
  * A pencil marks it as editable on hover; when onSave returns a promise, the field briefly says "Saved", or shows why it was not.
  */
-export function InlineText({ value, onSave, label, multiline = false, placeholder, className = "", readOnly = false, required = false }: { value: string; onSave: (value: string) => void | Promise<unknown>; label: string; multiline?: boolean; placeholder?: string; className?: string; readOnly?: boolean; required?: boolean }) {
+export function InlineText({ value, onSave, label, multiline = false, placeholder, className = "", readOnly = false, required = false, dictation = false }: { value: string; onSave: (value: string) => void | Promise<unknown>; label: string; multiline?: boolean; placeholder?: string; className?: string; readOnly?: boolean; required?: boolean; /** Offer a microphone button; dictated words are saved right away. */ dictation?: boolean }) {
   const [draft, setDraft] = useState(value);
+  const field = useRef<HTMLTextAreaElement>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState("");
   const later = useTimeout();
   useEffect(() => setDraft(value), [value]);
-  function commit() {
+  function commit(text = draft) {
     if (readOnly) return;
-    const next = draft.trim();
+    const next = text.trim();
     if (next === value.trim() || (required && !next)) { setDraft(value); return; }
     const result = onSave(next);
     if (!result) return;
@@ -81,15 +83,16 @@ export function InlineText({ value, onSave, label, multiline = false, placeholde
     value: draft,
     readOnly,
     onChange: (event: { target: { value: string } }) => setDraft(event.target.value),
-    onBlur: commit,
-    className: `inline-field ${readOnly ? "" : "pr-7"} ${className}`,
+    onBlur: () => commit(),
+    className: `inline-field ${readOnly ? "" : dictation ? "pr-10" : "pr-7"} ${className}`,
   };
   return (
     <div className="group/inline relative min-w-0 flex-1">
       {multiline
-        ? <textarea {...shared} rows={Math.max(3, draft.split("\n").length)} />
+        ? <textarea {...shared} ref={field} rows={Math.max(3, draft.split("\n").length)} />
         : <input {...shared} onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); if (event.key === "Escape") { setDraft(value); (event.target as HTMLInputElement).blur(); } }} />}
-      {!readOnly && saveState !== "saved" && saveState !== "saving" && <Pencil size={13} aria-hidden="true" className={`pointer-events-none absolute right-2 text-ink-subtle opacity-0 transition-opacity group-hover/inline:opacity-100 group-focus-within/inline:opacity-0 ${multiline ? "top-2.5" : "top-1/2 -translate-y-1/2"}`} />}
+      {dictation && multiline && !readOnly && <DictationButton className="absolute bottom-1.5 right-1.5" field={label} target={() => field.current} value={draft} onChange={(next) => { setDraft(next); commit(next); }} />}
+      {!readOnly && !dictation && saveState !== "saved" && saveState !== "saving" && <Pencil size={13} aria-hidden="true" className={`pointer-events-none absolute right-2 text-ink-subtle opacity-0 transition-opacity group-hover/inline:opacity-100 group-focus-within/inline:opacity-0 ${multiline ? "top-2.5" : "top-1/2 -translate-y-1/2"}`} />}
       {(saveState === "saved" || saveState === "saving") && <span className={`pointer-events-none absolute right-1.5 inline-flex items-center gap-1 rounded bg-surface/90 px-1 text-xs font-medium ${saveState === "saved" ? "text-forest" : "text-ink-subtle"} ${multiline ? "top-2" : "top-1/2 -translate-y-1/2"}`}>
         {saveState === "saved" ? <><Check size={13} aria-hidden="true" />{t("Saved")}</> : t("Saving…")}
       </span>}

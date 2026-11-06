@@ -38,6 +38,15 @@ def main() -> int:
         )
         return 1
 
+    # The speech model ships inside the app, so dictation never needs the internet.
+    speech_model = repo / "build/dictation/ggml-base-q5_1.bin"
+    if not speech_model.is_file():
+        print(
+            "The speech model is missing. Run python scripts/fetch-dictation-model.py first.",
+            file=sys.stderr,
+        )
+        return 1
+
     # Which build this is, so an agent session still running an older one can be told to restart.
     build_info = repo / "build/build_info.json"
     build_info.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +91,13 @@ def main() -> int:
         f"{repo / 'backend/migrations'}:backend/migrations",
         "--add-data",
         f"{repo / 'frontend/dist'}:frontend/dist",
+        "--add-data",
+        f"{speech_model}:backend/models",
+        # whisper.cpp's libraries sit beside its Python module; it is imported only when dictating.
+        "--collect-all",
+        "pywhispercpp",
+        "--hidden-import",
+        "_pywhispercpp",
         "--collect-submodules",
         "sqlalchemy.dialects.sqlite",
         "--collect-submodules",

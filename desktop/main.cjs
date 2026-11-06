@@ -56,8 +56,22 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "frame-ancestors 'none'",
 ].join("; ");
-// Copy buttons use the clipboard; nothing else (camera, notifications, location and so on) is ever needed.
-const ALLOWED_PERMISSIONS = new Set(["clipboard-sanitized-write"]);
+// Copy buttons use the clipboard and dictation uses the microphone; nothing else (camera, notifications,
+// location and so on) is ever needed.
+const ALLOWED_PERMISSIONS = new Set(["clipboard-sanitized-write", "media"]);
+
+/** "media" covers the camera too: allow it only for a request that asks for sound alone. */
+function allowedRequest(permission, details) {
+  if (!ALLOWED_PERMISSIONS.has(permission)) return false;
+  if (permission !== "media") return true;
+  const types = details?.mediaTypes ?? [];
+  return types.length > 0 && types.every((type) => type === "audio");
+}
+
+function allowedCheck(permission, details) {
+  if (!ALLOWED_PERMISSIONS.has(permission)) return false;
+  return permission !== "media" || details?.mediaType === "audio";
+}
 
 /** How this copy was installed, so Help and setup commands match the person's system. */
 function installKind() {
@@ -274,9 +288,9 @@ function secureSession(origin) {
   const ses = session.defaultSession;
   const trusted = (webContents, requestingOrigin) => webContents === window?.webContents && requestingOrigin === origin;
   ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    callback(ALLOWED_PERMISSIONS.has(permission) && trusted(webContents, originOf(details.requestingUrl)));
+    callback(allowedRequest(permission, details) && trusted(webContents, originOf(details.requestingUrl)));
   });
-  ses.setPermissionCheckHandler((webContents, permission, requestingOrigin) => ALLOWED_PERMISSIONS.has(permission) && trusted(webContents, requestingOrigin));
+  ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => allowedCheck(permission, details) && trusted(webContents, requestingOrigin));
   ses.webRequest.onHeadersReceived({ urls: [`${origin}/*`] }, (details, callback) => {
     const headers = { ...details.responseHeaders };
     for (const name of Object.keys(headers)) if (name.toLowerCase() === "content-security-policy") delete headers[name];

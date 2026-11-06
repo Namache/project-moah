@@ -9,6 +9,8 @@ finish-args:
   - --socket=x11
   - --share=ipc
   - --device=dri
+  # The microphone, for dictation. Speech is turned into text on this computer.
+  - --socket=pulseaudio
   # The tray icon: KDE (Bazzite's desktop) and other trays show apps through this D-Bus name.
   - --talk-name=org.kde.StatusNotifierWatcher
   # Desktop notifications when a proposal waits for a decision.
