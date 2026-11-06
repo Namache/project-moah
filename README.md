@@ -43,6 +43,7 @@
 | **Learns** | Links that lead to useful records get stronger, unused ones fade. | Brain health |
 | **Asks first** | Agents suggest changes to locked things; nothing changes until you accept. | Inbox |
 | **Hands off** | Checkpoints let any agent, Claude Code or Codex, pick up where the last one stopped. | Checkpoints |
+| **Listens** | Dictate into any text field instead of typing, in many languages. Speech becomes text on your computer. | Any text field |
 
 ---
 
@@ -138,6 +139,8 @@ The first install also downloads the Flatpak runtime, so it takes a little longe
 ## Private by design
 
 **Nothing leaves your computer.** No account, no cloud, no telemetry, no automatic updates. The app never goes online; agents talk to it through a local connection, and the Flatpak has no network permission at all.
+
+**Dictation stays local too.** The microphone is used only while you dictate, and the speech model runs inside the app.
 
 **Your code stays yours.** Moah reads your repository's file names, Git status and commit messages, and never changes your code.
 
