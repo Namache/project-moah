@@ -68,7 +68,9 @@ jobs:
           npm run build --prefix frontend
 
       - name: Build native backend sidecar
-        run: python scripts/build-backend-sidecar.py
+        run: |
+          python scripts/fetch-dictation-model.py
+          python scripts/build-backend-sidecar.py
 
       - name: Build Flatpak bundle
         run: |
@@ -114,7 +116,9 @@ jobs:
           npm run build --prefix frontend
 
       - name: Build native backend sidecar
-        run: python scripts/build-backend-sidecar.py
+        run: |
+          python scripts/fetch-dictation-model.py
+          python scripts/build-backend-sidecar.py
 
       - name: Build the .deb
         run: |
@@ -193,7 +197,9 @@ jobs:
           npm run build --prefix frontend
 
       - name: Build native backend sidecar
-        run: python scripts/build-backend-sidecar.py
+        run: |
+          python scripts/fetch-dictation-model.py
+          python scripts/build-backend-sidecar.py
 
       - name: Build the Windows installer
         run: |

@@ -1521,4 +1521,16 @@ export const ru: Record<string, Translation> = {
   "To do": "К выполнению",
   "In progress": "В работе",
   "Review": "На проверке",
+  // dictation
+  "Dictate into {field}": "Надиктовать в поле «{field}»",
+  "Stop dictating into {field}": "Остановить диктовку в поле «{field}»",
+  "Listening…": "Слушаю…",
+  "Turning speech into text…": "Превращаю речь в текст…",
+  "Microphone access was refused. Allow it in your system settings, then try again.": "Доступ к микрофону запрещён. Разрешите его в настройках системы и попробуйте ещё раз.",
+  "No microphone was found.": "Микрофон не найден.",
+  "The microphone could not be started.": "Не удалось включить микрофон.",
+  "No speech was heard. Try again a little closer to the microphone.": "Речь не услышана. Попробуйте ещё раз, ближе к микрофону.",
+  "Dictation language": "Язык диктовки",
+  "The language you speak when you press the microphone. Automatic works for any language but takes about a second longer.": "Язык, на котором вы говорите, нажимая на микрофон. «Автоматически» подходит для любого языка, но работает примерно на секунду дольше.",
+  "Automatic": "Автоматически",
 };

@@ -1,5 +1,7 @@
 import { AgentSettingsCard } from "../components/AgentSettingsCard";
 import { TaskSettingsCard } from "../components/TaskSettingsCard";
+import { useDictationAvailable } from "../components/dictation/DictationButton";
+import { dictationLanguages, useDictationLanguage } from "../lib/dictationLanguage";
 import { Choice } from "../components/Choice";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Check, ChevronRight, Copy, Download } from "lucide-react";
@@ -97,6 +99,8 @@ export function SettingsPage() {
   const backup = useMutation({ mutationFn: () => systemApi.downloadBackup() });
   const [theme, setTheme] = useTheme();
   const [language, setLanguage] = useLanguageChoice();
+  const dictation = useDictationAvailable();
+  const [dictationLanguage, setDictationLanguage] = useDictationLanguage();
   const d = diagnostics.data;
 
   return (
@@ -107,6 +111,7 @@ export function SettingsPage() {
         <div className="space-y-5">
           <Choice name="theme" legend={t("Theme")} hint={t("System follows your computer's light or dark setting.")} value={theme} onChange={setTheme} choices={themeChoices.map((c) => ({ ...c, label: t(c.label) }))} />
           <Choice name="language" legend={t("Language")} hint={t("System follows your computer's language.")} value={language} onChange={setLanguage} choices={languageChoices.map((c) => ({ ...c, label: c.value === "system" ? t(c.label) : c.label }))} />
+          {dictation && <div><label htmlFor="dictation-language" className="field-label">{t("Dictation language")}</label><p id="dictation-language-help" className="text-xs text-ink-subtle">{t("The language you speak when you press the microphone. Automatic works for any language but takes about a second longer.")}</p><select id="dictation-language" aria-describedby="dictation-language-help" className="field-input mt-2 max-w-xs" value={dictationLanguage} onChange={(event) => setDictationLanguage(event.target.value)}><option value="auto">{t("Automatic")}</option>{dictationLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>}
         </div>
       </Card>
 
