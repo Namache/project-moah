@@ -32,6 +32,9 @@
       "display.cjs",
       "errorlog.cjs",
       "preload.cjs",
+      "pomodoro.cjs",
+      "pomodoro-core.cjs",
+      "mini/**",
       "assets/**",
       "package.json"
     ],

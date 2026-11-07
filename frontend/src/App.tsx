@@ -11,7 +11,7 @@ import { ActivityPage } from "./pages/ActivityPage";
 import { AllTasksPage } from "./pages/AllTasksPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UsagePage } from "./pages/UsagePage";
-import { ReviewInboxPage } from "./pages/ReviewInboxPage";
+import { ReviewScreen } from "./pages/ReviewScreen";
 
 export function App() {
   return <AppShell>
@@ -26,7 +26,7 @@ export function App() {
       <Route path="/search" element={<SearchPage />} />
       <Route path="/tasks" element={<AllTasksPage />} />
       <Route path="/activity" element={<ActivityPage />} />
-      <Route path="/review" element={<ReviewInboxPage />} />
+      <Route path="/review" element={<ReviewScreen />} />
       <Route path="/usage" element={<UsagePage />} />
       <Route path="/help" element={<HelpPage />} />
       <Route path="/help/:slug" element={<HelpArticlePage />} />

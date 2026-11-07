@@ -22,6 +22,7 @@ from app.schemas.memory import MemoryRead
 from app.services.graph import MENTION_PATTERN, GraphService, Node
 from app.services.memory import IMPORTANCE_RANK, MemoryService
 from app.services.proposals import ProposalService
+from app.services.reviews import ReviewService
 
 # When an agent should fetch a context pack. The brief lists these, and the retrieval benchmark
 # (tests/retrieval_bench.py) replays sessions against the same list, so the two cannot drift.
@@ -53,8 +54,8 @@ Follow every rule above. Moah also holds the person's earlier answers.
   warnings. Skip trivia and what the code or Git shows; link only real relationships.
 - After task work, before your final reply: brain_create_checkpoint (done, left, next,
   and the IDs that helped).
-- The person reviews global rules, global decisions, locked records and completed tasks.
-  Set a finished task to status review."""
+- Finished a task? Hand it over with brain_submit_review, with screenshots. Changes to
+  global rules, global decisions and locked records go through brain_create_proposal."""
 )
 
 CLOSED_TASK = ("completed", "archived")
@@ -294,6 +295,36 @@ def unfinished_lines(
     return lines
 
 
+SENT_BACK_COMMENT = 240
+
+
+RETURNED = {
+    "rejected": "SENT BACK FROM REVIEW (the person's comments; brain_get_task has all of it):",
+    "answered": "ANSWERED IN REVIEW (the person's answers to agents' questions; go on):",
+}
+
+
+def sent_back_lines(session: Session, project: Project) -> list[str]:
+    """Tasks the person sent back from review, or whose question they answered, with the start
+    of their comment. Shown until an agent hands the task over again."""
+    lines: list[str] = []
+    for status, heading in RETURNED.items():
+        found = ReviewService(session).sent_back(project.id, status=status)
+        if found:
+            lines += [heading, *_returned_lines(found)]
+    return lines
+
+
+def _returned_lines(found) -> list[str]:
+    lines = []
+    for task, review, files in found:
+        comment = _cut(review.comment or "", SENT_BACK_COMMENT)
+        extra = f" (+{files} attached file(s))" if files else ""
+        said = f': "{comment}"' if comment else ""
+        lines.append(f"- {task.human_id} {_cut(task.title, TITLE_LIMIT)}{said}{extra}")
+    return lines
+
+
 def build_brief(
     session: Session, project: Project | None, note: str | None = None, hint: str | None = None
 ) -> str:
@@ -333,8 +364,20 @@ def build_brief(
             step = " ".join((latest.next_steps or "").split())[:300]
             nxt = f" (next: {step})" if step else ""
             lines.append(f"LATEST CHECKPOINT: {latest.title}{nxt}")
+        lines += sent_back_lines(session, project)
         pending = ProposalService(session).pending_count(project.id)
-        if pending:
-            lines.append(f"WAITING FOR THE PERSON'S REVIEW: {pending} proposal(s)")
+        in_review = ReviewService(session).waiting_count(project.id)
+        asked = ReviewService(session).question_count(project.id)
+        waiting = [
+            f"{n} {what}"
+            for n, what in (
+                (in_review, "task(s)"),
+                (asked, "question(s)"),
+                (pending, "proposal(s)"),
+            )
+            if n
+        ]
+        if waiting:
+            lines.append(f"WAITING FOR THE PERSON'S REVIEW: {', '.join(waiting)}")
     lines += ["", HOW_TO]
     return "\n".join(lines)

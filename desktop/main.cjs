@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, screen, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, powerMonitor, screen, session, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
 const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { randomBytes } = require("node:crypto");
@@ -9,6 +9,7 @@ const path = require("node:path");
 const readline = require("node:readline");
 const display = require("./display.cjs");
 const { createErrorLog } = require("./errorlog.cjs");
+const { createPomodoro, relaunchForX11 } = require("./pomodoro.cjs");
 
 // The app was renamed to Project Moah; keep its settings folder (window state, logs, saved
 // layout) where Project Brain put it, so the rename doesn't reset anything.
@@ -21,6 +22,9 @@ function settingsParent() {
   }
 }
 app.setPath("userData", path.join(settingsParent(), "Project Brain"));
+
+// With the focus timer on, a Linux Wayland session starts Moah again through XWayland (see pomodoro.cjs).
+const relaunching = relaunchForX11(app);
 
 // The window only ever talks to the local service. Without this, Chromium on Windows looks for
 // a "wpad" proxy on the network as soon as it loads a page.
@@ -46,6 +50,7 @@ let fatalShown = false;
 // Errors also go to a small JSON log that Settings > Diagnostics shows; set up once the folder exists.
 let errorLogPath = "";
 let recordError = () => {};
+let pomodoro = null;
 
 // The page is served by the local service and loads nothing from elsewhere: scripts, styles, icons and
 // API calls all come from its own origin. React sets inline style properties, so inline styles stay allowed.
@@ -115,10 +120,16 @@ const RUSSIAN = {
   "Details were saved to {path}": "Подробности сохранены в {path}",
   "Open Project Moah": "Открыть Project Moah",
   "Quit": "Выйти",
-  "A proposal needs your decision": "Предложение ждёт вашего решения",
-  "{count} proposals need your decision": "Предложений, ждущих вашего решения: {count}",
-  "{agent} in {project}: {summary}": "{agent} в «{project}»: {summary}",
-  "Open the Inbox to accept or reject them.": "Откройте «Входящие», чтобы принять или отклонить их.",
+  "Work is ready for your review": "Работа ждёт вашей проверки",
+  "An agent needs your answer": "Агенту нужен ваш ответ",
+  "{count} items wait for your review": "Ждут вашей проверки: {count}",
+  "{agent} in {project}: {title}": "{agent} в «{project}»: {title}",
+  "Open Review to accept them, or reject them with comments.": "Откройте «На проверке», чтобы принять или отклонить с комментариями.",
+  "Focus": "Фокус",
+  "Break": "Перерыв",
+  "Paused": "На паузе",
+  "{count} waiting for review": "Ждут проверки: {count}",
+  "{time} left": "Осталось {time}",
 };
 function say(text, vars = {}) {
   const chosen = app.getLocale().toLowerCase().startsWith("ru") ? RUSSIAN[text] ?? text : text;
@@ -367,6 +378,7 @@ async function openWindow(port) {
     if (details.reason !== "clean-exit") recordError(`The app window stopped (${details.reason}, code ${details.exitCode}).`);
   });
   window.webContents.on("preload-error", (event, preloadPath, error) => recordError(`The window's preload script failed: ${error.message}`, error.stack ?? ""));
+  pomodoro?.attachWindow(window);
   window.webContents.on("will-navigate", stayInApp);
   window.webContents.on("will-redirect", stayInApp);
   // The saved interface size, or Automatic for this screen, from the first paint on.
@@ -463,9 +475,15 @@ function createTray() {
   if (startInTray && !hidesToTray) app.quit();
 }
 
-const PROPOSAL_CHECK_MS = 15_000;
-// Pending proposals already notified about (or waiting when the app opened and summed up once).
-let notifiedProposals = null;
+const REVIEW_CHECK_MS = 15_000;
+// Work waiting for review already notified about (or waiting when the app opened and summed up once).
+let notifiedReviews = null;
+// Others in the app that want to know after each check: called with { total, fresh }.
+const reviewListeners = new Set();
+function onReviewsChecked(listener) {
+  reviewListeners.add(listener);
+  return () => reviewListeners.delete(listener);
+}
 
 function openReview() {
   showWindow();
@@ -481,11 +499,11 @@ function notify(title, body) {
   note.show();
 }
 
-/** OS notifications (like an agent asking for permission) when proposals wait for a person's decision. */
-async function checkProposals(port) {
+/** OS notifications (like an agent asking for permission) when finished work or suggestions wait for review. */
+async function checkReviews(port) {
   let pending;
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/proposals/pending`, {
+    const response = await fetch(`http://127.0.0.1:${port}/api/reviews/pending`, {
       headers: { "X-Project-Brain-Token": apiToken },
       signal: AbortSignal.timeout(5_000),
     });
@@ -495,26 +513,35 @@ async function checkProposals(port) {
     return; // The service is busy or stopping; the next check tries again.
   }
   const newest = pending.newest ?? [];
-  const first = notifiedProposals === null;
-  const fresh = first ? [] : newest.filter((proposal) => !notifiedProposals.has(proposal.id));
-  notifiedProposals = new Set(newest.map((proposal) => proposal.id));
+  const first = notifiedReviews === null;
+  // A task that waited for review and now waits for an answer is news again.
+  const seen = (item) => `${item.key}:${item.question ? "question" : "work"}`;
+  const fresh = first ? [] : newest.filter((item) => !notifiedReviews.has(seen(item)));
+  notifiedReviews = new Set(newest.map(seen));
+  for (const listener of reviewListeners) {
+    try {
+      listener({ total: pending.total, fresh });
+    } catch (error) {
+      writeLog(`[review listener] ${error.message}`);
+    }
+  }
+  // The focus timer's corner shows how much waits in Review, and chimes once per new arrival.
+  pomodoro?.setPending(pending.total, fresh);
   if (!Notification.isSupported()) return;
+  const many = (count) => say("{count} items wait for your review", { count });
   if (first && pending.total > 0) {
-    notify(
-      pending.total === 1 ? say("A proposal needs your decision") : say("{count} proposals need your decision", { count: pending.total }),
-      say("Open the Inbox to accept or reject them."),
-    );
+    notify(pending.total === 1 ? say("Work is ready for your review") : many(pending.total), say("Open Review to accept them, or reject them with comments."));
   } else if (fresh.length === 1) {
-    const [proposal] = fresh;
-    notify(say("A proposal needs your decision"), say("{agent} in {project}: {summary}", { agent: proposal.agent, project: proposal.project_name, summary: proposal.summary }));
+    const [item] = fresh;
+    notify(say(item.question ? "An agent needs your answer" : "Work is ready for your review"), say("{agent} in {project}: {title}", { agent: item.agent, project: item.project_name, title: item.title }));
   } else if (fresh.length > 1) {
-    notify(say("{count} proposals need your decision", { count: fresh.length }), say("Open the Inbox to accept or reject them."));
+    notify(many(fresh.length), say("Open Review to accept them, or reject them with comments."));
   }
 }
 
-function watchProposals(port) {
-  void checkProposals(port);
-  setInterval(() => void checkProposals(port), PROPOSAL_CHECK_MS).unref();
+function watchReviews(port) {
+  void checkReviews(port);
+  setInterval(() => void checkReviews(port), REVIEW_CHECK_MS).unref();
 }
 
 // A monitor only listens: Electron still shows its own error dialog as before.
@@ -528,7 +555,9 @@ process.on("unhandledRejection", (reason) => {
   recordError(error.message, error.stack ?? "");
 });
 
-if (!app.requestSingleInstanceLock()) {
+if (relaunching) {
+  app.exit(0);
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", (event, argv) => {
@@ -537,6 +566,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("before-quit", (event) => {
     quitting = true;
+    pomodoro?.dispose();
     if (backendStoppedForQuit) return;
     event.preventDefault();
     void stopBackend().finally(() => {
@@ -599,12 +629,14 @@ if (!app.requestSingleInstanceLock()) {
       const result = await dialog.showOpenDialog(window, { title: heading, properties: ["openDirectory"] });
       return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
     });
+    pomodoro = createPomodoro({ app, getMainWindow: () => window, showMainWindow: showWindow, say, writeLog });
+    powerMonitor.on("resume", () => pomodoro?.wake());
     try {
       const port = await startBackend();
       await waitForHealth(port);
       await openWindow(port);
       createTray();
-      watchProposals(port);
+      watchReviews(port);
     } catch (error) {
       writeLog(`[startup error] ${error.stack ?? error.message}`);
       fatal(say("Project Moah could not open"), `${error.message}\n\n${say("Details were saved to {path}", { path: logPath })}`);

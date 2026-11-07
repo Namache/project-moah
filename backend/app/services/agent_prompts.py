@@ -92,9 +92,14 @@ How to work
 - Verify: run the relevant tests and check each criterion. Report what was implemented, what was
   tested, what was verified by hand, and what is not verified yet.
 - Record decisions and findings with brain_create_memory, linked to {human_id}.
-- Finish with brain_create_checkpoint for {human_id}. Completing the task needs my review: propose
-  it with brain_create_proposal (complete_task) instead of marking it done."""
-    prompt = _clip(prompt, PROMPT_LIMIT)
+- Finish with brain_create_checkpoint for {human_id}, then hand it to me for review with
+  brain_submit_review: a short summary, what was done, what was not, how I can check it, and
+  screenshots of anything I can see. Don't mark it done yourself."""
+    return _opened(agent, human_id, _clip(prompt, PROMPT_LIMIT), folder)
+
+
+def _opened(agent: AgentName, human_id: str, prompt: str, folder: str | None) -> dict:
+    """The prompt with the link that opens it, typed in but not sent, in the agent's app."""
     if agent == "codex":
         url = "codex://new?prompt=" + quote(prompt, safe="")
         if folder:
@@ -103,6 +108,73 @@ How to work
         # Claude's desktop link cannot choose a folder; the prompt names it.
         url = "claude://code/new?q=" + quote(prompt, safe="")
     return {"agent": agent, "task": human_id, "prompt": prompt, "url": url, "folder": folder}
+
+
+COMMENT_LIMIT = 2500
+
+
+def fix_prompt(session: Session, project: Project, task_ref: str, agent: AgentName) -> dict:
+    """A prompt that hands the person's comments on a sent-back review, or their answer to an
+    agent's question, to an agent."""
+    from app.services.reviews import ReviewService
+
+    if project.kind != "project":
+        raise HTTPException(status_code=409, detail="Tasks belong to projects.")
+    task = TaskService(session).get(project.id, task_ref)
+    reviews = ReviewService(session)
+    review = reviews.latest(task.id)
+    if review is None or review.status not in ("rejected", "answered"):
+        raise HTTPException(status_code=409, detail=f"{task.human_id} was not sent back.")
+    files = reviews.feedback_files(review.id)
+    folder = _folder(project)
+    where = f"Project folder: {folder}" if folder else "The project has no folder set yet."
+    attached = (
+        f"\nI attached {len(files)} file(s) to my comments: brain_get_task shows them, and"
+        f' brain_view_images(record="{task.human_id}") shows the pictures.'
+        if files
+        else ""
+    )
+    comment = _clip(review.comment or "(no comment, see the attached files)", COMMENT_LIMIT)
+    if review.status == "answered":
+        asked = _clip(" ".join(review.summary.split()), 600)
+        prompt = f"""\
+I answered your question on task {task.human_id} "{task.title}", in the Project Moah project
+"{project.name}" ({project.slug}). {where}
+
+You asked
+{asked}
+
+My answer
+{comment}{attached}
+
+How to work
+1. Call brain_context_pack with task="{task.human_id}" and project="{project.slug}", and read
+   brain_get_task for {task.human_id}.
+2. Record my answer as a decision (brain_create_memory) if it settles something for later.
+3. Go on with the task. When it is done, call brain_create_checkpoint and brain_submit_review,
+   with screenshots of anything I can see."""
+        return _opened(agent, task.human_id, _clip(prompt, PROMPT_LIMIT), folder)
+    unmet = [c.description for c in task.criteria if not c.is_completed]
+    criteria = (
+        "\n\nAcceptance criteria not met yet\n"
+        + "\n".join(f"- {_clip(c, 200)}" for c in unmet[:10])
+        if unmet
+        else ""
+    )
+    prompt = f"""\
+I sent task {task.human_id} "{task.title}" back from review, in the Project Moah project
+"{project.name}" ({project.slug}). {where}
+
+My comments
+{comment}{attached}{criteria}
+
+How to work
+1. Call brain_context_pack with task="{task.human_id}" and project="{project.slug}", and read
+   brain_get_task for {task.human_id}: it has your last review and my full comments.
+2. Fix what my comments ask, nothing more. Ask me if a comment is unclear.
+3. Verify the fix, then call brain_create_checkpoint and brain_submit_review again: say what
+   changed since the last round, and attach fresh screenshots of anything I can see."""
+    return _opened(agent, task.human_id, _clip(prompt, PROMPT_LIMIT), folder)
 
 
 def second_opinion(

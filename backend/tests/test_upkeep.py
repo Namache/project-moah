@@ -27,6 +27,9 @@ UNVERSIONED = {
     "app_settings",
     "graph_state",
     "retrieval_sessions",
+    # Reviews of finished work are not part of the graph; the task's own status change is.
+    "review_files",
+    "task_reviews",
 }
 
 

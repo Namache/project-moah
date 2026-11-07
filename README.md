@@ -41,7 +41,7 @@
 | **Briefs** | Every agent session starts with your rules and the unfinished task with what is already decided for it, so agents check Moah instead of asking you again. | Context packs |
 | **Links** | Records are connected the way they relate: a bug *caused by* a decision, a task that *uses* a rule. | Brain |
 | **Learns** | Links that lead to useful records get stronger, unused ones fade. | Brain health |
-| **Asks first** | Agents suggest changes to locked things; nothing changes until you accept. | Inbox |
+| **Asks first** | Finished work and changes to locked things wait for you: read what the agent did, see its screenshots, then accept or send it back with comments. | Review |
 | **Hands off** | Checkpoints let any agent, Claude Code or Codex, pick up where the last one stopped. | Checkpoints |
 | **Listens** | Dictate into any text field instead of typing, in many languages. Speech becomes text on your computer. | Any text field |
 

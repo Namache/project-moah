@@ -7,6 +7,7 @@ import { insertDictation, startRecording } from "../../lib/recorder";
 import { LiveDictation } from "../../lib/liveDictation";
 import { readDictationLanguage } from "../../lib/dictationLanguage";
 import { fieldName, isDictatable, setFieldValue, type TextField } from "../../lib/dictationTarget";
+import { onDictationToggle, publishDictationState } from "../../lib/dictationState";
 import { t } from "../../lib/i18n";
 
 type Phase = "idle" | "starting" | "recording" | "transcribing";
@@ -26,8 +27,9 @@ function topModal(): HTMLDialogElement | null {
  * One microphone for the whole app. Click the text field you want to write in, then press the
  * microphone (or Ctrl+Shift+Space). Words appear in that field while you speak and get a final,
  * more accurate pass when you stop. Speech is turned into text on this computer, never online.
+ * With inline set, the screen shows its own microphone button and this shows none.
  */
-export function DictationDock() {
+export function DictationDock({ inline = false }: { inline?: boolean }) {
   const available = useDictationAvailable();
   const [phase, setPhase] = useState<Phase>("idle");
   const [message, setMessage] = useState("");
@@ -68,6 +70,13 @@ export function DictationDock() {
   });
 
   useEffect(() => () => { live.current?.cancel(); release(); }, []);
+
+  // A screen with its own microphone button (inline) starts and stops dictation through here.
+  useEffect(() => {
+    if (!available) return;
+    return onDictationToggle(() => void toggle());
+  });
+  useEffect(() => { publishDictationState({ phase, message }); }, [phase, message]);
 
   // A note like "No speech was heard" fades after a few seconds.
   useEffect(() => {
@@ -151,7 +160,7 @@ export function DictationDock() {
     }
   }
 
-  if (!available) return null;
+  if (!available || inline) return null;
   const into = phase === "idle" ? focused : target.current?.field ?? null;
   const name = into ? fieldName(into) : "";
   const label = phase === "recording" ? (name ? t("Stop dictating into {field}", { field: name }) : t("Stop dictating"))

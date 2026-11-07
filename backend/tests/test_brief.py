@@ -349,10 +349,15 @@ def test_how_to_says_to_look_before_asking_and_to_write_back() -> None:
     assert "Skip trivia" in HOW_TO and "link only real relationships" in HOW_TO
     # Only Global rules and decisions need review, not the answers recorded as decisions.
     assert "global rules, global decisions" in HOW_TO and "New global" not in HOW_TO
-    assert "status review" in HOW_TO
+    assert "brain_submit_review" in HOW_TO and "screenshots" in HOW_TO
     assert "follow-ups on the same work" not in HOW_TO
     assert "this session's task" not in HOW_TO  # mechanics agents do not need up front
-    assert base_tokens(HOW_TO) <= 287  # the October-to-November HOW_TO cost
+    # The October-to-November HOW_TO cost (287), plus 13 for handing finished tasks to review
+    # and saying where changes to global and locked records go. Asking the person through
+    # Review (brain_ask_person) is not here: in three real runs, a brief line, the server's
+    # instructions and a line under every pack did not make Claude Code use it instead of the
+    # chat, so it would only cost tokens. The tool and the hint after status blocked remain.
+    assert base_tokens(HOW_TO) <= 300
 
 
 def test_server_instructions_stay_short_and_defer_to_the_brief() -> None:
@@ -364,4 +369,4 @@ def test_server_instructions_stay_short_and_defer_to_the_brief() -> None:
     assert "brain_brief" in INSTRUCTIONS and "before you ask" in INSTRUCTIONS
     assert "needs no" in INSTRUCTIONS and "permission" in INSTRUCTIONS
     assert "global rules, global decisions" in " ".join(INSTRUCTIONS.split()).casefold()
-    assert "status review" in INSTRUCTIONS and "finishing a task go" not in INSTRUCTIONS
+    assert "brain_submit_review" in INSTRUCTIONS and "finishing a task go" not in INSTRUCTIONS

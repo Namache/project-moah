@@ -19,7 +19,7 @@ Memory holds the knowledge that should survive between sessions.
 
 ## Lock, pin, and AI visibility
 
-**Locked** memory cannot be changed by an agent. If an agent wants a change, it makes a suggestion that waits in your *Inbox*.
+**Locked** memory cannot be changed by an agent. If an agent wants a change, it makes a suggestion that waits in *Review*.
 
 **AI visibility** controls what agents may see:
 

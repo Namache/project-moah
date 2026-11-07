@@ -1,10 +1,11 @@
 import { BookOpen, ChevronDown, FolderPlus, ListPlus, Plus, Search, Sparkles, type LucideIcon } from "lucide-react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useProject, useProjects } from "../hooks/useProjects";
-import { usePendingProposals } from "../hooks/useProposals";
+import { usePendingReviews } from "../hooks/useReviews";
 import { useKnowledgeUpdates } from "../hooks/useGraph";
 import { CommandPalette } from "./CommandPalette";
 import { DictationDock } from "./dictation/DictationDock";
+import { PomodoroCues } from "./pomodoro/PomodoroCues";
 import { primaryNav, secondaryNav, supportNav } from "./navItems";
 import { ProjectsNav } from "./ProjectsNav";
 import { SidebarResizer, useSidebarWidth } from "./SidebarResizer";
@@ -47,13 +48,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const selectedId = location.pathname.match(/^\/projects\/([^/]+)/)?.[1] ?? "";
   const projects = useProjects();
-  const pending = usePendingProposals().data;
+  const pending = usePendingReviews().data;
   useKnowledgeUpdates();
   const detail = useProject(selectedId);
   const selectedProject = detail.data ?? projects.data?.find((project) => project.id === selectedId);
   const availableProjects = projects.data?.filter((project) => project.status !== "archived") ?? [];
 
   const wide = useWideLayout();
+  // The Review screen fills the window; it and a project's Review tab have their own microphone.
+  const fullScreen = location.pathname === "/review";
+  const ownMicrophone = fullScreen || /^\/projects\/[^/]+\/review$/.test(location.pathname);
   const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
   const pendingTotal = pending?.total ?? 0;
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -133,12 +137,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {wide && <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />}
       <div className="min-w-0 flex-1">
-        <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1280px] px-5 py-6 outline-none sm:px-8 sm:py-8 lg:px-10">
+        <main id="main-content" tabIndex={-1} className={fullScreen ? "outline-none" : "mx-auto max-w-[1280px] px-5 py-6 outline-none sm:px-8 sm:py-8 lg:px-10"}>
           {children}
         </main>
       </div>
       <Notices />
-      <DictationDock />
+      <DictationDock inline={ownMicrophone} />
+      <PomodoroCues />
       {paletteOpen && <CommandPalette projects={availableProjects} current={selectedProject} onClose={() => setPaletteOpen(false)} />}
     </div>
   );

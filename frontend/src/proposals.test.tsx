@@ -10,7 +10,9 @@ const base = { project_id: "p1", agent: "codex", target_entity_type: "memory", t
 const locked = { ...base, id: "a", human_id: "PROP-001", proposal_type: "update_memory", target_label: "DEC-001 Base camp capacity", target_locked: true, payload: { content: "8" }, reason: "Playtests need 8", changes: ["Content: 6 → 8"] };
 const other = { ...base, id: "b", human_id: "PROP-002", proposal_type: "complete_task", target_label: null, target_locked: false, payload: { complete_all_criteria: false }, reason: "", changes: ["Status: in progress → completed"] };
 
-function setup(list: object[] = [locked, other]) {
+const item = (proposal: { id: string; human_id: string; reason: string }) => ({ kind: "suggestion", key: `proposal:${proposal.id}`, project_id: "p1", project_name: "Trailhead", project_icon: null, project_accent: null, ref: proposal.human_id, title: `Suggestion ${proposal.human_id}`, summary: proposal.reason, agent: "codex", done_at: "2026-01-02T00:00:00Z", reviewed_at: null, verdict: null, round: 1, screenshots: 0, generated: false });
+
+function setup(list: { id: string; human_id: string; reason: string }[] = [locked, other]) {
   const calls: { url: string; method: string; body?: unknown }[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
     const url = String(input), method = options?.method ?? "GET";
@@ -18,9 +20,12 @@ function setup(list: object[] = [locked, other]) {
     if (url.startsWith("/api/projects?")) return Response.json([project]);
     if (url === "/api/projects/p1") return Response.json(project);
     if (url.startsWith("/api/projects/p1/proposals?")) return Response.json(url.includes("status=pending") ? list : []);
-    if (url === "/api/proposals/pending") return Response.json({ total: list.length, by_project: { p1: list.length } });
+    if (url === "/api/reviews/pending") return Response.json({ total: list.length, by_project: { p1: list.length }, newest: [] });
+    if (url === "/api/reviews" || url === "/api/reviews?project_id=p1") return Response.json({ waiting: list.map(item), reviewed: [] });
     if (url.endsWith("/accept") || url.endsWith("/reject")) return Response.json({ ...locked, status: url.endsWith("/accept") ? "accepted" : "rejected" });
     if (url.endsWith("/accept-all")) return Response.json({ accepted: list, failed: [] });
+    const one = list.find((proposal) => url === `/api/projects/p1/proposals/${proposal.human_id}`);
+    if (one) return Response.json(one);
     return Response.json([]);
   }));
   return calls;
@@ -73,7 +78,8 @@ describe("Review", () => {
     await user.click(within(card).getByRole("button", { name: "Accept with my edits" }));
     expect(calls.find((c) => c.url.endsWith("/a/accept"))?.body).toEqual({ payload: { content: "7" } });
 
-    const second = screen.getByRole("article", { name: /PROP-002/ });
+    await user.click(within(screen.getByRole("complementary", { name: "Review timeline" })).getByRole("button", { name: /PROP-002/ }));
+    const second = await screen.findByRole("article", { name: /PROP-002/ });
     await user.click(within(second).getByRole("button", { name: "Dismiss" }));
     await user.type(within(second).getByLabelText(/Note for the record/), "Not yet");
     await user.click(within(second).getByRole("button", { name: "Dismiss suggestion" }));
@@ -84,40 +90,46 @@ describe("Review", () => {
     const calls = setup();
     const user = userEvent.setup();
     renderAt("/projects/p1/review");
-    await user.click(await screen.findByRole("button", { name: "Accept all" }));
+    await user.click(await screen.findByRole("button", { name: "Accept all 2" }));
     expect(calls.some((c) => c.url.endsWith("/accept-all"))).toBe(false);
     await user.click(screen.getByRole("button", { name: "Yes, accept all" }));
     expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/accept-all"))).toBe(true);
     cleanup();
     setup([]);
     renderAt("/projects/p1/review");
-    expect(await screen.findByText("Nothing waiting for review")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Nothing to review yet" })).toBeInTheDocument();
+    expect(screen.getByText("You're all caught up.")).toBeInTheDocument();
   });
 
-  it("shows pending suggestions on Home and in the project tabs", async () => {
+  it("shows what waits for review on Home and on the project tiles", async () => {
     setup();
     renderAt("/");
-    const inbox = await screen.findByRole("region", { name: "Inbox" });
-    expect(await within(inbox).findByText(/suggestions wait/)).toBeInTheDocument();
-    expect(within(inbox).getByRole("link", { name: "Open Inbox" })).toHaveAttribute("href", "/review");
+    const review = await screen.findByRole("region", { name: "Review" });
+    expect(await within(review).findByText(/items wait for your review/)).toBeInTheDocument();
+    expect(within(review).getByRole("link", { name: "Open Review" })).toHaveAttribute("href", "/review");
     const tiles = screen.getByRole("list", { name: "Active projects" });
-    expect(within(tiles).getByLabelText("2 in Inbox")).toBeInTheDocument();
+    expect(within(tiles).getByLabelText("2 waiting for review")).toBeInTheDocument();
   });
 
-  it("lists every waiting suggestion on the workspace Review page, grouped by project", async () => {
+  it("lists every waiting suggestion in the Review timeline, with its project", async () => {
     setup();
     renderAt("/review");
-    const group = await screen.findByRole("region", { name: /Trailhead/ });
-    expect(await within(group).findByRole("article", { name: /PROP-001/ })).toBeInTheDocument();
-    expect(within(group).getByRole("article", { name: /PROP-002/ })).toBeInTheDocument();
-    expect(within(group).getByRole("button", { name: "Accept all 2" })).toBeInTheDocument();
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    const waiting = await within(timeline).findByRole("list", { name: "Needs review" });
+    expect(within(waiting).getAllByRole("button")).toHaveLength(2);
+    expect(within(waiting).getAllByText("Suggestion")).toHaveLength(2);
+    expect(within(waiting).getAllByText(/Trailhead/).length).toBeGreaterThan(0);
+    // The first waiting suggestion opens on the right.
+    expect(await screen.findByRole("article", { name: /PROP-001/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept all 2" })).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Workspace" });
-    expect(within(nav).getByRole("link", { name: /Inbox/ })).toHaveAttribute("href", "/review");
+    expect(within(nav).getByRole("link", { name: /Review/ })).toHaveAttribute("href", "/review");
   });
 
   it("says when nothing is waiting", async () => {
     setup([]);
     renderAt("/review");
-    expect(await screen.findByRole("heading", { name: "You're all caught up" })).toBeInTheDocument();
+    expect(await screen.findByText("You're all caught up.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Nothing to review yet" })).toBeInTheDocument();
   });
 });

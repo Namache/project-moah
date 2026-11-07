@@ -24,6 +24,7 @@ from app.models.image import Image
 from app.models.memory import Memory, MemoryLink, MemoryTag, MemoryTask
 from app.models.project import Project
 from app.models.proposal import Proposal
+from app.models.review import ReviewFile, TaskReview
 from app.models.task import (
     AcceptanceCriterion,
     Milestone,
@@ -58,6 +59,7 @@ __all__ = [
     "ProjectFile",
     "Proposal",
     "RetrievalSession",
+    "ReviewFile",
     "GraphState",
     "NodeUsefulness",
     "Shelf",
@@ -66,4 +68,5 @@ __all__ = [
     "Task",
     "TaskRelationship",
     "TaskTag",
+    "TaskReview",
 ]

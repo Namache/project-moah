@@ -1,5 +1,6 @@
 import { AgentSettingsCard } from "../components/AgentSettingsCard";
 import { TaskSettingsCard } from "../components/TaskSettingsCard";
+import { FocusTimerSettings } from "../components/pomodoro/FocusTimerSettings";
 import { useDictationAvailable } from "../components/dictation/useDictationAvailable";
 import { dictationLanguages, useDictationLanguage } from "../lib/dictationLanguage";
 import { Choice } from "../components/Choice";
@@ -206,6 +207,8 @@ export function SettingsPage() {
       </Card>
 
       <AccessibilityCard />
+
+      <FocusTimerSettings />
 
       <Card id="settings-agents" title={t("Connect agents")}>
         <div className="grid gap-3 sm:grid-cols-2">
