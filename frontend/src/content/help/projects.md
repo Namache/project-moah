@@ -25,4 +25,8 @@ You rarely need to create projects by hand. Project Moah reads the folder each C
 - Temporary folders, worktrees and Codex's one-off chat folders are skipped. Work in a subfolder counts toward its project.
 - When a folder looks like an existing project that has no folder yet, Project Moah asks on the Projects page instead of guessing. Choose **Yes**, **No, make a new project**, or **Ignore this folder**.
 - An ignored or archived project's folder is never brought back. Open **folders found** to undo an ignore.
+- A project can have more than one folder: its own, and every folder linked to it here. Agents working in any of them, or in another copy of the same Git repository, get that project.
+{{only flatpak}}
+- **Choose folder** may save a path such as `/run/user/1000/doc/…`. That is how the app opens the folder; its real location is linked to the project the first time an agent works there.
+{{end}}
 - Only the folder path is read, never what was said in the session.

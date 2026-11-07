@@ -770,18 +770,15 @@ def usage_summary(
     tools = [t for t in tools if since <= t.at <= end and t.agent in agents]
     compactions = [c for c in compactions if since <= c[0] <= end and c[1] in agents]
 
-    projects = [
-        (project, normalize_folder(project.root_path))
-        for project in session.scalars(select(Project).where(Project.root_path.is_not(None)))
-    ]
-    # Deepest folder wins, as in the MCP server's project detection.
-    projects.sort(key=lambda item: len(item[1]), reverse=True)
+    from app.services.folders import deepest_owners, project_folders
+
+    # A project's own folder and the folders Sync from agents linked to it; the deepest folder
+    # wins, as in the MCP server's project detection.
+    folders = project_folders(session, include_archived=True)
 
     def owner(folder: str) -> Project | None:
-        for project, root in projects:
-            if inside_folder(folder, root):
-                return project
-        return None
+        found = deepest_owners(folder, folders)
+        return found[0] if found else None
 
     places: dict[str, tuple[str, str | None, str]] = {}
 
