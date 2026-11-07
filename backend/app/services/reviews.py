@@ -9,8 +9,11 @@ Moving the task out of review on the board settles its report too (see TaskServi
 
 An agent that cannot go on without the person asks a question: the task moves to Blocked and the
 question waits in Review (first, since work is stuck on it) until the person answers. The answer
-goes back like a send-back. A task an agent blocked without asking shows its checkpoint instead.
-Lines the person wants kept (what was not done, unmet criteria) become follow-up tasks.
+goes back like a send-back. A task that is only blocked, with no question asked, does not wait in
+Review: it waits for something else. A line the person picks (what was not done, an unmet
+criterion) can become a follow-up task; accepting never makes one by itself.
+Accepted work can be reopened from Reviewed with a comment: the task goes back to In progress and
+the comment reaches the next agent like a send-back.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ from app.schemas.review import (
     ReviewDetail,
     ReviewFileRead,
     ReviewItem,
+    ReviewReopen,
     ReviewRound,
     ReviewSubmit,
     ReviewTimeline,
@@ -235,7 +239,8 @@ class ReviewService:
         )
         # Questions first: work is stuck until the person answers them.
         waiting.sort(key=lambda item: (item.question, item.done_at), reverse=True)
-        reviewed = self._reviewed_tasks(project_id, projects, reviewed_limit)
+        waiting_ids = {item.key.removeprefix("task:") for item in waiting if item.kind == "task"}
+        reviewed = self._reviewed_tasks(project_id, projects, reviewed_limit, waiting_ids)
         reviewed += self._reviewed_suggestions(project_id, projects, reviewed_limit)
         reviewed.sort(key=lambda item: item.reviewed_at or item.done_at, reverse=True)
         return ReviewTimeline(waiting=waiting, reviewed=reviewed[:reviewed_limit])
@@ -508,6 +513,35 @@ class ReviewService:
             self.tasks.update(project_id, task.id, TaskUpdate(status="in_progress"))
         return self.detail(project_id, task.id)
 
+    def reopen(self, project_id: str, task_ref: str, payload: ReviewReopen) -> ReviewDetail:
+        """Take back an acceptance: the work was not done after all. The task goes back to In
+        progress and the comment reaches the next agent the way a send-back does."""
+        task = self.tasks.get(project_id, task_ref)
+        review = self.latest(task.id)
+        if review is None or review.kind != "work" or review.status != "accepted":
+            raise conflict(f"{task.human_id} has no accepted work to reopen")
+        if task.status not in CLOSED:
+            raise conflict(
+                f"{task.human_id} is not in Done any more. Send it back from its review instead."
+            )
+        now = utc_now()
+        accepted_at, earlier = review.reviewed_at, review.comment
+        review.status = "rejected"
+        review.comment = payload.comment
+        review.reviewed_at = now
+        review.moved_to = None
+        self._log(
+            task,
+            "REVIEW_REOPENED",
+            review,
+            comment=_one_line(payload.comment, 200),
+            accepted_at=accepted_at.isoformat() if accepted_at else None,
+            **({"accepted_comment": _one_line(earlier, 200)} if earlier else {}),
+        )
+        self.session.flush()
+        self.tasks.update(project_id, task.id, TaskUpdate(status="in_progress"))
+        return self.detail(project_id, task.id)
+
     def follow_ups(self, project_id: str, task_ref: str, payload: FollowUpCreate) -> ReviewDetail:
         """Make tasks from lines of the review shown for a task: what was not done, or an
         acceptance criterion that is not met. Each new task is related to this one."""
@@ -535,9 +569,7 @@ class ReviewService:
     def _waits_for(self, task: Task) -> str | None:
         if task.status == WAITING_STATUS:
             return "work"
-        if task.status == QUESTION_STATUS and (
-            self._pending(task.id, "question") is not None or self._entered(task)[2]
-        ):
+        if task.status == QUESTION_STATUS and self._pending(task.id, "question") is not None:
             return "question"
         return None
 
@@ -796,14 +828,13 @@ class ReviewService:
                 )
             )
         }
-        # A blocked task waits for the person only when an agent blocked it: with a question,
-        # or (if it skipped asking) with its last checkpoint. One the person blocked does not.
+        # A blocked task waits for the person only while an agent's question waits for an
+        # answer. Blocked alone (on a supplier, a date, another task) is not for Review.
         tasks = [
             t
             for t in tasks
             if t.status == WAITING_STATUS
             or (pending.get(t.id) is not None and pending[t.id].kind == "question")
-            or (t.id not in pending and self._entered(t)[2])
         ]
         counts = dict(
             self.session.execute(
@@ -839,7 +870,15 @@ class ReviewService:
             )
         return items
 
-    def _reviewed_tasks(self, project_id: str | None, projects: dict[str, Project], limit: int):
+    def _reviewed_tasks(
+        self,
+        project_id: str | None,
+        projects: dict[str, Project],
+        limit: int,
+        waiting: Iterable[str] = (),
+    ):
+        """One line per task: your latest decision on it. A task waiting for you again is in the
+        waiting list instead, so it is never listed twice."""
         statement = (
             select(TaskReview, Task)
             .join(Task, Task.id == TaskReview.task_id)
@@ -847,9 +886,17 @@ class ReviewService:
         )
         if project_id:
             statement = statement.where(TaskReview.project_id == project_id)
-        rows = self.session.execute(
-            statement.order_by(TaskReview.reviewed_at.desc()).limit(limit)
-        ).all()
+        rows = []
+        seen: set[str] = set(waiting)
+        for review, task in self.session.execute(
+            statement.order_by(TaskReview.reviewed_at.desc(), TaskReview.round.desc())
+        ):
+            if task.id in seen:
+                continue
+            seen.add(task.id)
+            rows.append((review, task))
+            if len(rows) >= limit:
+                break
         counts = dict(
             self.session.execute(
                 select(ReviewFile.review_id, func.count(ReviewFile.id))

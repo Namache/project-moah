@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, FileText, LoaderCircle, Mic, Paperclip, RotateCcw, Send, Square, X } from "lucide-react";
 import { reviewsApi } from "../../api/reviews";
 import { agentsApi, type AgentName, type WorkPrompt } from "../../api/agents";
-import { useReviewDecision } from "../../hooks/useReviews";
+import { useReopenReview, useReviewDecision } from "../../hooks/useReviews";
 import { useDictationAvailable } from "../dictation/useDictationAvailable";
 import { toggleDictation, useDictationState } from "../../lib/dictationState";
 import { queryKeys } from "../../lib/queries";
 import { notify } from "../../lib/notify";
-import { t, tp } from "../../lib/i18n";
-import { MAX_FEEDBACK_BYTES, MAX_FEEDBACK_FILES, MAX_TEXT_BYTES, type FollowUpColumn, type ReviewDecisionInput, type ReviewDetail, type ReviewFile } from "../../types/review";
+import { t } from "../../lib/i18n";
+import { MAX_FEEDBACK_BYTES, MAX_FEEDBACK_FILES, MAX_TEXT_BYTES, type ReviewDecisionInput, type ReviewDetail, type ReviewFile } from "../../types/review";
 import { Button } from "../ui";
 import { useReviewFileUrl } from "./reviewBits";
 
@@ -88,39 +88,67 @@ export function SendBackToAgent({ projectId, taskRef, answered = false, compact 
 /** A line put into the comment box: quoted from the review, or an answer picked from the agent's suggestions. */
 export interface Quoted { text: string; n: number; answer?: boolean }
 
-/**
- * The comment box under the review: write or dictate, attach pictures or text files, then accept
- * (the task moves to Done) or reject (your comments go back to the agent). Rejecting needs a comment
- * or a file, so the agent knows what to fix. Accepting can also make tasks from what was left. For
- * an agent's question, the box takes your answer instead.
- */
-export function ReviewComposer({ detail, quote, criteria, leftovers, onDecided }: { detail: ReviewDetail; quote: Quoted | null; criteria: { id: string; met: boolean }[]; leftovers: string[]; onDecided: (verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) => void }) {
-  const key = `${detail.project_id}:${detail.task_id}`;
-  const [comment, setComment] = useState(() => drafts.get(key) ?? "");
-  const [uploading, setUploading] = useState(0);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [keepLeftovers, setKeepLeftovers] = useState(true);
-  const [column, setColumn] = useState<FollowUpColumn>("todo");
-  const question = detail.current.kind === "question";
-  const field = useRef<HTMLTextAreaElement>(null);
-  const input = useRef<HTMLInputElement>(null);
-  const client = useQueryClient();
-  const decide = useReviewDecision(detail.project_id, detail.task_ref);
+/** The microphone button for a comment box: the app's one microphone, writing into that box. */
+function RecordButton({ field }: { field: RefObject<HTMLTextAreaElement | null> }) {
   const dictation = useDictationState();
   const canDictate = useDictationAvailable();
-  const files = detail.current.feedback;
-  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.review(detail.project_id, detail.task_ref) });
+  if (!canDictate) return null;
+  const listening = dictation.phase === "recording";
+  const finishing = dictation.phase === "transcribing" || dictation.phase === "starting";
+  return (
+    <Button size="sm" variant={listening ? "danger" : "secondary"} onMouseDown={(event) => event.preventDefault()} disabled={finishing}
+      onClick={() => { field.current?.focus(); toggleDictation(); }} aria-pressed={listening} aria-keyshortcuts="Control+Shift+Space"
+      title={`${listening ? t("Stop dictating") : t("Dictate your comment")} (Ctrl+Shift+Space)`}>
+      {listening ? <Square size={14} aria-hidden="true" /> : finishing ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Mic size={15} aria-hidden="true" />}
+      {listening ? t("Stop") : t("Record")}
+    </Button>
+  );
+}
 
-  useEffect(() => { setComment(drafts.get(key) ?? ""); setProblem(null); }, [key]);
-  useEffect(() => { drafts.set(key, comment); }, [key, comment]);
-  // Grow with the text, up to about ten lines.
+function DictationNote() {
+  const dictation = useDictationState();
+  const listening = dictation.phase === "recording";
+  return (
+    <p role={dictation.message ? "alert" : "status"} className={`min-w-0 flex-1 truncate text-xs ${dictation.message ? "text-danger-ink" : "text-ink-muted"}`}>
+      {dictation.message || (listening ? t("Listening…") : dictation.phase === "transcribing" ? t("Finishing the text…") : "")}
+    </p>
+  );
+}
+
+/** A comment box that grows with its text, up to about ten lines. */
+function useGrowing(field: RefObject<HTMLTextAreaElement | null>, text: string) {
   useEffect(() => {
     const box = field.current;
     if (!box) return;
     box.style.height = "auto";
     box.style.height = `${Math.min(box.scrollHeight, 240)}px`;
-  }, [comment]);
+  }, [field, text]);
+}
+
+/**
+ * The comment box under the review: write or dictate, attach pictures or text files, then accept
+ * (the task moves to Done, nothing else happens) or send it back (your comments go to the agent and
+ * the task goes back to In progress). Sending back needs a comment or a file, so the agent knows
+ * what to fix. For an agent's question, the box takes your answer instead.
+ */
+export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail: ReviewDetail; quote: Quoted | null; criteria: { id: string; met: boolean }[]; onDecided: (verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) => void }) {
+  const key = `${detail.project_id}:${detail.task_id}`;
+  const [comment, setComment] = useState(() => drafts.get(key) ?? "");
+  const [uploading, setUploading] = useState(0);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const question = detail.current.kind === "question";
+  const field = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const client = useQueryClient();
+  const decide = useReviewDecision(detail.project_id, detail.task_ref);
+  const listening = useDictationState().phase === "recording";
+  const files = detail.current.feedback;
+  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.review(detail.project_id, detail.task_ref) });
+
+  useEffect(() => { setComment(drafts.get(key) ?? ""); setProblem(null); }, [key]);
+  useEffect(() => { drafts.set(key, comment); }, [key, comment]);
+  useGrowing(field, comment);
   // A line quoted from the review goes at the end, ready for your words; a picked answer as it is.
   useEffect(() => {
     if (!quote) return;
@@ -167,27 +195,28 @@ export function ReviewComposer({ detail, quote, criteria, leftovers, onDecided }
     void attach([...event.dataTransfer.files]);
   }
 
-  const making = keepLeftovers && leftovers.length > 0;
+  const said = comment.trim().length > 0 || files.length > 0;
+  const busy = decide.isPending || uploading > 0;
 
   function send(verdict: ReviewDecisionInput["verdict"]) {
-    const input: ReviewDecisionInput = verdict === "answer" ? { verdict, comment }
-      : { verdict, comment, criteria, ...(verdict === "accept" && making ? { follow_ups: leftovers, follow_up_status: column } : {}) };
+    // Sending back or answering needs words: say so where they go, instead of a grey button.
+    if (verdict !== "accept" && !said) {
+      setProblem(verdict === "answer" ? t("Write your answer first.") : t("Write what should change first, so the agent knows what to fix."));
+      field.current?.focus();
+      return;
+    }
+    setProblem(null);
+    const input: ReviewDecisionInput = verdict === "answer" ? { verdict, comment } : { verdict, comment, criteria };
     decide.mutate(input, {
       onSuccess: (result) => {
         drafts.delete(key);
         setComment("");
-        const made = verdict === "accept" && making ? ` ${tp(leftovers.length, "Made {count} follow-up task.", "Made {count} follow-up tasks.")}` : "";
-        notify(verdict === "accept" ? t("Accepted. {task} is in Done.", { task: detail.task_ref }) + made
-          : verdict === "answer" ? t("Answer sent. {task} is back in progress.", { task: detail.task_ref }) : t("Sent back to the agent with your comments."));
+        notify(verdict === "accept" ? t("Accepted. {task} is in Done.", { task: detail.task_ref })
+          : verdict === "answer" ? t("Answer sent. {task} is back in progress.", { task: detail.task_ref }) : t("Sent back. {task} is in progress again, with your comments.", { task: detail.task_ref }));
         onDecided(verdict, result);
       },
     });
   }
-
-  const listening = dictation.phase === "recording";
-  const finishing = dictation.phase === "transcribing" || dictation.phase === "starting";
-  const canReject = comment.trim().length > 0 || files.length > 0;
-  const busy = decide.isPending || uploading > 0;
 
   return (
     <div onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}
@@ -213,49 +242,73 @@ export function ReviewComposer({ detail, quote, criteria, leftovers, onDecided }
         )}
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        {canDictate && (
-          <Button size="sm" variant={listening ? "danger" : "secondary"} onMouseDown={(event) => event.preventDefault()} disabled={finishing}
-            onClick={() => { field.current?.focus(); toggleDictation(); }} aria-pressed={listening} aria-keyshortcuts="Control+Shift+Space"
-            title={`${listening ? t("Stop dictating") : t("Dictate your comment")} (Ctrl+Shift+Space)`}>
-            {listening ? <Square size={14} aria-hidden="true" /> : finishing ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Mic size={15} aria-hidden="true" />}
-            {listening ? t("Stop") : t("Record")}
-          </Button>
-        )}
+        <RecordButton field={field} />
         <Button size="sm" onClick={() => input.current?.click()} disabled={files.length >= MAX_FEEDBACK_FILES}><Paperclip size={15} aria-hidden="true" />{t("Attach")}</Button>
         <input ref={input} type="file" multiple hidden accept="image/png,image/jpeg,image/webp,image/gif,text/*,.md,.log,.json,.csv,.diff,.patch,.yaml,.yml" onChange={(event) => { void attach([...(event.target.files ?? [])]); event.target.value = ""; }} />
-        <p role={dictation.message ? "alert" : "status"} className={`min-w-0 flex-1 truncate text-xs ${dictation.message ? "text-danger-ink" : "text-ink-muted"}`}>
-          {dictation.message || (listening ? t("Listening…") : dictation.phase === "transcribing" ? t("Finishing the text…") : "")}
-        </p>
+        <DictationNote />
         {question ? (
-          <Button variant="primary" disabled={busy || !canReject} onClick={() => send("answer")} title={canReject ? t("Sends your answer to the agent; the task goes back to In progress") : t("Write or attach your answer first")}>
+          <Button variant="primary" disabled={busy} onClick={() => send("answer")} title={t("Sends your answer to the agent; the task goes back to In progress")}>
             <Send size={15} aria-hidden="true" />{t("Send answer")}
           </Button>
         ) : <>
-          <Button variant="danger" disabled={busy || !canReject} onClick={() => send("reject")} title={canReject ? t("Sends your comments back to the agent") : t("Write or attach what should change first")}>
-            <RotateCcw size={15} aria-hidden="true" />{t("Reject")}
+          <Button variant="danger" disabled={busy} onClick={() => send("reject")} title={t("Your comments go back to the agent, and the task goes back to In progress")}>
+            <RotateCcw size={15} aria-hidden="true" />{t("Send back")}
           </Button>
-          <Button variant="primary" disabled={busy} onClick={() => send("accept")} title={t("Accept the work: the task moves to Done")}>
-            <Check size={16} aria-hidden="true" />{t("Accept")}
+          <Button variant="primary" disabled={busy} onClick={() => send("accept")} title={t("The task moves to Done. You can still reopen it from Reviewed.")}>
+            <Check size={16} aria-hidden="true" />{t("Accept and move to Done")}
           </Button>
         </>}
       </div>
-      {!question && leftovers.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-ink-muted">
-          <label className="inline-flex cursor-pointer items-center gap-1.5" title={leftovers.join("\n")}>
-            <input type="checkbox" checked={keepLeftovers} onChange={(event) => setKeepLeftovers(event.target.checked)} className="h-3.5 w-3.5 accent-forest" />
-            {tp(leftovers.length, "When I accept, make a task from the {count} line left", "When I accept, make tasks from the {count} lines left")}
-          </label>
-          <label className="inline-flex items-center gap-1">
-            <span className="sr-only">{t("Column for the new tasks")}</span>
-            <select value={column} onChange={(event) => setColumn(event.target.value as FollowUpColumn)} disabled={!keepLeftovers} className="rounded-md border border-line bg-surface px-1.5 py-0.5 text-xs text-ink disabled:opacity-50">
-              <option value="todo">{t("in To do")}</option>
-              <option value="backlog">{t("in Backlog")}</option>
-            </select>
-          </label>
-        </div>
-      )}
       {problem && <p role="alert" className="mt-2 text-xs text-danger-ink">{problem}</p>}
       {decide.error && <p role="alert" className="mt-2 text-xs text-danger-ink">{(decide.error as Error).message}</p>}
+    </div>
+  );
+}
+
+/**
+ * Under accepted work: take the acceptance back. Your comment says what is wrong; the task goes
+ * back to In progress and the next agent reads the comment first, as with any send-back.
+ */
+export function ReopenBox({ detail }: { detail: ReviewDetail }) {
+  const [open, setOpen] = useState(false);
+  const [comment, setComment] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const reopen = useReopenReview(detail.project_id, detail.task_ref);
+  const listening = useDictationState().phase === "recording";
+  useGrowing(field, comment);
+  useEffect(() => { if (open) requestAnimationFrame(() => field.current?.focus()); }, [open]);
+
+  function send() {
+    if (!comment.trim()) { setProblem(t("Write what is wrong first, so the agent knows what to fix.")); field.current?.focus(); return; }
+    setProblem(null);
+    reopen.mutate(comment, { onSuccess: () => notify(t("Reopened. {task} is in progress again, with your comment.", { task: detail.task_ref })) });
+  }
+
+  if (!open) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 border-t border-line bg-surface px-5 py-3">
+        <p className="min-w-0 flex-1 text-sm text-ink-muted">{t("Not right after all? Reopen it with a comment: it goes back to In progress, and the next agent reads your comment first.")}</p>
+        <Button variant="secondary" onClick={() => setOpen(true)}><RotateCcw size={15} aria-hidden="true" />{t("Reopen with a comment")}</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="border-t border-line bg-surface px-5 pb-4 pt-3">
+      <label htmlFor="reopen-comment" className="mb-1.5 block text-sm font-semibold text-ink">{t("What is wrong with {task}?", { task: detail.task_ref })}</label>
+      <div className={`rounded-xl border bg-canvas shadow-card focus-within:border-forest ${listening ? "border-danger" : "border-line-strong"}`}>
+        <textarea id="reopen-comment" ref={field} rows={2} value={comment} maxLength={20000} onChange={(event) => setComment(event.target.value)}
+          placeholder={t("Say what still needs fixing, or press the microphone and say it.")}
+          className="block w-full resize-none rounded-xl bg-transparent px-4 py-3 text-sm leading-6 text-ink outline-none placeholder:text-ink-subtle" />
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <RecordButton field={field} />
+        <DictationNote />
+        <Button variant="quiet" disabled={reopen.isPending} onClick={() => { setOpen(false); setProblem(null); }}>{t("Cancel")}</Button>
+        <Button variant="danger" disabled={reopen.isPending} onClick={send}><RotateCcw size={15} aria-hidden="true" />{reopen.isPending ? t("Reopening…") : t("Reopen and send back")}</Button>
+      </div>
+      {problem && <p role="alert" className="mt-2 text-xs text-danger-ink">{problem}</p>}
+      {reopen.error && <p role="alert" className="mt-2 text-xs text-danger-ink">{(reopen.error as Error).message}</p>}
     </div>
   );
 }

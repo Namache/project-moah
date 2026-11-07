@@ -30,6 +30,16 @@ export function useReviewDecision(projectId: string, taskRef: string) {
   });
 }
 
+/** Reopens accepted work with a comment: the task goes back to In progress. */
+export function useReopenReview(projectId: string, taskRef: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (comment: string) => reviewsApi.reopen(projectId, taskRef, comment),
+    onSuccess: (detail) => { client.setQueryData(queryKeys.review(projectId, taskRef), detail); },
+    onSettled: () => { void invalidateProject(client, projectId); },
+  });
+}
+
 /** Makes tasks from lines of a review; the board and the review show them at once. */
 export function useFollowUps(projectId: string, taskRef: string) {
   const client = useQueryClient();

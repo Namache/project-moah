@@ -111,6 +111,21 @@ class ReviewDecision(BaseModel):
         return _clean_items(items)
 
 
+class ReviewReopen(BaseModel):
+    """Taking back an acceptance: what is wrong, for the next agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    comment: str = Field(min_length=1, max_length=20_000)
+
+    @field_validator("comment")
+    @classmethod
+    def comment_has_words(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Say what is wrong, so the agent knows what to fix")
+        return value.strip()
+
+
 class FollowUpCreate(BaseModel):
     """Lines of a review (what was not done, an unmet criterion) to make into tasks."""
 

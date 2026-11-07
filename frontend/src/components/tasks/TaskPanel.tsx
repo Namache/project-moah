@@ -137,7 +137,7 @@ export function TaskPanel({ projectId, projectArchived, taskRef, onClose, onChan
                 ? <Button variant="primary" onClick={() => save({ status: "todo" })}><RotateCcw size={16} aria-hidden="true" />{t("Restore task")}</Button>
                 : task.status === "completed" ? null
                 : task.status === "review"
-                  ? <Link to={`/review?item=${encodeURIComponent(`task:${task.id}`)}`} className={`${buttonBase} ${buttonClasses.primary}`} title={t("See what the agent did, then accept or reject it")}><ClipboardCheck size={16} aria-hidden="true" />{t("Open review")}</Link>
+                  ? <Link to={`/review?item=${encodeURIComponent(`task:${task.id}`)}`} className={`${buttonBase} ${buttonClasses.primary}`} title={t("See what the agent did, then accept it or send it back")}><ClipboardCheck size={16} aria-hidden="true" />{t("Open review")}</Link>
                 : task.status === "in_progress" && task.is_focus
                   ? <Button onClick={() => focus.mutate(null)} disabled={focus.isPending} title={t("Stop pointing agents at this task")}><Target size={16} aria-hidden="true" />{t("Clear focus")}</Button>
                   : <Button variant="primary" onClick={() => start.mutate(task.id)} disabled={start.isPending} title={t("Mark in progress and make it the project's focus")}><Play size={16} aria-hidden="true" />{task.status === "in_progress" ? t("Continue work") : t("Start work")}</Button>)}

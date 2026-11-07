@@ -1,11 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { ClipboardCheck } from "lucide-react";
 import { proposalsApi } from "../api/proposals";
 import { AcceptAllButton } from "../components/proposals/AcceptAllButton";
 import { ProposalCard } from "../components/proposals/ProposalCard";
-import { ReviewComposer, SendBackToAgent, type Quoted } from "../components/review/ReviewComposer";
+import { PaneResizer, usePaneWidth } from "../components/PaneResizer";
+import { ReopenBox, ReviewComposer, SendBackToAgent, type Quoted } from "../components/review/ReviewComposer";
 import { ReviewDocument, type CriteriaTicks, type FollowUpActions } from "../components/review/ReviewDocument";
 import { ReviewTimeline } from "../components/review/ReviewTimeline";
 import { EmptyState, ErrorState } from "../components/ui";
@@ -50,7 +51,8 @@ function TaskPanel({ item, onDecided }: { item: ReviewItem; onDecided: (verdict:
   const project = { name: item.project_name, icon: item.project_icon, accent: item.project_accent };
   const put = (text: string, answer = false) => setQuote((q) => ({ text, n: (q?.n ?? 0) + 1, answer }));
   const ticks: CriteriaTicks | undefined = waiting && work ? { met: (id) => !unticked[id], set: (id, met) => setUnticked((u) => ({ ...u, [id]: !met })) } : undefined;
-  const actions: FollowUpActions | undefined = work && (waiting || round.status === "accepted") ? {
+  // A line of an agent's own report can become a task, one at a time and only when you ask.
+  const actions: FollowUpActions | undefined = work && !round.generated && (waiting || round.status === "accepted") ? {
     making,
     make: (text) => {
       setMaking(text);
@@ -61,9 +63,8 @@ function TaskPanel({ item, onDecided }: { item: ReviewItem; onDecided: (verdict:
       });
     },
   } : undefined;
-  const made = new Set(round.follow_ups.map((f) => f.text));
-  const leftovers = [...round.not_done, ...detail.criteria.filter((c) => unticked[c.id]).map((c) => c.description)].filter((text, i, all) => !made.has(text) && all.indexOf(text) === i);
   const handedBack = (round.status === "rejected" || round.status === "answered") && !round.moved_to && detail.task_status !== "review" && detail.task_status !== "blocked";
+  const reopenable = work && round.status === "accepted" && (detail.task_status === "completed" || detail.task_status === "archived");
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
@@ -72,23 +73,62 @@ function TaskPanel({ item, onDecided }: { item: ReviewItem; onDecided: (verdict:
         </div>
       </div>
       {waiting
-        ? <ReviewComposer detail={detail} quote={quote} criteria={detail.criteria.map((c) => ({ id: c.id, met: !unticked[c.id] }))} leftovers={work ? leftovers : []} onDecided={onDecided} />
+        ? <ReviewComposer detail={detail} quote={quote} criteria={detail.criteria.map((c) => ({ id: c.id, met: !unticked[c.id] }))} onDecided={onDecided} />
         : handedBack
           ? <div className="border-t border-line bg-surface px-5 py-3"><SendBackToAgent projectId={detail.project_id} taskRef={detail.task_ref} answered={round.status === "answered"} /></div>
-          : null}
+          : reopenable
+            ? <ReopenBox key={detail.task_id} detail={detail} />
+            : null}
     </>
   );
 }
 
+const LIST_WIDTH = 380;
+const LIST_MIN = 280;
+/** The view panel keeps at least this much room. */
+const PANEL_MIN = 420;
+
+/** Which projects have work in the timeline, with how many items wait in each. */
+function projectsIn(items: ReviewItem[]) {
+  const found = new Map<string, { id: string; name: string; waiting: number; total: number }>();
+  for (const item of items) {
+    const entry = found.get(item.project_id) ?? { id: item.project_id, name: item.project_name, waiting: 0, total: 0 };
+    entry.total += 1;
+    if (item.reviewed_at === null) entry.waiting += 1;
+    found.set(item.project_id, entry);
+  }
+  return [...found.values()].sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name));
+}
+
 /**
- * The Review screen: on the left, everything agents finished, from every project (or one); on the
- * right, the selected review on top and your comment box underneath. It fills the whole window.
+ * The Review screen: on the left, one line per task agents finished, from every project (or one);
+ * on the right, the selected task's review and your comment box underneath. Drag the line between
+ * them to give either side more room. It fills the whole window.
  */
 export function ReviewScreen({ projectId, embedded = false }: { projectId?: string; embedded?: boolean }) {
   const timeline = useReviewTimeline(projectId);
   const [params, setParams] = useSearchParams();
-  const waiting = timeline.data?.waiting ?? [];
-  const reviewed = timeline.data?.reviewed ?? [];
+  const box = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState(1280);
+  useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const measure = () => setRoom(element.clientWidth || 1280);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const listMax = Math.max(LIST_MIN, room - PANEL_MIN);
+  const [listWidth, setListWidth] = usePaneWidth("moah.review.listWidth", LIST_WIDTH, LIST_MIN, listMax);
+  const allWaiting = timeline.data?.waiting ?? [];
+  const allReviewed = timeline.data?.reviewed ?? [];
+  const projects = projectId ? [] : projectsIn([...allWaiting, ...allReviewed]);
+  const only = projectId ? null : params.get("project");
+  const shownProject = only && projects.some((p) => p.id === only) ? only : null;
+  const waiting = shownProject ? allWaiting.filter((i) => i.project_id === shownProject) : allWaiting;
+  const reviewed = shownProject ? allReviewed.filter((i) => i.project_id === shownProject) : allReviewed;
   const all = [...waiting, ...reviewed];
   const wanted = params.get("item");
   // A task changes key when it is decided ("task:…" becomes "review:…"), and the lists refresh a
@@ -108,6 +148,15 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
     }, { replace: true });
   }
 
+  function filter(project: string) {
+    setParams((current) => {
+      const copy = new URLSearchParams(current);
+      if (project) copy.set("project", project); else copy.delete("project");
+      copy.delete("item");
+      return copy;
+    }, { replace: true });
+  }
+
   function decided(verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) {
     if (!item) return;
     // Sent back or answered: stay on it, with the way to hand your words to an agent now.
@@ -122,18 +171,30 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
   }
 
   return (
-    <div className={`flex min-h-0 flex-col bg-canvas lg:flex-row ${embedded ? "h-[calc(100vh-13rem)] min-h-[36rem] overflow-hidden rounded-xl border border-line" : "h-screen"}`}>
-      <aside aria-label={t("Review timeline")} className="max-h-[42vh] shrink-0 overflow-y-auto border-b border-line bg-surface/60 px-4 py-5 lg:max-h-none lg:w-[34%] lg:min-w-[300px] lg:max-w-[460px] lg:border-b-0 lg:border-r">
+    <div ref={box} className={`flex min-h-0 flex-col bg-canvas lg:flex-row ${embedded ? "h-[calc(100vh-13rem)] min-h-[36rem] overflow-hidden rounded-xl border border-line" : "h-screen"}`}
+      style={{ ["--review-list" as string]: `${listWidth}px` }}>
+      <aside aria-label={t("Review timeline")} className="max-h-[42vh] shrink-0 overflow-y-auto border-b border-line bg-surface/60 px-4 py-5 lg:max-h-none lg:w-[var(--review-list)] lg:border-b-0">
         {!embedded && (
-          <div className="mb-5 px-1">
+          <div className="mb-4 px-1">
             <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("Review")}</h1>
-            <p className="mt-1 text-sm leading-6 text-ink-muted">{t("What Claude Code and Codex finished, and what they need you to answer, from every project.")}</p>
+            <p className="mt-1 text-sm leading-6 text-ink-muted">{t("Tasks Claude Code and Codex finished, and questions they need you to answer. Accept moves a task to Done.")}</p>
           </div>
+        )}
+        {projects.length > 1 && (
+          <label className="mb-4 flex items-center gap-2 px-1 text-xs font-semibold text-ink-muted">
+            <span className="shrink-0">{t("Show")}</span>
+            <select value={shownProject ?? ""} onChange={(event) => filter(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm font-medium text-ink focus-visible:outline-2 focus-visible:outline-forest">
+              <option value="">{t("All projects ({count} waiting)", { count: allWaiting.length })}</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{t("{project} ({count} waiting)", { project: p.name, count: p.waiting })}</option>)}
+            </select>
+          </label>
         )}
         {timeline.isPending ? <Loading label={t("Loading the review timeline")} />
           : timeline.isError ? <ErrorState title={t("The review timeline could not be loaded")} message={timeline.error.message} onRetry={() => void timeline.refetch()} />
-          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={item?.key ?? null} showProject={!projectId} onSelect={select} />}
+          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={item?.key ?? null} showProject={!projectId && !shownProject} onSelect={select} />}
       </aside>
+      <PaneResizer width={listWidth} min={LIST_MIN} max={listMax} fallback={LIST_WIDTH} onResize={setListWidth} label={t("Resize the task list")} />
       <section aria-label={t("Selected review")} className="flex min-h-0 min-w-0 flex-1 flex-col">
         {item?.kind === "task" ? <TaskPanel key={`${item.project_id}:${item.ref}`} item={item} onDecided={decided} />
           : item?.kind === "suggestion" ? <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8"><SuggestionPanel key={item.key} item={item} waitingHere={item.reviewed_at === null ? waiting.filter((i) => i.kind === "suggestion" && i.project_id === item.project_id).length : 0} /></div>

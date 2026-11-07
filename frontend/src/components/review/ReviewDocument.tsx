@@ -24,7 +24,7 @@ export interface FollowUpActions {
 /** Your decision on this round; while it waits, the task's status says so. */
 function StatusPill({ round }: { round: ReviewRound }) {
   if (round.status === "accepted") return <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2.5 py-0.5 text-xs font-semibold text-success-ink"><CircleCheck size={13} aria-hidden="true" />{t("Accepted")}</span>;
-  if (round.status === "rejected") return <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2.5 py-0.5 text-xs font-semibold text-danger-ink"><RotateCcw size={13} aria-hidden="true" />{t("Rejected")}</span>;
+  if (round.status === "rejected") return <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2.5 py-0.5 text-xs font-semibold text-danger-ink"><RotateCcw size={13} aria-hidden="true" />{t("Sent back")}</span>;
   if (round.status === "answered") return <span className="inline-flex items-center gap-1 rounded-full bg-info-soft px-2.5 py-0.5 text-xs font-semibold text-info-ink"><MessageSquareReply size={13} aria-hidden="true" />{t("Answered")}</span>;
   if (round.kind === "question") return <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2.5 py-0.5 text-xs font-semibold text-warning-ink"><CircleHelp size={13} aria-hidden="true" />{t("Question")}</span>;
   return null;
@@ -44,7 +44,7 @@ function MakeTaskButton({ text, actions, label = false }: { text: string; action
   const busy = actions.making === text;
   return (
     <button type="button" onClick={() => actions.make(text)} disabled={actions.making !== null} title={t("Make a task from this line, in To do")} aria-label={t("Make a task from “{text}”", { text })}
-      className="inline-flex shrink-0 items-center gap-1 rounded p-1 text-xs font-semibold text-ink-subtle hover:bg-hover hover:text-forest focus-visible:outline-2 focus-visible:outline-forest disabled:opacity-60">
+      className={`inline-flex shrink-0 items-center gap-1 rounded p-1 text-xs font-semibold text-ink-subtle hover:bg-hover hover:text-forest focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-forest disabled:opacity-60 ${label || busy ? "" : "opacity-0 group-hover:opacity-100"}`}>
       {busy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <ListPlus size={15} aria-hidden="true" />}
       {label && <span>{t("Make a task")}</span>}
     </button>
@@ -203,20 +203,61 @@ function QuestionBody({ detail, round, onPick, compact = false }: { detail: Revi
   );
 }
 
-function RoundBody({ detail, round, onQuote, followUps, compact = false }: { detail: ReviewDetail; round: ReviewRound; onQuote?: Quote; followUps?: FollowUpActions; compact?: boolean }) {
-  const empty = round.generated && !round.summary && !round.done.length && !round.not_done.length && !round.details;
-  const made = new Map(round.follow_ups.map((f) => [f.text, f]));
-  const note = round.kind === "question"
-    ? t("The agent marked this task Blocked without asking a question, so this is its last checkpoint. Answer what it needs below, or move the task on the board.")
-    : empty ? t("The agent moved this task to review without writing anything down. Look at the task, or reject it and ask for a review.") : t("The agent didn't write a review, so this is its last checkpoint.");
+/** The task as it was asked: its description, in Markdown. */
+function TaskText({ detail }: { detail: ReviewDetail }) {
+  return detail.task_description?.trim()
+    ? <Markdown text={detail.task_description} className="px-1" />
+    : <p className="px-1 text-sm text-ink-subtle">{t("This task has no description.")}</p>;
+}
+
+/** What the agent wrote in its last checkpoint, folded away: notes, not a report. */
+function CheckpointNotes({ round }: { round: ReviewRound }) {
+  if (!round.summary && !round.done.length && !round.not_done.length && !round.details) return null;
+  return (
+    <details className="group rounded-xl border border-line bg-surface shadow-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold text-ink-muted focus-visible:outline-2 focus-visible:outline-forest">
+        <ChevronRight size={15} className="text-ink-subtle transition-transform group-open:rotate-90" aria-hidden="true" />
+        <ClipboardList size={15} aria-hidden="true" />{t("The agent's working notes (its last checkpoint)")}
+      </summary>
+      <div className="space-y-3 border-t border-line px-4 py-3 text-sm">
+        {round.summary && <Markdown text={round.summary} />}
+        {round.done.length > 0 && <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">{t("It did")}</p><ul className="list-disc space-y-0.5 pl-5">{round.done.map((text, i) => <li key={i}><Markdown text={text} /></li>)}</ul></div>}
+        {round.not_done.length > 0 && <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">{t("It noted as left")}</p><ul className="list-disc space-y-0.5 pl-5">{round.not_done.map((text, i) => <li key={i}><Markdown text={text} /></li>)}</ul></div>}
+        {round.details && <Markdown text={round.details} />}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * A task that came to Review without a report from the agent: the task itself is what you check,
+ * with the agent's checkpoint folded away underneath.
+ */
+function TaskOnlyBody({ detail, round }: { detail: ReviewDetail; round: ReviewRound }) {
   return (
     <div className="space-y-4">
-      {round.generated && (
-        <p className="flex items-start gap-2 rounded-lg bg-info-soft px-3 py-2 text-sm text-info-ink">
-          <Sparkles size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-          {note}
-        </p>
+      <p className="flex items-start gap-2 rounded-lg bg-info-soft px-3 py-2 text-sm text-info-ink">
+        <Sparkles size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+        {t("The agent moved this task to Review without a report. Check the task below, then accept it or send it back.")}
+      </p>
+      <Section title={t("The task")} icon={ClipboardList} tone="neutral">
+        <TaskText detail={detail} />
+      </Section>
+      {round.screenshots.length > 0 && (
+        <Section title={t("Screenshots")} icon={Camera} tone="special" count={round.screenshots.length}>
+          <Gallery projectId={detail.project_id} files={round.screenshots} />
+        </Section>
       )}
+      <CheckpointNotes round={round} />
+    </div>
+  );
+}
+
+function RoundBody({ detail, round, onQuote, followUps, compact = false }: { detail: ReviewDetail; round: ReviewRound; onQuote?: Quote; followUps?: FollowUpActions; compact?: boolean }) {
+  const made = new Map(round.follow_ups.map((f) => [f.text, f]));
+  if (round.generated && round.kind === "work") return compact ? <CheckpointNotes round={round} /> : <TaskOnlyBody detail={detail} round={round} />;
+  return (
+    <div className="space-y-4">
       {round.summary && (
         <div className="rounded-xl border border-line bg-gradient-to-br from-sage-pale to-surface px-5 py-4 shadow-card">
           <Markdown text={round.summary} className={compact ? "" : "text-base [&_p]:leading-7"} />
@@ -257,7 +298,7 @@ function Decision({ detail, round }: { detail: ReviewDetail; round: ReviewRound 
   if (round.status !== "accepted" && round.status !== "rejected" && round.status !== "answered") return null;
   const tone = { accepted: ["border-success bg-success-soft", "text-success-ink"], rejected: ["border-danger bg-danger-soft", "text-danger-ink"], answered: ["border-info bg-info-soft", "text-info-ink"] }[round.status];
   const Icon = { accepted: CircleCheck, rejected: RotateCcw, answered: MessageSquareReply }[round.status];
-  const said = { accepted: t("You accepted this"), rejected: t("You rejected this"), answered: t("You answered") }[round.status];
+  const said = { accepted: t("You accepted this"), rejected: t("You sent this back"), answered: t("You answered") }[round.status];
   return (
     <section className={`rounded-xl border-l-4 px-4 py-3 ${tone[0]}`}>
       <h3 className={`flex flex-wrap items-center gap-2 text-sm font-semibold ${tone[1]}`}>
@@ -281,7 +322,7 @@ function Criteria({ detail, ticks, followUps }: { detail: ReviewDetail; ticks?: 
   const made = new Map(detail.current.follow_ups.map((f) => [f.text, f]));
   return (
     <Section title={t("Acceptance criteria")} icon={ListChecks} tone="neutral" count={detail.criteria.length}>
-      {ticks && <p className="px-2 pb-1.5 text-xs leading-5 text-ink-muted">{t("Accepting records these ticks. Untick any that isn't met: it can become a follow-up task.")}</p>}
+      {ticks && <p className="px-2 pb-1.5 text-xs leading-5 text-ink-muted">{t("Untick any that isn't met. Accept or Send back records your ticks.")}</p>}
       <ul>{detail.criteria.map((c) => {
         const followUp = made.get(c.description);
         if (ticks) {
@@ -331,9 +372,9 @@ export function ReviewDocument({ detail, project, onQuote, onPick, ticks, follow
           {(!waiting || question) && <StatusPill round={round} />}
           {round.round > 1 && !question && <span className="rounded-full bg-warning-soft px-2.5 py-0.5 font-semibold text-warning-ink">{t("Round {count}", { count: round.round })}</span>}
           <AgentChip agent={round.agent} />
-          <span title={exactly(round.created_at)}>{question ? t("{agent} asked {when}", { agent: agentName(round.agent), when: when(round.created_at) }) : t("{agent} finished it {when}", { agent: agentName(round.agent), when: when(round.created_at) })}</span>
+          <span title={exactly(round.created_at)}>{question ? t("{agent} asked {when}", { agent: agentName(round.agent), when: when(round.created_at) }) : round.generated ? t("Moved to Review {when}", { when: when(round.created_at) }) : t("{agent} finished it {when}", { agent: agentName(round.agent), when: when(round.created_at) })}</span>
         </div>
-        {!question && <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+        {!question && !round.generated && <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
           <span className="inline-flex items-center gap-1 rounded-lg bg-success-soft px-2 py-1 text-success-ink"><CircleCheck size={13} aria-hidden="true" />{tp(round.done.length, "{count} done", "{count} done")}</span>
           <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 ${round.not_done.length ? "bg-danger-soft text-danger-ink" : "bg-neutral-soft text-neutral-ink"}`}><CircleX size={13} aria-hidden="true" />{tp(round.not_done.length, "{count} not done", "{count} not done")}</span>
           <span className="inline-flex items-center gap-1 rounded-lg bg-special-soft px-2 py-1 text-special-ink"><Camera size={13} aria-hidden="true" />{tp(round.screenshots.length, "{count} screenshot", "{count} screenshots")}</span>
@@ -348,6 +389,16 @@ export function ReviewDocument({ detail, project, onQuote, onPick, ticks, follow
         : <RoundBody detail={detail} round={round} onQuote={waiting ? onQuote : undefined} followUps={followUps} />}
 
       {detail.criteria.length > 0 && !question && <Criteria detail={detail} ticks={ticks} followUps={followUps} />}
+
+      {!round.generated && detail.task_description?.trim() && (
+        <details className="group rounded-xl border border-line bg-surface shadow-card">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold text-ink-muted focus-visible:outline-2 focus-visible:outline-forest">
+            <ChevronRight size={15} className="text-ink-subtle transition-transform group-open:rotate-90" aria-hidden="true" />
+            <ClipboardList size={15} aria-hidden="true" />{t("The task as it was asked")}
+          </summary>
+          <div className="border-t border-line px-3 py-3"><TaskText detail={detail} /></div>
+        </details>
+      )}
 
       {detail.earlier.length > 0 && (
         <section aria-labelledby="review-earlier">

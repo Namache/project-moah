@@ -61,7 +61,8 @@ Sentence case everywhere ("Known issues", "AI context", "New task"), never Title
 | **Remove**: take something off an item (an image, a link, a shelf) | delete |
 | **Archive**: hide but keep, can be restored | |
 | **Dismiss**: say no to a suggestion | skip, reject |
-| **Reject**: send finished work back to the agent with your comments | dismiss, decline |
+| **Send back**: return finished work to the agent with your comments; the task goes back to In progress | reject, dismiss, decline |
+| **Reopen**: take back an acceptance from Reviewed, with a comment; it works like Send back | undo, revert |
 | **Context pack**, **Checkpoint**, **Handoff**, **Shelf** | |
 
 Messages say what happened and what to do next: "Couldn't save. Check that Project Moah is still running, then try again."
