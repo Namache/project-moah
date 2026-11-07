@@ -87,11 +87,26 @@ DUPLICATE_HINT = (
     "instead of keeping two records."
 )
 
-REVIEW_HINT = (
-    'Not handed over yet: now call brain_submit_review(task="{task}", summary, done, not_done, '
-    "how_to_check, screenshots). The person reviews finished work in Project Moah's Review "
-    "screen, and a chat reply never reaches it. Writing it needs no permission."
+# Finished work reaches the person only with a report: a status alone leaves them a task with
+# nothing to check, so moving a task to review any other way is refused.
+REVIEW_REFUSED = (
+    '{lead} Hand it over with brain_submit_review(task="{task}", summary, done, not_done, '
+    "how_to_check, screenshots): it moves the task to review itself. The person reviews "
+    "finished work in Project Moah's Review screen, and a chat reply never reaches it. Writing "
+    "it needs no permission. Finished several tasks? Submit one review for each."
 )
+
+
+def review_refused(task: Task) -> str:
+    """Why a task did not go to review: a report has to come with it."""
+    lead = (
+        f"{task.human_id} waits in review without your report, and nothing changed."
+        if task.status == "review"
+        else f"{task.human_id} was not moved to review, and nothing changed."
+    )
+    return REVIEW_REFUSED.format(lead=lead, task=task.human_id)
+
+
 ASK_HINT = (
     "Not asked yet: if you need the person's answer to go on, now call "
     'brain_ask_person(task="{task}", question, options). The question waits in Project Moah\'s '
@@ -946,9 +961,9 @@ def build_server(
         reason: str = "",
         links: list[str] | None = None,
     ) -> dict:
-        """Update a task's working fields. A finished task goes to the person's review: status
-        completed or review moves it to review (then call brain_submit_review). Archiving
-        becomes a proposal. Setting status in_progress makes it this session's task. links adds
+        """Update a task's working fields. A finished task goes to the person with
+        brain_submit_review, which moves it to review: status review or completed is refused
+        while no review of yours waits for the task. Archiving becomes a proposal. Setting status in_progress makes it this session's task. links adds
         typed links, each written "relationship target" ("blocked_by PROJ-4")."""
         found, _ = pick(session, project, write=True)
         changes = {
@@ -964,13 +979,16 @@ def build_server(
         }
         if not changes and not links:
             raise ValueError("Give at least one field to change.")
-        if status == "completed":
-            # People decide when work is complete: a finished task waits in review.
+        if status in ("completed", "review"):
+            # People decide when work is complete: a finished task waits in review, and only
+            # with a report, which brain_submit_review writes and moves the task with.
             current = TaskService(session).get(found.id, task)
             if current.status in ("completed", "archived"):
                 raise ValueError(
                     f"{current.human_id} is already {current.status}. Nothing changed."
                 )
+            if ReviewService(session).submitted_review(current.id) is None:
+                raise ValueError(review_refused(current))
             changes["status"] = status = "review"
         TaskUpdate.model_validate(changes)
         proposals = ProposalService(session)
@@ -1006,8 +1024,6 @@ def build_server(
             "status": updated.status,
             **link_written(session, found.id, f"task:{updated.id}", actor=agent, links=links or []),
         }
-        if status == "review" and ReviewService(session).submitted_review(updated.id) is None:
-            result["next"] = REVIEW_HINT.format(task=updated.human_id)
         if status == "blocked" and ReviewService(session).asked_question(updated.id) is None:
             result["next"] = ASK_HINT.format(task=updated.human_id)
         return result
@@ -1543,13 +1559,8 @@ def build_server(
         the person with brain_submit_review instead."""
         found, _ = pick(session, project, write=True)
         if proposal_type == "complete_task" and target:
-            moved = TaskService(session).update(found.id, target, TaskUpdate(status="review"))
-            return {
-                "applied": False,
-                "status": moved.status,
-                "message": f"{moved.human_id} is now in review. "
-                + REVIEW_HINT.format(task=moved.human_id),
-            }
+            current = TaskService(session).get(found.id, target)
+            raise ValueError(review_refused(current))
         p = ProposalService(session).create(
             found.id,
             ProposalCreate(
