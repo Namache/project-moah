@@ -287,9 +287,8 @@ export function ReopenBox({ detail }: { detail: ReviewDetail }) {
 
   if (!open) {
     return (
-      <div className="flex flex-wrap items-center gap-3 border-t border-line bg-surface px-5 py-3">
-        <p className="min-w-0 flex-1 text-sm text-ink-muted">{t("Not right after all? Reopen it with a comment: it goes back to In progress, and the next agent reads your comment first.")}</p>
-        <Button variant="secondary" onClick={() => setOpen(true)}><RotateCcw size={15} aria-hidden="true" />{t("Reopen with a comment")}</Button>
+      <div className="flex justify-end border-t border-line bg-surface px-5 py-3">
+        <Button variant="secondary" onClick={() => setOpen(true)} title={t("The task goes back to In progress, and the next agent reads your comment first.")}><RotateCcw size={15} aria-hidden="true" />{t("Reopen with a comment")}</Button>
       </div>
     );
   }

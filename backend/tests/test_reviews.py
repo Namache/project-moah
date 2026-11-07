@@ -247,6 +247,72 @@ async def test_a_task_moved_to_review_without_a_review_shows_its_checkpoint(
         assert decided.status_code == 200 and decided.json()["current"]["id"]
 
 
+async def test_a_batch_checkpoint_shows_only_the_lines_about_this_task(
+    database_url: str, tmp_path: Path
+) -> None:
+    """Agents often write one note for a batch of tasks, filed under one of them. The review of
+    each task picks out its own lines and leaves the rest of the note folded underneath."""
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+        pid, task = w["pid"], w["task"]
+        sign = (
+            await client.post(
+                f"/api/projects/{pid}/tasks", json={"title": "Camp sign colours", "prefix": "CAMP"}
+            )
+        ).json()["human_id"]
+    async with agent(database_url) as session:
+        for args in (
+            dict(
+                task=task,
+                title="Badge sketched",
+                summary="Badge layout agreed with the capacity decision.",
+                completed_work="Badge component with free places",
+                next_steps="Wire it to the camp list",
+            ),
+            dict(
+                task=sign,
+                title="Camp batch pushed",
+                summary=f"Pushed 2 commits ({task} capacity badge wiring, {sign} sign colours).",
+                completed_work=(
+                    f"{sign}: sign colours follow the theme. Contrast checked in both themes.\n"
+                    f"{task}: badge wired to the camp list. Full camps show 0."
+                ),
+                remaining_work=f"{sign} needs a dark-mode icon. Waiting for the icon set.",
+                next_steps=f"{task}: add a test for a full camp.",
+            ),
+        ):
+            error, _ = await call(session, "brain_create_checkpoint", project="trailhead", **args)
+            assert not error
+        error, _ = await call(
+            session, "brain_update_task", project="trailhead", task=task, status="review"
+        )
+        assert not error
+
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{task}/review"
+        current = (await client.get(url)).json()["current"]
+        assert current["generated"] is True and current["left_out"] is True
+        assert current["done"] == [
+            "Badge component with free places",
+            "Badge wired to the camp list. Full camps show 0.",
+        ]
+        # The sign's leftover is not this task's.
+        assert current["not_done"] == []
+        assert current["next_steps"] == ["Add a test for a full camp."]
+        # The summary of the newest note about this task alone (the batch note's is not).
+        assert current["summary"] == "Badge layout agreed with the capacity decision."
+        assert [n["title"] for n in current["notes"]] == ["Camp batch pushed", "Badge sketched"]
+        assert [n["filed_here"] for n in current["notes"]] == [False, True]
+        assert current["details"] is None
+
+        # Accepted, it still reads the same from Reviewed.
+        await client.post(f"{url}/decision", json={"verdict": "accept"})
+        current = (await client.get(url)).json()["current"]
+        assert current["status"] == "accepted" and current["id"]
+        assert current["done"][1] == "Badge wired to the camp list. Full camps show 0."
+        assert current["next_steps"] == ["Add a test for a full camp."]
+
+
 async def test_suggestions_share_the_timeline_and_a_send_back_settles_them(
     database_url: str, tmp_path: Path
 ) -> None:

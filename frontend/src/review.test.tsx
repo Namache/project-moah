@@ -19,8 +19,10 @@ function reviewOf(ref: string) {
       current: { ...round, id: "q1", kind: "question", summary: "Should a full camp show **0** or a red Full label?", options: ["Show 0", "Red Full label"], done: [], not_done: [], how_to_check: null, details: "DEC-001 sets capacity, not the look.", screenshots: [] } };
   }
   if (ref === "CAMP-003") {
-    return { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t3", task_ref: "CAMP-003", task_title: "Ration balance", task_status: "review", task_description: null, criteria: [], earlier: [],
-      current: { ...round, id: null, agent: "codex", generated: true, summary: "Halved the ration drain.", done: ["Ration drain is 0.5 a day"], not_done: [], how_to_check: null, details: null, screenshots: [] } };
+    return { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t3", task_ref: "CAMP-003", task_title: "Ration balance", task_status: "review", task_description: "Rations drain too fast on long trips.\n\nHalve the drain.", criteria: [], earlier: [],
+      current: { ...round, id: null, agent: "codex", generated: true, summary: "", done: ["Ration drain is 0.5 a day"], not_done: [], how_to_check: null, details: null, screenshots: [],
+        next_steps: ["Watch one long trip in the log"], left_out: true,
+        notes: [{ title: "Supply batch pushed", created_at: "2026-01-02T09:00:00Z", agent: "codex", summary: "Two supply fixes.", completed_work: "CAMP-003: ration drain is 0.5 a day.\nCAMP-009: water barrels stack.", remaining_work: "CAMP-009 icon is a placeholder.", problems: "", next_steps: "CAMP-003: watch one long trip in the log.", filed_here: false }] } };
   }
   return {
     project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t2", task_ref: "CAMP-002", task_title: "Camp upgrade screen", task_status: "review", task_description: "Let players upgrade camps",
@@ -181,14 +183,17 @@ describe("Review screen", () => {
       criteria: [{ id: "c1", met: true }, { id: "c2", met: false }],
     });
     expect(calls.some((c) => c.url.endsWith("/follow-ups"))).toBe(false);
-    // The next task came without a report: the task itself is what you check.
-    expect(await screen.findByText("The agent moved this task to Review without a report. Check the task below, then accept it or send it back.")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "The task" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /^Done/ })).not.toBeInTheDocument();
-    // Its checkpoint is folded away underneath, as notes.
-    const notes = screen.getByText("The agent's working notes (its last checkpoint)").closest("details")!;
+    // The next task came without a report: its lines are picked out of the agent's notes, in the same frames.
+    expect(await screen.findByText("Codex wrote no report, so this is picked out of its notes on the task.")).toBeInTheDocument();
+    expect(screen.getByText("Lines about other tasks are left out.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: /^Done/ })).getByText("Ration drain is 0.5 a day")).toBeVisible();
+    expect(within(screen.getByRole("region", { name: /^Not done/ })).getByText("Its notes list nothing left for this task.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: /^What the agent plans next/ })).getByText("Watch one long trip in the log")).toBeInTheDocument();
+    // The whole note, other tasks and all, is folded away underneath; so is what was asked.
+    const notes = screen.getByText("The agent's full note").closest("details")!;
     expect(notes).not.toHaveAttribute("open");
-    expect(within(notes).getByText("Ration drain is 0.5 a day")).not.toBeVisible();
+    expect(within(notes).getByText("Filed under another task")).not.toBeVisible();
+    expect(screen.getByText("What was asked").closest("details")).not.toHaveAttribute("open");
   });
 
   it("rejects only with a comment, quotes lines into it, and offers to open the agent", async () => {

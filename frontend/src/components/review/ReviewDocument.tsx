@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera, ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleHelp, CircleX, ClipboardList, ExternalLink, FileText, ListChecks, ListPlus, LoaderCircle, MessageSquareQuote, MessageSquareReply, PartyPopper, RotateCcw, Sparkles, X } from "lucide-react";
-import type { FollowUp, ReviewDetail, ReviewFile, ReviewRound } from "../../types/review";
+import { ArrowRight, Camera, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, CircleDashed, CircleHelp, CircleX, ClipboardList, ExternalLink, FileText, ListChecks, ListPlus, ListTodo, LoaderCircle, MessageSquareQuote, MessageSquareReply, NotebookText, PartyPopper, RotateCcw, X } from "lucide-react";
+import type { CheckpointNote, FollowUp, ReviewDetail, ReviewFile, ReviewRound } from "../../types/review";
 import { statusLabels } from "../../types/task";
 import { TaskStatusBadge } from "../tasks/TaskBits";
 import { useModalDialog } from "../../hooks/useModalDialog";
@@ -203,86 +203,148 @@ function QuestionBody({ detail, round, onPick, compact = false }: { detail: Revi
   );
 }
 
-/** The task as it was asked: its description, in Markdown. */
-function TaskText({ detail }: { detail: ReviewDetail }) {
-  return detail.task_description?.trim()
-    ? <Markdown text={detail.task_description} className="px-1" />
-    : <p className="px-1 text-sm text-ink-subtle">{t("This task has no description.")}</p>;
+type FrameTone = "success" | "danger" | "warning" | "neutral";
+const FRAME_TONES: Record<FrameTone, { box: string; label: string }> = {
+  success: { box: "border-success/50", label: "border-success/50 bg-success-soft text-success-ink" },
+  danger: { box: "border-danger/50", label: "border-danger/50 bg-danger-soft text-danger-ink" },
+  warning: { box: "border-warning/60", label: "border-warning/60 bg-warning-soft text-warning-ink" },
+  neutral: { box: "border-line-strong", label: "border-line-strong bg-neutral-soft text-neutral-ink" },
+};
+
+/** A frame with its name on the top border, like the Done and Not done boxes of an agent's summary. */
+function Frame({ tone, title, icon: Icon, count, children }: { tone: FrameTone; title: string; icon: typeof CircleCheck; count?: number; children: React.ReactNode }) {
+  const id = useId();
+  const tones = FRAME_TONES[tone];
+  return (
+    <section aria-labelledby={id} className={`relative rounded-xl border bg-surface px-2 pb-2 pt-5 shadow-card ${tones.box}`}>
+      <h3 id={id} className={`absolute -top-3 left-3 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-0.5 text-xs font-semibold ${tones.label}`}>
+        <Icon size={13} aria-hidden="true" />{title}
+        {count !== undefined && <span className="font-bold tabular-nums opacity-75">{count}</span>}
+      </h3>
+      {children}
+    </section>
+  );
 }
 
-/** What the agent wrote in its last checkpoint, folded away: notes, not a report. */
-function CheckpointNotes({ round }: { round: ReviewRound }) {
-  if (!round.summary && !round.done.length && !round.not_done.length && !round.details) return null;
+/** Whether the agent's account has anything in its lists: a report always counts. */
+function hasAccount(round: ReviewRound): boolean {
+  return !round.generated || round.done.length + round.not_done.length + (round.next_steps?.length ?? 0) > 0;
+}
+
+/** One line on where the work stands, and where the lines below come from. */
+function Verdict({ round }: { round: ReviewRound }) {
+  const agent = agentName(round.agent);
+  const left = round.not_done.length;
+  let tone = "bg-info-soft text-info-ink";
+  let Icon: typeof CircleCheck = NotebookText;
+  let text: string;
+  let note: string | null = null;
+  if (!round.generated) {
+    tone = left ? "bg-warning-soft text-warning-ink" : "bg-success-soft text-success-ink";
+    Icon = left ? CircleAlert : CircleCheck;
+    text = left
+      ? tp(left, "{agent} says it's done, with {count} thing left.", "{agent} says it's done, with {count} things left.", { agent })
+      : t("{agent} says it's done, with nothing left.", { agent });
+  } else if (hasAccount(round)) {
+    text = t("{agent} wrote no report, so this is picked out of its notes on the task.", { agent });
+    if (round.left_out) note = t("Lines about other tasks are left out.");
+  } else if (round.notes?.length) {
+    tone = "bg-neutral-soft text-neutral-ink";
+    text = t("{agent} wrote no report, and its notes don't say what it did on this task. Check the task itself below.", { agent });
+  } else {
+    tone = "bg-neutral-soft text-neutral-ink";
+    text = t("{agent} moved this task to Review without a report or notes. Check the task itself below.", { agent });
+  }
   return (
-    <details className="group rounded-xl border border-line bg-surface shadow-card">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold text-ink-muted focus-visible:outline-2 focus-visible:outline-forest">
-        <ChevronRight size={15} className="text-ink-subtle transition-transform group-open:rotate-90" aria-hidden="true" />
-        <ClipboardList size={15} aria-hidden="true" />{t("The agent's working notes (its last checkpoint)")}
-      </summary>
-      <div className="space-y-3 border-t border-line px-4 py-3 text-sm">
-        {round.summary && <Markdown text={round.summary} />}
-        {round.done.length > 0 && <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">{t("It did")}</p><ul className="list-disc space-y-0.5 pl-5">{round.done.map((text, i) => <li key={i}><Markdown text={text} /></li>)}</ul></div>}
-        {round.not_done.length > 0 && <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">{t("It noted as left")}</p><ul className="list-disc space-y-0.5 pl-5">{round.not_done.map((text, i) => <li key={i}><Markdown text={text} /></li>)}</ul></div>}
-        {round.details && <Markdown text={round.details} />}
-      </div>
-    </details>
+    <p className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm font-medium ${tone}`}>
+      <Icon size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <span>{text}{note && <span className="font-normal"> {note}</span>}</span>
+    </p>
+  );
+}
+
+/** Ticking acceptance criteria while the work waits: Accept records the ticks. */
+export interface CriteriaTicks {
+  met: (id: string) => boolean;
+  set: (id: string, met: boolean) => void;
+}
+
+/** What the person checks before deciding: the agent's "how to check" and the task's criteria. */
+function CheckFrame({ detail, round, ticks, followUps, criteria }: { detail: ReviewDetail; round: ReviewRound; ticks?: CriteriaTicks; followUps?: FollowUpActions; criteria: boolean }) {
+  const list = criteria ? detail.criteria : [];
+  if (!round.how_to_check && list.length === 0) return null;
+  const made = new Map(detail.current.follow_ups.map((f) => [f.text, f]));
+  return (
+    <Frame tone="warning" title={t("For you to check")} icon={ListChecks}>
+      {round.how_to_check && <Markdown text={round.how_to_check} className="px-2 pb-1" />}
+      {list.length > 0 && (
+        <div className={round.how_to_check ? "mt-2 border-t border-line pt-2" : ""}>
+          <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">{t("Acceptance criteria")}</p>
+          {ticks && <p className="px-2 pb-1.5 text-xs leading-5 text-ink-muted">{t("Untick any that isn't met. Accept or Send back records your ticks.")}</p>}
+          <ul>{list.map((c) => {
+            const followUp = made.get(c.description);
+            if (ticks) {
+              const met = ticks.met(c.id);
+              return (
+                <li key={c.id} className="flex items-start gap-2.5 rounded-md px-2 py-1.5 text-sm leading-6 hover:bg-hover">
+                  <input id={`criterion-${c.id}`} type="checkbox" checked={met} onChange={(event) => ticks.set(c.id, event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-forest" />
+                  <label htmlFor={`criterion-${c.id}`} className={`min-w-0 flex-1 cursor-pointer ${met ? "text-ink" : "text-danger-ink"}`}>{c.description}</label>
+                  {followUp && <FollowUpChip projectId={detail.project_id} followUp={followUp} />}
+                </li>
+              );
+            }
+            return (
+              <li key={c.id} className="flex items-start gap-2.5 px-2 py-1.5 text-sm leading-6">
+                {c.is_completed ? <CircleCheck size={17} className="mt-0.5 shrink-0 text-success" aria-label={t("Ticked")} /> : <CircleDashed size={17} className="mt-0.5 shrink-0 text-ink-subtle" aria-label={t("Not ticked")} />}
+                <span className={`min-w-0 flex-1 ${c.is_completed ? "text-ink" : "text-ink-muted"}`}>{c.description}</span>
+                {!c.is_completed && (followUp ? <FollowUpChip projectId={detail.project_id} followUp={followUp} /> : followUps ? <MakeTaskButton text={c.description} actions={followUps} label /> : null)}
+              </li>
+            );
+          })}</ul>
+        </div>
+      )}
+    </Frame>
   );
 }
 
 /**
- * A task that came to Review without a report from the agent: the task itself is what you check,
- * with the agent's checkpoint folded away underneath.
+ * The agent's account of the work: Done, Not done, what to check, what it plans next. Drawn from
+ * its report, or picked out of its checkpoint notes when it wrote none.
  */
-function TaskOnlyBody({ detail, round }: { detail: ReviewDetail; round: ReviewRound }) {
-  return (
-    <div className="space-y-4">
-      <p className="flex items-start gap-2 rounded-lg bg-info-soft px-3 py-2 text-sm text-info-ink">
-        <Sparkles size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-        {t("The agent moved this task to Review without a report. Check the task below, then accept it or send it back.")}
-      </p>
-      <Section title={t("The task")} icon={ClipboardList} tone="neutral">
-        <TaskText detail={detail} />
-      </Section>
-      {round.screenshots.length > 0 && (
-        <Section title={t("Screenshots")} icon={Camera} tone="special" count={round.screenshots.length}>
-          <Gallery projectId={detail.project_id} files={round.screenshots} />
-        </Section>
-      )}
-      <CheckpointNotes round={round} />
-    </div>
-  );
-}
-
-function RoundBody({ detail, round, onQuote, followUps, compact = false }: { detail: ReviewDetail; round: ReviewRound; onQuote?: Quote; followUps?: FollowUpActions; compact?: boolean }) {
+function WorkBody({ detail, round, onQuote, followUps, ticks, compact = false }: { detail: ReviewDetail; round: ReviewRound; onQuote?: Quote; followUps?: FollowUpActions; ticks?: CriteriaTicks; compact?: boolean }) {
   const made = new Map(round.follow_ups.map((f) => [f.text, f]));
-  if (round.generated && round.kind === "work") return compact ? <CheckpointNotes round={round} /> : <TaskOnlyBody detail={detail} round={round} />;
+  const steps = round.next_steps ?? [];
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {!compact && <Verdict round={round} />}
       {round.summary && (
         <div className="rounded-xl border border-line bg-gradient-to-br from-sage-pale to-surface px-5 py-4 shadow-card">
           <Markdown text={round.summary} className={compact ? "" : "text-base [&_p]:leading-7"} />
         </div>
       )}
-      {(round.done.length > 0 || round.not_done.length > 0 || !round.generated) && (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Section title={t("Done")} icon={CircleCheck} tone="success" count={round.done.length}>
+      {hasAccount(round) && (
+        <>
+          <Frame tone="success" title={t("Done")} icon={CircleCheck} count={round.done.length}>
             {round.done.length ? <ul>{round.done.map((text, i) => <Item key={i} text={text} done onQuote={onQuote} projectId={detail.project_id} />)}</ul> : <p className="px-2 py-1 text-sm text-ink-subtle">{t("Nothing listed.")}</p>}
-          </Section>
-          <Section title={t("Not done")} icon={CircleX} tone="danger" count={round.not_done.length}>
+          </Frame>
+          <Frame tone={round.not_done.length ? "danger" : "neutral"} title={t("Not done")} icon={CircleX} count={round.not_done.length}>
             {round.not_done.length
               ? <ul>{round.not_done.map((text, i) => <Item key={i} text={text} done={false} onQuote={onQuote} projectId={detail.project_id} followUp={made.get(text)} actions={followUps} />)}</ul>
-              : <p className="flex items-center gap-2 px-2 py-1 text-sm text-success-ink"><PartyPopper size={16} aria-hidden="true" />{t("Nothing left out, says the agent.")}</p>}
-          </Section>
-        </div>
+              : <p className="flex items-center gap-2 px-2 py-1 text-sm text-success-ink"><PartyPopper size={16} aria-hidden="true" />{round.generated ? t("Its notes list nothing left for this task.") : t("Nothing left out, says the agent.")}</p>}
+          </Frame>
+        </>
+      )}
+      <CheckFrame detail={detail} round={round} ticks={ticks} followUps={followUps} criteria={!compact} />
+      {steps.length > 0 && (
+        <Frame tone="neutral" title={t("What the agent plans next")} icon={ListTodo} count={steps.length}>
+          <ul>{steps.map((text, i) => (
+            <li key={i} className="flex items-start gap-2.5 px-2 py-1.5"><ArrowRight size={16} className="mt-1 shrink-0 text-ink-subtle" aria-hidden="true" /><Markdown text={text} className="min-w-0 flex-1 leading-6 [&_p]:leading-6" /></li>
+          ))}</ul>
+        </Frame>
       )}
       {round.screenshots.length > 0 && (
         <Section title={t("Screenshots")} icon={Camera} tone="special" count={round.screenshots.length}>
           <Gallery projectId={detail.project_id} files={round.screenshots} onQuote={onQuote} small={compact} />
-        </Section>
-      )}
-      {round.how_to_check && (
-        <Section title={t("How to check it")} icon={ListChecks} tone="info">
-          <Markdown text={round.how_to_check} className="px-1" />
         </Section>
       )}
       {round.details && (
@@ -291,6 +353,60 @@ function RoundBody({ detail, round, onQuote, followUps, compact = false }: { det
         </Section>
       )}
     </div>
+  );
+}
+
+/** The task as it was asked. Folded under an account, with its first line showing; open when it is all there is. */
+function Asked({ detail, open }: { detail: ReviewDetail; open: boolean }) {
+  const text = detail.task_description?.trim();
+  const body = text ? <Markdown text={text} className="px-1" /> : <p className="px-1 text-sm text-ink-subtle">{t("This task has no description.")}</p>;
+  if (open) return <Section title={t("What was asked")} icon={ClipboardList} tone="neutral">{body}</Section>;
+  if (!text) return null;
+  const preview = text.split("\n").map((line) => line.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? "";
+  return (
+    <details className="group rounded-xl border border-line bg-surface shadow-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm focus-visible:outline-2 focus-visible:outline-forest">
+        <ChevronRight size={15} className="shrink-0 text-ink-subtle transition-transform group-open:rotate-90" aria-hidden="true" />
+        <ClipboardList size={15} className="shrink-0 text-ink-muted" aria-hidden="true" />
+        <span className="shrink-0 font-semibold text-ink-muted">{t("What was asked")}</span>
+        <span className="min-w-0 flex-1 truncate text-ink-subtle group-open:hidden">{preview}</span>
+      </summary>
+      <div className="border-t border-line px-3 py-3">{body}</div>
+    </details>
+  );
+}
+
+function NoteField({ label, text }: { label: string; text: string }) {
+  if (!text.trim()) return null;
+  return <div><p className="mb-0.5 text-xs font-semibold uppercase tracking-wider text-ink-muted">{label}</p><Markdown text={text} /></div>;
+}
+
+/** The checkpoints a drafted account was picked from, whole: to see what was left out, or why. */
+function FullNotes({ notes }: { notes: CheckpointNote[] }) {
+  return (
+    <details className="group rounded-xl border border-line bg-surface shadow-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold text-ink-muted focus-visible:outline-2 focus-visible:outline-forest">
+        <ChevronRight size={15} className="text-ink-subtle transition-transform group-open:rotate-90" aria-hidden="true" />
+        <NotebookText size={15} aria-hidden="true" />{tp(notes.length, "The agent's full note", "The agent's full notes")}
+        <span className="rounded-full bg-neutral-soft px-2 text-xs font-bold tabular-nums text-neutral-ink">{notes.length}</span>
+      </summary>
+      <ol className="divide-y divide-line border-t border-line">
+        {notes.map((note, i) => (
+          <li key={i} className="space-y-2 px-4 py-3 text-sm">
+            <p className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-ink">{note.title}</span>
+              <span className="text-xs text-ink-subtle" title={exactly(note.created_at)}>{when(note.created_at)}</span>
+              {!note.filed_here && <span className="rounded-md bg-neutral-soft px-1.5 py-0.5 text-xs text-neutral-ink">{t("Filed under another task")}</span>}
+            </p>
+            <NoteField label={t("Summary")} text={note.summary} />
+            <NoteField label={t("Done")} text={note.completed_work} />
+            <NoteField label={t("Left")} text={note.remaining_work} />
+            <NoteField label={t("Problems")} text={note.problems} />
+            <NoteField label={t("Next steps")} text={note.next_steps} />
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
 
@@ -309,41 +425,6 @@ function Decision({ detail, round }: { detail: ReviewDetail; round: ReviewRound 
       {round.comment && <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6 text-ink">{round.comment}</p>}
       {round.feedback.length > 0 && <div className="mt-2"><Gallery projectId={detail.project_id} files={round.feedback} small /></div>}
     </section>
-  );
-}
-
-/** Ticking acceptance criteria while the work waits: Accept records the ticks. */
-export interface CriteriaTicks {
-  met: (id: string) => boolean;
-  set: (id: string, met: boolean) => void;
-}
-
-function Criteria({ detail, ticks, followUps }: { detail: ReviewDetail; ticks?: CriteriaTicks; followUps?: FollowUpActions }) {
-  const made = new Map(detail.current.follow_ups.map((f) => [f.text, f]));
-  return (
-    <Section title={t("Acceptance criteria")} icon={ListChecks} tone="neutral" count={detail.criteria.length}>
-      {ticks && <p className="px-2 pb-1.5 text-xs leading-5 text-ink-muted">{t("Untick any that isn't met. Accept or Send back records your ticks.")}</p>}
-      <ul>{detail.criteria.map((c) => {
-        const followUp = made.get(c.description);
-        if (ticks) {
-          const met = ticks.met(c.id);
-          return (
-            <li key={c.id} className="flex items-start gap-2.5 rounded-md px-2 py-1.5 text-sm leading-6 hover:bg-surface/70">
-              <input id={`criterion-${c.id}`} type="checkbox" checked={met} onChange={(event) => ticks.set(c.id, event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-forest" />
-              <label htmlFor={`criterion-${c.id}`} className={`min-w-0 flex-1 cursor-pointer ${met ? "text-ink" : "text-danger-ink"}`}>{c.description}</label>
-              {followUp && <FollowUpChip projectId={detail.project_id} followUp={followUp} />}
-            </li>
-          );
-        }
-        return (
-          <li key={c.id} className="flex items-start gap-2.5 px-2 py-1.5 text-sm leading-6">
-            {c.is_completed ? <CircleCheck size={17} className="mt-0.5 shrink-0 text-success" aria-label={t("Ticked")} /> : <CircleDashed size={17} className="mt-0.5 shrink-0 text-ink-subtle" aria-label={t("Not ticked")} />}
-            <span className={`min-w-0 flex-1 ${c.is_completed ? "text-ink" : "text-ink-muted"}`}>{c.description}</span>
-            {!c.is_completed && (followUp ? <FollowUpChip projectId={detail.project_id} followUp={followUp} /> : followUps ? <MakeTaskButton text={c.description} actions={followUps} label /> : null)}
-          </li>
-        );
-      })}</ul>
-    </Section>
   );
 }
 
@@ -374,10 +455,10 @@ export function ReviewDocument({ detail, project, onQuote, onPick, ticks, follow
           <AgentChip agent={round.agent} />
           <span title={exactly(round.created_at)}>{question ? t("{agent} asked {when}", { agent: agentName(round.agent), when: when(round.created_at) }) : round.generated ? t("Moved to Review {when}", { when: when(round.created_at) }) : t("{agent} finished it {when}", { agent: agentName(round.agent), when: when(round.created_at) })}</span>
         </div>
-        {!question && !round.generated && <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+        {!question && hasAccount(round) && <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
           <span className="inline-flex items-center gap-1 rounded-lg bg-success-soft px-2 py-1 text-success-ink"><CircleCheck size={13} aria-hidden="true" />{tp(round.done.length, "{count} done", "{count} done")}</span>
           <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 ${round.not_done.length ? "bg-danger-soft text-danger-ink" : "bg-neutral-soft text-neutral-ink"}`}><CircleX size={13} aria-hidden="true" />{tp(round.not_done.length, "{count} not done", "{count} not done")}</span>
-          <span className="inline-flex items-center gap-1 rounded-lg bg-special-soft px-2 py-1 text-special-ink"><Camera size={13} aria-hidden="true" />{tp(round.screenshots.length, "{count} screenshot", "{count} screenshots")}</span>
+          {round.screenshots.length > 0 && <span className="inline-flex items-center gap-1 rounded-lg bg-special-soft px-2 py-1 text-special-ink"><Camera size={13} aria-hidden="true" />{tp(round.screenshots.length, "{count} screenshot", "{count} screenshots")}</span>}
           {detail.criteria.length > 0 && <span className="inline-flex items-center gap-1 rounded-lg bg-info-soft px-2 py-1 text-info-ink"><ListChecks size={13} aria-hidden="true" />{t("{done} of {total} criteria ticked", { done: doneCriteria, total: detail.criteria.length })}</span>}
           {round.follow_ups.length > 0 && <span className="inline-flex items-center gap-1 rounded-lg bg-neutral-soft px-2 py-1 text-neutral-ink"><ListPlus size={13} aria-hidden="true" />{tp(round.follow_ups.length, "{count} follow-up task", "{count} follow-up tasks")}</span>}
         </div>}
@@ -386,19 +467,10 @@ export function ReviewDocument({ detail, project, onQuote, onPick, ticks, follow
       <Decision detail={detail} round={round} />
       {question && !round.generated
         ? <QuestionBody detail={detail} round={round} onPick={waiting ? onPick : undefined} />
-        : <RoundBody detail={detail} round={round} onQuote={waiting ? onQuote : undefined} followUps={followUps} />}
+        : <WorkBody detail={detail} round={round} onQuote={waiting ? onQuote : undefined} followUps={followUps} ticks={ticks} />}
 
-      {detail.criteria.length > 0 && !question && <Criteria detail={detail} ticks={ticks} followUps={followUps} />}
-
-      {!round.generated && detail.task_description?.trim() && (
-        <details className="group rounded-xl border border-line bg-surface shadow-card">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-semibold text-ink-muted focus-visible:outline-2 focus-visible:outline-forest">
-            <ChevronRight size={15} className="text-ink-subtle transition-transform group-open:rotate-90" aria-hidden="true" />
-            <ClipboardList size={15} aria-hidden="true" />{t("The task as it was asked")}
-          </summary>
-          <div className="border-t border-line px-3 py-3"><TaskText detail={detail} /></div>
-        </details>
-      )}
+      <Asked detail={detail} open={!question && !hasAccount(round)} />
+      {round.generated && round.notes && round.notes.length > 0 && <FullNotes notes={round.notes} />}
 
       {detail.earlier.length > 0 && (
         <section aria-labelledby="review-earlier">
@@ -415,7 +487,7 @@ export function ReviewDocument({ detail, project, onQuote, onPick, ticks, follow
                 </summary>
                 <div className="space-y-4 border-t border-line p-4">
                   <Decision detail={detail} round={earlier} />
-                  {earlier.kind === "question" && !earlier.generated ? <QuestionBody detail={detail} round={earlier} compact /> : <RoundBody detail={detail} round={earlier} compact />}
+                  {earlier.kind === "question" && !earlier.generated ? <QuestionBody detail={detail} round={earlier} compact /> : <WorkBody detail={detail} round={earlier} compact />}
                 </div>
               </details>
             ))}

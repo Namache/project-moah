@@ -18,7 +18,6 @@ the comment reaches the next agent like a send-back.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -40,6 +39,7 @@ from app.models.review import (
 from app.models.task import AcceptanceCriterion, Task
 from app.schemas.review import (
     AskPerson,
+    CheckpointNote,
     CriterionTick,
     FollowUp,
     FollowUpCreate,
@@ -60,6 +60,8 @@ from app.services.activity import ActivityService, current_actor
 from app.services.errors import conflict, invalid, not_found
 from app.services.images import clean_filename, sniff
 from app.services.projects import ProjectService
+from app.services.review_notes import Note, Picked, lines, task_refs
+from app.services.review_notes import draft as draft_from_notes
 from app.services.tasks import TaskService
 
 WAITING_STATUS = "review"
@@ -72,7 +74,8 @@ TITLE_LIMIT = 200
 REVIEWED_LIMIT = 80
 NEWEST_PENDING = 5
 SUMMARY_LINE = 240
-BULLET = re.compile(r"^\s*(?:[-*•+]|\d+[.)])\s+")
+NOTES_LIMIT = 6  # checkpoints a drafted review is picked from, newest first
+NEXT_STEPS = "**Next steps**\n\n"  # how a drafted review stores the agent's next steps
 
 
 @dataclass
@@ -80,16 +83,6 @@ class Screenshot:
     data: bytes
     filename: str
     caption: str | None = None
-
-
-def _lines(text: str | None) -> list[str]:
-    """Checkpoint text as list items: one per line, bullets and numbers removed."""
-    items = []
-    for line in (text or "").splitlines():
-        line = BULLET.sub("", line).strip()
-        if line:
-            items.append(line)
-    return items
 
 
 def _one_line(text: str, limit: int = SUMMARY_LINE) -> str:
@@ -304,6 +297,14 @@ class ReviewService:
             current = rounds[0]
         else:
             raise not_found(f"{task.human_id} has no review yet")
+        if current.generated and current.id is not None and current.kind == "work":
+            # A stored draft: picked again from the notes of its own round, so it reads like
+            # a pending one (and older drafts lose the lines about other tasks).
+            after = max(
+                (r.reviewed_at for r in rounds if r.round < current.round and r.reviewed_at),
+                default=None,
+            )
+            current.panel_notes = self._picked(task, after, current.reviewed_at)
         files = self._files([r.id for r in rounds])
         earlier = [r for r in rounds if r is not current and r.status != "replaced"]
         return ReviewDetail(
@@ -691,40 +692,91 @@ class ReviewService:
                 return event.timestamp, who, by_agent
         return task.updated_at, None, False
 
-    def _draft(self, task: Task) -> TaskReview:
-        """A review drafted from the task's latest checkpoint, for work an agent moved to review
-        (or a task it blocked) without writing one. Not stored."""
-        since = self._since(task)
-        statement = select(Checkpoint).where(Checkpoint.task_id == task.id)
-        if since is not None:
-            statement = statement.where(Checkpoint.created_at > since)
-        checkpoint = self.session.scalar(
-            statement.order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc()).limit(1)
-        )
+    def _notes(
+        self,
+        task: Task,
+        after: datetime | None,
+        until: datetime | None = None,
+        *,
+        named: bool = True,
+    ) -> list[Note]:
+        """The checkpoints about this task between two decisions, newest first: those filed
+        under it, and (named) those filed elsewhere that name it, a batch note say. The
+        timeline leaves the second out: it reads every waiting task's notes at once."""
+        ref = task.human_id
+        like = f"%{ref}%"
+        about = Checkpoint.task_id == task.id
+        if named:
+            about = (
+                about
+                | Checkpoint.title.like(like)
+                | Checkpoint.summary.like(like)
+                | Checkpoint.completed_work.like(like)
+                | Checkpoint.remaining_work.like(like)
+                | Checkpoint.problems.like(like)
+                | Checkpoint.next_steps.like(like)
+            )
+        statement = select(Checkpoint).where(Checkpoint.project_id == task.project_id, about)
+        if after is not None:
+            statement = statement.where(Checkpoint.created_at > after)
+        if until is not None:
+            statement = statement.where(Checkpoint.created_at <= until)
+        prefix = ref.rsplit("-", 1)[0]
+        notes = []
+        for checkpoint in self.session.scalars(
+            statement.order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc())
+        ):
+            note = Note(
+                title=checkpoint.title,
+                created_at=checkpoint.created_at,
+                agent=checkpoint.agent,
+                summary=checkpoint.summary or "",
+                completed_work=checkpoint.completed_work or "",
+                remaining_work=checkpoint.remaining_work or "",
+                problems=checkpoint.problems or "",
+                next_steps=checkpoint.next_steps or "",
+                task_id=checkpoint.task_id,
+            )
+            # LIKE also finds CAMP-4520 for CAMP-452.
+            if checkpoint.task_id == task.id or ref in task_refs(note.text(), prefix):
+                notes.append(note)
+            if len(notes) == NOTES_LIMIT:
+                break
+        return notes
+
+    def _picked(
+        self,
+        task: Task,
+        after: datetime | None,
+        until: datetime | None = None,
+        *,
+        named: bool = True,
+    ) -> tuple[list[Note], Picked]:
+        notes = self._notes(task, after, until, named=named)
+        return notes, draft_from_notes(notes, task.id, task.human_id)
+
+    def _draft(self, task: Task, *, named: bool = True) -> TaskReview:
+        """A review drafted from the task's checkpoints since its last decision, for work an
+        agent moved to review (or a question it asked in the chat) without writing one: the
+        lines about this task, picked out of notes that may cover several (review_notes.py).
+        Not stored until the person acts on it."""
+        notes, picked = self._picked(task, self._since(task), named=named)
         entered, mover, _ = self._entered(task)
-        if checkpoint is not None:
-            summary = checkpoint.summary.strip() or checkpoint.title
-            done = _lines(checkpoint.completed_work)
-            not_done = _lines(checkpoint.remaining_work) + _lines(checkpoint.problems)
-            steps = checkpoint.next_steps.strip()
-            details = f"**Next steps**\n\n{steps}" if steps else None
-            agent = checkpoint.agent or mover or "agent"
-        else:
-            summary, done, not_done, details = "", [], [], None
-            agent = mover or "agent"
-        return TaskReview(
+        draft = TaskReview(
             id=None,
             project_id=task.project_id,
             task_id=task.id,
             round=self._next_round(task.id),
-            agent=agent,
+            agent=picked.agent or mover or "agent",
             kind="question" if task.status == QUESTION_STATUS else "work",
             status="pending",
-            summary=summary,
-            done=done,
-            not_done=not_done,
+            summary=picked.summary,
+            done=picked.done,
+            not_done=picked.not_done,
             how_to_check=None,
-            details=details,
+            details=NEXT_STEPS + "\n".join(f"- {s}" for s in picked.next_steps)
+            if picked.next_steps
+            else None,
             options=None,
             follow_ups=[],
             generated=True,
@@ -732,6 +784,8 @@ class ReviewService:
             reviewed_at=None,
             comment=None,
         )
+        draft.panel_notes = (notes, picked)  # shown with it, never stored
+        return draft
 
     def _files(self, review_ids: list[str]) -> dict[str, list[ReviewFileRead]]:
         found: dict[str, list[ReviewFileRead]] = {}
@@ -759,17 +813,33 @@ class ReviewService:
             if entries
             else {}
         )
+        summary, details = review.summary, review.details
+        done, not_done = list(review.done or []), list(review.not_done or [])
+        next_steps: list[str] = []
+        if review.generated and details and details.startswith(NEXT_STEPS):
+            next_steps, details = lines(details[len(NEXT_STEPS) :]), None
+        notes: list[Note] = []
+        picked: Picked | None = None
+        if review.generated:
+            notes, picked = getattr(review, "panel_notes", None) or ([], None)
+        if picked is not None:
+            summary, done, not_done, next_steps = (
+                picked.summary,
+                picked.done,
+                picked.not_done,
+                picked.next_steps,
+            )
         return ReviewRound(
             id=review.id,
             round=review.round,
             agent=review.agent,
             kind=review.kind or "work",
             status=review.status,
-            summary=review.summary,
-            done=list(review.done or []),
-            not_done=list(review.not_done or []),
+            summary=summary,
+            done=done,
+            not_done=not_done,
             how_to_check=review.how_to_check,
-            details=review.details,
+            details=details,
             options=list(review.options or []),
             generated=review.generated,
             created_at=review.created_at,
@@ -788,6 +858,22 @@ class ReviewService:
             ],
             screenshots=[f for f in own if f.kind == "screenshot"],
             feedback=[f for f in own if f.kind == "feedback"],
+            next_steps=next_steps,
+            notes=[
+                CheckpointNote(
+                    title=n.title,
+                    created_at=n.created_at,
+                    agent=n.agent,
+                    summary=n.summary,
+                    completed_work=n.completed_work,
+                    remaining_work=n.remaining_work,
+                    problems=n.problems,
+                    next_steps=n.next_steps,
+                    filed_here=n.task_id == review.task_id,
+                )
+                for n in notes
+            ],
+            left_out=picked.left_out if picked else False,
         )
 
     def _completion_suggestions(self, task: Task) -> list[Proposal]:
@@ -848,7 +934,7 @@ class ReviewService:
         )
         items = []
         for task in tasks:
-            review = pending.get(task.id) or self._draft(task)
+            review = pending.get(task.id) or self._draft(task, named=False)
             items.append(
                 ReviewItem(
                     kind="task",
