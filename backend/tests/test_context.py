@@ -307,3 +307,40 @@ async def test_no_record_is_out_of_reach_in_a_large_project(client: AsyncClient)
         await post(client, f"{base}/memory", type="note", title=f"Filler note {n}")
     found = await pack(client, pid, q="zeppelin docks")
     assert "Zeppelin docks use copper bolts" in found["text"]
+
+
+async def test_the_apps_agent_view_matches_what_an_agent_gets_and_sizes_the_brief(
+    client: AsyncClient,
+) -> None:
+    """A realistic project: long Global rules, project rules and a task in progress. The app's
+    preview used to count the Global rules first; they filled the limit alone, so nothing the
+    person changed in the project moved the number."""
+    long_rule = "Ask first, show a mockup, wait for a clear yes before changing anything. " * 12
+    for n in range(8):
+        await post(
+            client, "/api/projects/global/memory", type="rule", title=f"Rule {n}", content=long_rule
+        )
+    project = await build_project(client, "Camp", party=4)
+    pid = project["id"]
+    base = f"/api/projects/{pid}"
+    rules = [
+        await post(client, f"{base}/memory", type="rule", title=f"Camp rule {n}", content=long_rule)
+        for n in range(3)
+    ]
+
+    everything = await pack(client, pid, detail="balanced")
+    assert "global" in {s["key"] for s in everything["sections"]}
+    assert everything["brief_tokens"] is None
+
+    agent = await pack(client, pid, detail="balanced", agent="true")
+    keys = {s["key"] for s in agent["sections"]}
+    assert "global" not in keys and "task" in keys  # the budget goes to the project's work
+    assert "Camp rule 0" not in agent["text"]  # the brief lists it already
+    assert agent["brief_tokens"] > agent["estimated_tokens"] > 0
+
+    # Archiving project rules makes the brief, which every session pays for, smaller.
+    for record in rules:
+        archived = await client.post(f"{base}/memory/{record['human_id']}/archive")
+        assert archived.status_code == 200, archived.text
+    after = await pack(client, pid, detail="balanced", agent="true")
+    assert after["brief_tokens"] < agent["brief_tokens"]

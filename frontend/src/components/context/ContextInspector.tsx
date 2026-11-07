@@ -36,8 +36,6 @@ function packNote(text: string): string {
   return text;
 }
 
-const omittedLabels: Record<string, string> = labels({ hidden: msg("hidden from AI"), "manual only": msg("manual only, not selected"), "not related": msg("not related to this task"), "detail level": msg("left out at this detail level"), budget: msg("left out to stay within the size"), "excluded by you": msg("excluded by you"), "weak shelf match": msg("matched only one shelf keyword"), "dormant shelf": msg("only on shelves not active for this task"), resolved: msg("already resolved"), repeats: msg("repeating another item"), "already in your brief": msg("already in the agent's brief") });
-
 export function ContextInspector({ projectId, focusTaskId }: { projectId: string; focusTaskId: string | null }) {
   const tasks = useTasks(projectId);
   const [task, setTask] = useState<string>("");
@@ -50,7 +48,7 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
   const manual = useQuery({ queryKey: ["memory-manual", projectId], queryFn: ({ signal }) => memoryApi.list(projectId, { visibility: ["manual_only"], statuses: ["active"] }, signal) });
   const pack = useQuery({
     queryKey: ["context", projectId, task, detail, budget, include],
-    queryFn: ({ signal }) => contextApi.pack(projectId, { task: task || null, detail, budget: budget || null, include }, signal),
+    queryFn: ({ signal }) => contextApi.pack(projectId, { task: task || null, detail, budget: budget || null, include, agent: true }, signal),
     placeholderData: (previous) => previous,
   });
   const openTasks = (tasks.data ?? []).filter((t) => t.status !== "completed" && t.status !== "archived");
@@ -58,6 +56,8 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
   const data = pack.data;
   useEffect(() => { if (pack.isSuccess) writePref(contextSeenKey(projectId), "1"); }, [pack.isSuccess, projectId]);
   const maxTokens = Math.max(1, ...(data?.sections.map((s) => s.tokens) ?? [1]));
+  // How the pack's task was chosen, and a pack that had to go over its limit: said under "?".
+  const packNotes = data ? [...data.warnings.map(packNote), ...(data.over_budget ? [t("The essential task details alone are larger than the limit, so they were kept anyway.")] : [])] : [];
 
   async function copy() {
     if (!data) return;
@@ -68,8 +68,7 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
     <div className="grid gap-6 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
       <section aria-labelledby="ctx-settings" className="space-y-5 rounded-xl border border-line bg-surface p-6 shadow-card">
         <div>
-          <h2 id="ctx-settings" className="text-base font-semibold tracking-tight">{t("AI context")} <HelpTip label={t("how AI context works")}>{t("Project Moah does not send your whole project history to an agent. It builds a small Context Pack from what relates to the current task. This is a preview of that pack.")}</HelpTip></h2>
-          <p className="mt-1 text-sm text-ink-muted">{t("Preview what an agent would receive for a task.")}</p>
+          <h2 id="ctx-settings" className="text-base font-semibold tracking-tight">{t("AI context")} <HelpTip label={t("how AI context works")}>{t("What an agent gets when it asks Project Moah for context on a task, on top of its start-up brief. Never your whole project history. Estimates are approximate.")}</HelpTip></h2>
         </div>
         <div>
           <label htmlFor="ctx-task" className="field-label">{t("Task")}</label>
@@ -84,7 +83,7 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
             {levels.map((l) => (
               <label key={l.value} className={`flex cursor-pointer gap-3 rounded-xl border p-3 text-sm ${detail === l.value ? "border-forest bg-sage-pale" : "border-line"}`}>
                 <input type="radio" name="ctx-detail" value={l.value} checked={detail === l.value} onChange={() => setDetail(l.value)} className="mt-1 accent-primary" />
-                <span><strong className="block text-ink">{l.label}</strong><span className="text-xs text-ink-muted">{l.hint}</span></span>
+                <span className="flex items-center gap-2"><strong className="text-ink">{l.label}</strong><HelpTip label={l.label}>{l.hint}</HelpTip></span>
               </label>
             ))}
           </div>
@@ -108,16 +107,15 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
             <div className="rounded-xl border border-line bg-surface p-6 shadow-card">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <h2 id="ctx-result" className="text-base font-semibold tracking-tight">{data.task ? t("Context for {task}", { task: data.task }) : t("Project overview")}</h2>
-                  <p className="mt-1 text-sm text-ink-muted">{tx("Estimated size <b>about {size} tokens</b>, limit about {limit}. Estimates are approximate.", { b: (text) => <strong className="text-ink">{text}</strong>, size: data.estimated_tokens, limit: data.budget })}</p>
+                  <h2 id="ctx-result" className="text-base font-semibold tracking-tight">{data.task ? t("Context for {task}", { task: data.task }) : t("Project overview")} {packNotes.length > 0 && <HelpTip label={t("about this pack")}>{packNotes.join(" ")}</HelpTip>}</h2>
+                  <p className="mt-1 text-sm text-ink-muted">{tx("Context pack <b>about {size} tokens</b>, limit about {limit}.", { b: (text) => <strong className="text-ink">{text}</strong>, size: data.estimated_tokens, limit: data.budget })}</p>
+                  {data.brief_tokens != null && <p className="mt-0.5 flex items-center gap-2 text-sm text-ink-muted"><span>{tx("Start-up brief <b>about {size} tokens</b>", { b: (text) => <strong className="text-ink">{text}</strong>, size: data.brief_tokens })}</span><HelpTip label={t("start-up brief")}>{t("Sent once at the start of every agent session: your Global rules, this project's rules and its unfinished task. It gets smaller when you archive or delete rules.")}</HelpTip></p>}
                 </div>
                 <div className="flex gap-2">
                   <Button onClick={() => setShowText((v) => !v)} aria-expanded={showText}>{showText ? t("Hide text") : t("Preview context")}</Button>
                   <Button variant="primary" onClick={() => void copy()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? t("Copied") : t("Copy")}</Button>
                 </div>
               </div>
-              {data.over_budget && <p role="status" className="mt-3 rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-ink">{t("The essential task details alone are larger than the limit, so they were kept anyway.")}</p>}
-              {data.warnings.map((w) => <p key={w} className="mt-3 rounded-xl bg-sage-pale px-3 py-2 text-sm text-ink">{packNote(w)}</p>)}
               <h3 className="mt-6 text-sm font-semibold text-ink">{t("Included")}</h3>
               <ul className="mt-2 space-y-1.5">
                 {data.sections.map((s) => (
@@ -128,12 +126,6 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
                   </li>
                 ))}
               </ul>
-              {Object.keys(data.omitted).length > 0 && (
-                <div className="mt-5 border-t border-line pt-4">
-                  <h3 className="text-sm font-semibold text-ink">{t("Left out")}</h3>
-                  <ul className="mt-1.5 space-y-0.5 text-sm text-ink-muted">{Object.entries(data.omitted).map(([why, count]) => <li key={why}>{count} {omittedLabels[why] ?? why}</li>)}</ul>
-                </div>
-              )}
             </div>
             <div className="rounded-xl border border-line bg-surface p-6 shadow-card"><h3 className="text-sm font-semibold text-ink">{t("Hand off to another agent")}</h3><p className="mt-1 text-sm text-ink-muted">{t("A short note covering what is done, what remains, and what to do next. It works with any coding agent.")}</p><div className="mt-3"><HandoffButton projectId={projectId} task={task || data.task} /></div></div>
             {showText && <pre aria-label={t("Context preview")} className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-xl border border-line bg-surface p-6 text-xs leading-6 text-ink shadow-card">{data.text}</pre>}

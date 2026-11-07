@@ -65,6 +65,9 @@ class ContextPack(BaseModel):
     # Set when an agent's pack was recorded, so it can report back what helped.
     retrieval_id: str | None = None
     excluded: list[ExcludedItem] = Field(default_factory=list)
+    # The start-up brief an agent gets for this project at the start of every session, in
+    # estimated tokens. Set only for the app's agent view of a pack (``agent=true``).
+    brief_tokens: int | None = None
     # A repeat request in one agent session: the earlier pack (R-...) whose items were not sent
     # again. None for a first pack or a preview.
     repeat_of: str | None = None

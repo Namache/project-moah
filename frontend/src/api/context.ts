@@ -8,6 +8,7 @@ function contextPath(projectId: string, options: ContextOptions): string {
   if (options.budget) params.set("budget", String(options.budget));
   options.include?.forEach((ref) => params.append("include", ref));
   options.exclude?.forEach((ref) => params.append("exclude", ref));
+  if (options.agent) params.set("agent", "true");
   return `/projects/${encodeURIComponent(projectId)}/context?${params}`;
 }
 
