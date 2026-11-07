@@ -53,7 +53,7 @@ from app.services.memory import MemoryService
 from app.services.projects import ProjectService
 from app.services.proposals import ProposalService, actor_for
 from app.services.retrieval import RetrievalService
-from app.services.reviews import ReviewService, Screenshot
+from app.services.reviews import ANSWERED_IN_CHAT, ReviewService, Screenshot
 from app.services.search import SearchService
 from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
@@ -174,7 +174,9 @@ def review_for_agent(session: Session, task_id: str) -> dict:
         "rejected": "sent back by the person: fix what the comment asks, then submit again",
         "answered": "answered by the person: go on with the task using their answer",
     }[latest.status]
-    if latest.moved_to and not latest.comment:
+    if latest.moved_to == ANSWERED_IN_CHAT:
+        state = "answered by the person in the chat: go on with the task using their answer"
+    elif latest.moved_to and not latest.comment:
         state = f"{state.split(':')[0]} by moving the task to {latest.moved_to} on the board"
     review: dict[str, Any] = {
         "round": latest.round,

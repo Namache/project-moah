@@ -1258,8 +1258,8 @@ export const ru: Record<string, Translation> = {
 
   // Integrations
   "1. Connect Claude Code once, for every project": "1. Подключите Claude Code один раз для всех проектов",
-  "2. Load your rules at the start of every session: add this to ~/.claude/settings.json": "2. Загружайте правила в начале каждой сессии: добавьте это в ~/.claude/settings.json",
-  "2. Load your rules at the start of every session: add this to %USERPROFILE%\\.claude\\settings.json": "2. Загружайте правила в начале каждой сессии: добавьте это в %USERPROFILE%\\.claude\\settings.json",
+  "2. Load your rules at the start of every session, and put questions asked in the chat into Review: add this to ~/.claude/settings.json": "2. Загружайте правила в начале каждой сессии и отправляйте вопросы из чата на проверку: добавьте это в ~/.claude/settings.json",
+  "2. Load your rules at the start of every session, and put questions asked in the chat into Review: add this to %USERPROFILE%\\.claude\\settings.json": "2. Загружайте правила в начале каждой сессии и отправляйте вопросы из чата на проверку: добавьте это в %USERPROFILE%\\.claude\\settings.json",
   "Check the connection": "Проверьте подключение",
   "Claude Code MCP documentation": "Документация Claude Code по MCP",
   "Claude Code hooks": "Хуки Claude Code",
@@ -1279,6 +1279,9 @@ export const ru: Record<string, Translation> = {
   "2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md": "2. Попросите Codex начинать каждую сессию с Project Moah: добавьте это в ~/.codex/AGENTS.md",
   "2. Tell Codex to start every session from Project Moah: add this to %USERPROFILE%\\.codex\\AGENTS.md": "2. Попросите Codex начинать каждую сессию с Project Moah: добавьте это в %USERPROFILE%\\.codex\\AGENTS.md",
   "Codex MCP documentation": "Документация Codex по MCP",
+  "Codex hooks": "Хуки Codex",
+  "3. Put questions Codex asks in the chat into Review: add this to ~/.codex/hooks.json, then type /hooks in Codex and trust both": "3. Отправляйте вопросы, которые Codex задаёт в чате, на проверку: добавьте это в ~/.codex/hooks.json, затем введите /hooks в Codex и разрешите оба хука",
+  "3. Put questions Codex asks in the chat into Review: add this to %USERPROFILE%\\.codex\\hooks.json, then type /hooks in Codex and trust both": "3. Отправляйте вопросы, которые Codex задаёт в чате, на проверку: добавьте это в %USERPROFILE%\\.codex\\hooks.json, затем введите /hooks в Codex и разрешите оба хука",
 
   // Help categories
   "Other": "Другое",
@@ -1540,6 +1543,8 @@ export const ru: Record<string, Translation> = {
   "Accept all {count}": "Принять все ({count})",
   "Moved to {status} on the board": "Перенесено в «{status}» на доске",
   "You moved it to {status} on the board": "Вы перенесли задачу в «{status}» на доске",
+  "Answered in the chat": "Ответ дан в чате",
+  "You answered in the agent's chat": "Вы ответили в чате агента",
   "Address copied": "Адрес скопирован",
   "Copy the address: {href}": "Скопировать адрес: {href}",
   "Review timeline": "Лента проверки",

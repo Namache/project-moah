@@ -1,4 +1,5 @@
-"""The `project-moah-mcp` command: the MCP server over stdio, or the session brief (`--brief`).
+"""The `project-moah-mcp` command: the MCP server over stdio, the session brief (`--brief`), or
+an agent hook (`--hook stop` / `--hook prompt`, services/chat_questions.py).
 
 Kept apart from server.py so the start-up hook, which runs at every agent session start, clear
 and compaction, loads only what the brief needs: not the MCP library, which takes about as long
@@ -45,6 +46,13 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="print the session brief for --cwd and exit (for agent start-up hooks)",
     )
     parser.add_argument(
+        "--hook",
+        choices=("stop", "prompt"),
+        default=None,
+        help="run an agent hook and exit: stop (the agent ended its turn) or prompt (the person "
+        "wrote); reads the hook's JSON on standard input and prints nothing",
+    )
+    parser.add_argument(
         "--cwd",
         default=None,
         help="working folder used to find the project (--brief: defaults to Claude Code's "
@@ -82,12 +90,34 @@ def print_brief(session, args: argparse.Namespace) -> None:
     print(with_update_check(session, build_brief(session, found, note, hint)), flush=True)
 
 
+def run_hook(session, args: argparse.Namespace) -> None:
+    """One agent hook. Never fails the agent: whatever goes wrong, its turn goes on as before."""
+    from app.services.agent_sessions import read_hook_input
+    from app.services.chat_questions import HOOKS
+
+    agent = "claude" if args.agent == "agent" else args.agent.strip().casefold()
+    try:
+        HOOKS[args.hook](session, agent, read_hook_input())
+    except Exception as error:  # noqa: BLE001 - a hook must never stop the agent or the person
+        session.rollback()
+        print(f"Project Moah {args.hook} hook: {error}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     url = get_database_url()
     error_log.install("mcp")  # the start-up brief too: a failure there is otherwise silent
     upgrade_database(url)
     engine = make_engine(url)
+    if args.hook:
+        # Runs at every turn and every message: nothing else, and nothing on standard output,
+        # which Claude Code would add to the person's message.
+        try:
+            with make_session_factory(engine)() as session:
+                run_hook(session, args)
+        finally:
+            engine.dispose()
+        return 0
     try:
         with make_session_factory(engine)() as session:
             register_build(session, installed=False)  # a new session may be a new build's first

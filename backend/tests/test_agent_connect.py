@@ -86,6 +86,34 @@ def test_connects_claude_and_keeps_other_servers_and_hooks(home: Path) -> None:
     assert "--brief" in str(groups[1]["hooks"][0])
 
 
+def test_connects_the_hooks_that_catch_questions_asked_in_the_chat(home: Path) -> None:
+    (home / ".claude").mkdir()
+    (home / ".codex").mkdir()
+    own_stop = {"hooks": [{"type": "command", "command": "notify-send done"}]}
+    (home / ".claude/settings.json").write_text(json.dumps({"hooks": {"Stop": [own_stop]}}))
+    (home / ".codex/hooks.json").write_text(json.dumps({"description": "mine", "hooks": {}}))
+
+    for _ in range(2):  # connecting again replaces Project Moah's hooks, never adds a second
+        assert statuses(agent_connect.connect_agents(LAUNCH)) == {
+            "claude": "connected",
+            "codex": "connected",
+        }
+
+    claude = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]
+    assert claude["Stop"][0] == own_stop and len(claude["Stop"]) == 2
+    stop = claude["Stop"][1]["hooks"][0]
+    assert stop["command"].endswith("--mcp --agent claude --hook stop") and "async" not in stop
+    [prompt_group] = claude["UserPromptSubmit"]
+    # Claude Code sends the person's message without waiting for Project Moah.
+    assert prompt_group["hooks"][0]["async"] is True
+    assert prompt_group["hooks"][0]["command"].endswith("--agent claude --hook prompt")
+    codex = json.loads((home / ".codex/hooks.json").read_text(encoding="utf-8"))
+    assert codex["description"] == "mine" and set(codex["hooks"]) == {"Stop", "UserPromptSubmit"}
+    assert [len(groups) for groups in codex["hooks"].values()] == [1, 1]
+    assert codex["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("--agent codex --hook stop")
+    assert "async" not in codex["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+
+
 def test_windows_brief_hook_is_one_line_that_cmd_and_git_bash_both_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

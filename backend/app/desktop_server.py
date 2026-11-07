@@ -82,11 +82,16 @@ def main() -> int:
 
         return connect_main()
     if "--mcp" in sys.argv:
+        from app.services.hook_text import nothing_to_record
+
+        # A turn that did not end on a question needs nothing else (services/hook_text.py).
+        if nothing_to_record(sys.argv[1:]):
+            return 0
         # The same executable also serves agents over stdio: `project-brain-backend --mcp`.
         from app.mcp.cli import main as mcp_main
         from app.services.system import open_app_in_tray
 
-        if "--brief" not in sys.argv:
+        if "--brief" not in sys.argv and "--hook" not in sys.argv:
             open_app_in_tray()
         return mcp_main([a for a in sys.argv[1:] if a != "--mcp"])
     try:

@@ -11,65 +11,31 @@ time windows. Two writers:
   which starts a new session id in the same Claude Code process, through the hook's records of
   that process.
 
+- The prompt hook (``project-moah-mcp --hook prompt``, services/chat_questions.py) records each
+  message the person writes, by time only, and while the session has no task yet, the task the
+  message names.
+
 Only ids, times and the hook's source are kept.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import re
-import sys
-import threading
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import IO
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.agent_session import AgentSessionEvent
+from app.services.hook_text import read_hook_input  # noqa: F401 - where callers import it
+from app.services.hook_text import valid_id as _id
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 PID_ENV = "CLAUDE_PID"
 KEEP = timedelta(days=62)
 TASK = "task"
-VALID_ID = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
-
-
-def _id(value: object) -> str | None:
-    return value if isinstance(value, str) and VALID_ID.match(value) else None
-
-
-def read_hook_input(stream: IO[str] | None = None, timeout: float = 1.0) -> dict:
-    """The JSON a Claude Code hook gets on standard input, or {} when there is none.
-
-    Never blocks for long: run by hand or by another agent, standard input may stay open."""
-    stream = stream if stream is not None else sys.stdin
-    try:
-        if stream is None or stream.isatty():
-            return {}
-    except (OSError, ValueError):
-        return {}
-    box: list[str] = []
-
-    def read() -> None:
-        try:
-            box.append(stream.read(1 << 16))
-        except (OSError, ValueError):
-            pass
-
-    reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    reader.join(timeout)
-    if not box:
-        return {}
-    try:
-        data = json.loads(box[0])
-    except ValueError:
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def record_start(
@@ -184,6 +150,9 @@ def session_tasks(
             AgentSessionEvent.created_at,
         ).where(
             AgentSessionEvent.task_id.is_not(None),
+            # A task the person's message named (services/chat_questions.py) is a guess from
+            # words, not what the session worked on: token use follows the MCP server's records.
+            AgentSessionEvent.source == TASK,
             AgentSessionEvent.created_at.between(since, until),
         )
     ):

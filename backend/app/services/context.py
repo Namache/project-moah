@@ -1290,7 +1290,13 @@ class ContextService:
                 continue
         return None
 
-    def _infer_task(self, project: Project, query: str) -> tuple[str, str] | None:
+    def _infer_task(
+        self,
+        project: Project,
+        query: str,
+        statuses: tuple[str, ...] = INFER_STATUSES,
+        brief_fallback: bool = True,
+    ) -> tuple[str, str] | None:
         """The task a request with no task= is about, with why, or None.
 
         1. An open task the request names by ID ("continue with IDLE-5").
@@ -1302,7 +1308,8 @@ class ContextService:
            unfinished task the session brief shows (brief.unfinished_task: the task of the latest
            checkpoint that has one, while it is in progress or blocked, else the only task in
            progress), so the two never disagree.
-        A vague request matches nothing and gets a project overview, as before."""
+        A vague request matches nothing and gets a project overview, as before. The person's own
+        message (services/chat_questions.py) also looks in To do and Backlog, without step 3."""
         project_id = project.id
         for ref in REF_PATTERN.findall(query):
             found = self._task_by_ref(project_id, ref)
@@ -1310,11 +1317,13 @@ class ContextService:
                 return found.id, f"the request names {found.human_id}"
         wanted = match_keys(query) - WORK_KEYS
         if not wanted:
+            if not brief_fallback:
+                return None
             shown = unfinished_task(self.session, project)
             if shown is None:
                 return None
             return shown.id, f"{shown.human_id} is the unfinished task in your brief"
-        moving = self.tasks.list(project_id, statuses=list(INFER_STATUSES))
+        moving = self.tasks.list(project_id, statuses=list(statuses))
         scored = sorted(
             (
                 (len(wanted & match_keys(" ".join([t.title, *t.tags]))), t.human_id, t)

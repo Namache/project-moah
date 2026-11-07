@@ -9,8 +9,9 @@ from app.models.project import utc_now
 
 class AgentSessionEvent(Base):
     """Which agent session (by the agent's own session id, the name of its log) worked on which
-    project and task, and when. Written by Claude Code's SessionStart hook (task empty) and by
-    the MCP server whenever the session's task changes. Only ids and times, never text."""
+    project and task, and when. Written by Claude Code's SessionStart hook (task empty), by the
+    MCP server whenever the session's task changes, and by the prompt hook each time the person
+    writes. Only ids and times, never text."""
 
     __tablename__ = "agent_session_events"
     __table_args__ = (
@@ -27,7 +28,8 @@ class AgentSessionEvent(Base):
     task_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("tasks.id", ondelete="SET NULL")
     )
-    # startup, clear, compact or resume (the hook), or task (the MCP server).
+    # startup, clear, compact or resume (the start-up hook), task (the MCP server), or prompt
+    # (the prompt hook: the person wrote, services/chat_questions.py).
     source: Mapped[str] = mapped_column(String(16), nullable=False)
     # Claude Code's process id, so an MCP server started for one session can follow it
     # through /clear, which starts a new session id in the same process.
