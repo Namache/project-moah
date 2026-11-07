@@ -128,8 +128,16 @@ const RUSSIAN = {
   "Focus": "Фокус",
   "Break": "Перерыв",
   "Paused": "На паузе",
+  "Ready": "Готов",
   "{count} waiting for review": "Ждут проверки: {count}",
   "{time} left": "Осталось {time}",
+  "Start": "Начать",
+  "Resume": "Продолжить",
+  "Pause": "Пауза",
+  "Start focus": "Начать фокус",
+  "Start break": "Начать перерыв",
+  "Break is ready": "Пора на перерыв",
+  "Time to focus": "Пора за работу",
 };
 function say(text, vars = {}) {
   const chosen = app.getLocale().toLowerCase().startsWith("ru") ? RUSSIAN[text] ?? text : text;
@@ -378,7 +386,6 @@ async function openWindow(port) {
     if (details.reason !== "clean-exit") recordError(`The app window stopped (${details.reason}, code ${details.exitCode}).`);
   });
   window.webContents.on("preload-error", (event, preloadPath, error) => recordError(`The window's preload script failed: ${error.message}`, error.stack ?? ""));
-  pomodoro?.attachWindow(window);
   window.webContents.on("will-navigate", stayInApp);
   window.webContents.on("will-redirect", stayInApp);
   // The saved interface size, or Automatic for this screen, from the first paint on.
@@ -417,6 +424,9 @@ async function openWindow(port) {
     event.preventDefault();
     window.hide();
   });
+  // The desktop timer is a window too, so "all windows closed" never comes while it shows:
+  // Moah's own window really closing (not hiding to the tray) ends the app.
+  window.on("closed", () => app.quit());
   // Windows is shutting down or signing out: a hidden window must not hold that up.
   window.on("session-end", () => {
     quitting = true;
