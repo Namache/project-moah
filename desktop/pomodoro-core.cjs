@@ -28,6 +28,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   soundsOn: true,
   volume: 70,
   miniSize: "small",
+  // Where the person dragged the corner timer to (its top-left corner on the screen), or null for the corner.
+  miniPosition: null,
   sounds: Object.freeze({ break: null, work: null, review: null }),
 });
 
@@ -47,6 +49,14 @@ function cleanSound(kind, value) {
   return { file, name: name.slice(0, 200) };
 }
 
+/** A dragged-to place: whole screen coordinates within a sane range, or null. */
+function cleanPosition(value) {
+  if (!value || typeof value !== "object") return null;
+  const { x, y } = value;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 100_000 || Math.abs(y) > 100_000) return null;
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
 /** Settings from disk or from the window, with anything unknown or out of range replaced by a safe value. */
 function cleanSettings(raw, base = DEFAULT_SETTINGS) {
   const input = raw && typeof raw === "object" ? raw : {};
@@ -63,6 +73,7 @@ function cleanSettings(raw, base = DEFAULT_SETTINGS) {
     soundsOn: typeof input.soundsOn === "boolean" ? input.soundsOn : base.soundsOn,
     volume: wholeNumber(input.volume ?? base.volume, 0, 100, base.volume),
     miniSize: typeof input.miniSize === "string" && input.miniSize in MINI_SCALES ? input.miniSize : base.miniSize,
+    miniPosition: cleanPosition("miniPosition" in input ? input.miniPosition : base.miniPosition),
     sounds,
   };
 }
@@ -74,7 +85,7 @@ function durations(settings) {
 }
 
 /**
- * The timer itself. It goes round by itself: focus, break, focus... until stopped.
+ * The timer itself. It goes round by itself: focus, break, focus... until paused or stopped.
  * `plan()` gives the current durations, so a changed rhythm applies from the next phase on.
  * `onChange(snapshot)` runs after every change; `onCue("break" | "work")` when a phase ends by itself.
  */
@@ -84,9 +95,11 @@ function createTimer({ plan, onChange = () => {}, onCue = () => {}, now = Date.n
   let endsAt = null;
   let remainingMs = plan().workMs;
   let totalMs = remainingMs;
+  // The next phase is ready and hasn't been started yet (after a skip while paused).
+  let waiting = false;
   let ticker = null;
 
-  const snapshot = () => ({ phase, running, endsAt, remainingMs: running ? Math.max(0, endsAt - now()) : remainingMs, totalMs });
+  const snapshot = () => ({ phase, running, waiting, endsAt, remainingMs: running ? Math.max(0, endsAt - now()) : remainingMs, totalMs });
   const changed = () => onChange(snapshot());
 
   // A steady check of the wall clock, instead of one long timeout: it stays right after the computer
@@ -107,6 +120,7 @@ function createTimer({ plan, onChange = () => {}, onCue = () => {}, now = Date.n
     totalMs = next === "break" ? breakMs : workMs;
     remainingMs = totalMs;
     running = keepRunning;
+    waiting = !keepRunning;
     endsAt = running ? now() + totalMs : null;
     watch(running);
   }
@@ -127,6 +141,7 @@ function createTimer({ plan, onChange = () => {}, onCue = () => {}, now = Date.n
       if (phase === "idle") enter("focus", true);
       else {
         running = true;
+        waiting = false;
         endsAt = now() + remainingMs;
         watch(true);
       }
@@ -149,6 +164,7 @@ function createTimer({ plan, onChange = () => {}, onCue = () => {}, now = Date.n
     stop() {
       phase = "idle";
       running = false;
+      waiting = false;
       endsAt = null;
       remainingMs = totalMs = plan().workMs;
       watch(false);
@@ -200,6 +216,25 @@ function cornerPosition(workArea, size, margin = { x: 12, y: 10 }) {
 }
 
 /**
+ * Where the desktop timer goes when the person has dragged it: the saved place, pulled back inside
+ * whichever monitor it overlaps most (all of it, taskbar included), so a removed monitor or a bigger
+ * size can't lose it. `overhang`: how far the see-through edge of the window may go past the monitor.
+ * Null when there is no saved place or no screen.
+ */
+function placeOnScreen(position, size, screens, overhang = 0) {
+  if (!position || !Array.isArray(screens) || screens.length === 0) return null;
+  const overlap = (area) =>
+    Math.max(0, Math.min(position.x + size.width, area.x + area.width) - Math.max(position.x, area.x)) *
+    Math.max(0, Math.min(position.y + size.height, area.y + area.height) - Math.max(position.y, area.y));
+  const area = screens.reduce((best, next) => (overlap(next) > overlap(best) ? next : best));
+  if (overlap(area) === 0) return null;
+  // The window is a little bigger than the oval (room for its shadow and the Review count), so that
+  // see-through edge may hang over the monitor's edge and the oval itself can sit right at it.
+  const clamp = (value, start, length, own) => Math.round(Math.min(Math.max(value, start - overhang), start + Math.max(0, length - own) + overhang));
+  return { x: clamp(position.x, area.x, area.width, size.width), y: clamp(position.y, area.y, area.height, size.height) };
+}
+
+/**
  * Whether the corner timer can be placed and kept on top. On a Linux Wayland session Electron can
  * do neither, and it can't tell when the window is minimized; Moah then runs through XWayland
  * while the timer is on, which needs one restart.
@@ -225,4 +260,5 @@ module.exports = {
   durations,
   linuxDisplay,
   miniSize,
+  placeOnScreen,
 };

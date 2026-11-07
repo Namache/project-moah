@@ -18,33 +18,52 @@ body { display: flex; align-items: center; justify-content: center; }
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
   height: 36px;
-  padding: 0 13px 0 5px;
+  padding: 0 5px;
   border: 1px solid rgb(255 255 255 / 0.14);
   border-radius: 18px;
   background: var(--glass);
   color: var(--text);
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.06);
-  font: inherit;
-  cursor: pointer;
+  cursor: grab;
   transition: background-color 120ms ease;
 }
 .oval:hover { background: var(--glass-hover); }
-.oval:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.oval.dragging, .oval.dragging button { cursor: grabbing; }
+
+button {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+/* The ring is the Start / Pause button: a soft halo shows it can be pressed. */
+.toggle { width: 26px; height: 26px; border-radius: 50%; }
+.toggle:hover { background: rgb(255 255 255 / 0.1); }
+.open { padding: 0 8px 0 7px; height: 100%; border-radius: 0 18px 18px 0; }
 
 .ring { width: 26px; height: 26px; flex: none; overflow: visible; }
 .track { fill: none; stroke: rgb(255 255 255 / 0.16); stroke-width: 3; }
 .arc { fill: none; stroke: var(--focus); stroke-width: 3; stroke-linecap: round; }
-.pause rect { fill: var(--text); }
+.pause rect, .play { fill: var(--text); }
 .cup path { fill: none; stroke: var(--break); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.pause, .cup { display: none; }
+.pause, .play, .cup { display: none; }
 
 .oval.break .arc { stroke: var(--break); }
 .oval.break .cup { display: inline; }
+/* Running: hovering the ring swaps its centre for the pause sign. */
+.oval:not(.paused) .toggle:hover .cup { display: none; }
+.oval:not(.paused) .toggle:hover .pause { display: inline; }
+/* Paused, or the next part waiting to be started: a play sign. */
 .oval.paused .arc { opacity: 0.5; }
 .oval.paused .cup { display: none; }
-.oval.paused .pause { display: inline; }
+.oval.paused .play { display: inline; }
+.oval.waiting .arc, .oval.idle .arc { opacity: 1; }
 
 .time { min-width: 42px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 

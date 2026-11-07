@@ -1,7 +1,7 @@
 "use strict";
 
 // The focus (Pomodoro) timer in the main process: its settings file, the timer, the small corner
-// window shown while Moah is minimized or in the tray, and the messages to Moah's window.
+// window that stays on the desktop while the timer is turned on, and the messages to Moah's window.
 // The rules themselves are in pomodoro-core.cjs.
 
 const { BrowserWindow, dialog, ipcMain, screen } = require("electron");
@@ -11,6 +11,8 @@ const core = require("./pomodoro-core.cjs");
 
 // The oval is about 96 x 36; the window leaves room around it for its shadow and the glowing Review count.
 const MINI_MARGIN = { x: 0, y: 0 };
+// How far that see-through edge may go past the monitor's edge when dragged (at the small size).
+const MINI_OVERHANG = 8;
 const X11_MARKER = "use-x11";
 
 /**
@@ -37,7 +39,6 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
   let settings = load();
   let mini = null;
   let miniReady = false;
-  let mainHidden = false;
 
   function load() {
     try {
@@ -84,7 +85,15 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
       focus: say("Focus"),
       break: say("Break"),
       paused: say("Paused"),
+      ready: say("Ready"),
       open: say("Open Project Moah"),
+      start: say("Start"),
+      resume: say("Resume"),
+      pause: say("Pause"),
+      startFocus: say("Start focus"),
+      startBreak: say("Start break"),
+      breakReady: say("Break is ready"),
+      focusReady: say("Time to focus"),
       review: say("{count} waiting for review"),
       left: say("{time} left"),
     };
@@ -118,21 +127,57 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
 
   // The corner window.
 
+  /** The desktop timer shows the whole time the focus timer is turned on: stopped or running, Moah open or not. */
   function wantMini() {
-    return settings.enabled && miniSupported && mainHidden && timer.snapshot().phase !== "idle";
+    return settings.enabled && miniSupported;
   }
 
   /** The size picked in Settings: the window grows and its page is zoomed to match. */
   const miniScale = () => core.MINI_SCALES[settings.miniSize] ?? 1;
 
+  /** Where the person last dragged it, kept on a monitor that is still there; otherwise the bottom-left corner above the taskbar. */
   function miniBounds() {
     const size = core.miniSize(miniScale());
+    const placed = core.placeOnScreen(settings.miniPosition, size, screen.getAllDisplays().map((one) => one.bounds), Math.round(MINI_OVERHANG * miniScale()));
+    if (placed) return { ...placed, ...size };
     const main = getMainWindow();
     const where = main && !main.isDestroyed() ? screen.getDisplayMatching(main.getNormalBounds()) : screen.getPrimaryDisplay();
     return { ...core.cornerPosition(where.workArea, size, MINI_MARGIN), ...size };
   }
 
+  // Dragging the corner timer with the left mouse button. The page says when a drag starts, moves and
+  // ends; the main process reads the pointer itself, so the page's zoom can't skew the numbers. This
+  // works on Windows and on X11 (where Moah runs while the timer is on, also under Wayland).
+  let drag = null;
+
+  function dragStart() {
+    if (!mini || mini.isDestroyed()) return;
+    const [x, y] = mini.getPosition();
+    drag = { pointer: screen.getCursorScreenPoint(), x, y };
+  }
+
+  function dragMove() {
+    if (!drag || !mini || mini.isDestroyed()) return;
+    const pointer = screen.getCursorScreenPoint();
+    mini.setPosition(Math.round(drag.x + pointer.x - drag.pointer.x), Math.round(drag.y + pointer.y - drag.pointer.y));
+  }
+
+  function dragEnd() {
+    if (!drag || !mini || mini.isDestroyed()) return;
+    dragMove();
+    drag = null;
+    const [x, y] = mini.getPosition();
+    const size = core.miniSize(miniScale());
+    // Dropped half off the monitor: pulled back in, and that place is the one remembered. The whole
+    // monitor counts, taskbar included; only the first, default place keeps clear of the taskbar.
+    const placed = core.placeOnScreen({ x, y }, size, screen.getAllDisplays().map((one) => one.bounds), Math.round(MINI_OVERHANG * miniScale())) ?? miniBounds();
+    if (placed.x !== x || placed.y !== y) mini.setPosition(placed.x, placed.y);
+    settings = core.cleanSettings({ miniPosition: { x: placed.x, y: placed.y } }, settings);
+    save();
+  }
+
   function sizeMini() {
+    if (drag) return; // Don't pull it back while it is being dragged.
     const bounds = miniBounds();
     const now = mini.getBounds();
     if (now.width !== bounds.width || now.height !== bounds.height || now.x !== bounds.x || now.y !== bounds.y) mini.setBounds(bounds);
@@ -153,7 +198,7 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
       backgroundColor: "#00000000",
       hasShadow: false,
       resizable: false,
-      movable: false,
+      movable: true,
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
@@ -198,22 +243,9 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
     send(mini.webContents, "pomodoro:state", miniState());
     sizeMini();
     if (!mini.isVisible()) {
-      mini.setAlwaysOnTop(true, "floating");
+      mini.setAlwaysOnTop(true, "screen-saver"); // Above the taskbar too, wherever it is dragged.
       mini.showInactive();
     }
-  }
-
-  /** Moah's window: the corner timer shows while it is minimized or hidden, and goes when it comes back. */
-  function attachWindow(window) {
-    const hidden = (value) => () => {
-      mainHidden = value;
-      updateMini();
-    };
-    window.on("minimize", hidden(true));
-    window.on("hide", hidden(true));
-    window.on("restore", hidden(false));
-    window.on("show", hidden(false));
-    window.on("focus", hidden(false));
   }
 
   // Custom sounds: a copy goes into Moah's own folder, so moving or deleting the original breaks nothing.
@@ -281,7 +313,8 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
     const before = core.durations(settings);
     const wasEnabled = settings.enabled;
     // Sounds change only through choose and reset, which copy and delete the files.
-    const { sounds, ...rest } = partial && typeof partial === "object" ? partial : {};
+    // The corner timer's place changes only by dragging it.
+    const { sounds, miniPosition, ...rest } = partial && typeof partial === "object" ? partial : {};
     settings = core.cleanSettings(rest, settings);
     save();
     if (settings.enabled !== wasEnabled) syncX11Marker();
@@ -301,7 +334,7 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
     return state();
   }
 
-  // Only Moah's own window may change the timer; only the corner window may ask to open Moah.
+  // Only Moah's own window may change the settings and sounds.
   const fromMain = (event) => event.sender === getMainWindow()?.webContents;
   const isKind = (kind) => core.SOUND_KINDS.includes(kind);
   ipcMain.handle("pomodoro:get", (event) => (fromMain(event) ? state() : null));
@@ -313,15 +346,31 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
   ipcMain.handle("pomodoro:quit", (event) => {
     if (fromMain(event)) app.quit();
   });
+  // The corner window may open Moah, start or pause the timer, and be dragged; nothing else.
+  const fromMini = (event) => Boolean(mini && !mini.isDestroyed() && event.sender === mini.webContents);
   ipcMain.on("pomodoro:open", (event) => {
-    if (mini && event.sender === mini.webContents) showMainWindow();
+    if (fromMini(event)) showMainWindow();
+  });
+  ipcMain.on("pomodoro:toggle", (event) => {
+    if (!fromMini(event) || !settings.enabled) return;
+    if (timer.snapshot().running) timer.pause();
+    else timer.start();
+  });
+  ipcMain.on("pomodoro:drag", (event, step) => {
+    if (!fromMini(event)) return;
+    if (step === "start") dragStart();
+    else if (step === "move") dragMove();
+    else if (step === "end") dragEnd();
+    else if (step === "cancel") drag = null;
   });
 
   // A marker left from an older run (or removed by hand) follows the saved setting.
   syncX11Marker();
 
+  // Turned on from an earlier run: the desktop timer shows from the start.
+  updateMini();
+
   return {
-    attachWindow,
     /** Items waiting in Review from the main process's regular check; `fresh` are the new ones. */
     setPending(total, fresh) {
       reviews.update(total, settings.enabled ? fresh : []);

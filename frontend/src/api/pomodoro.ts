@@ -16,8 +16,10 @@ export interface PomodoroSettings {
   soundsOn: boolean;
   /** 0 to 100. */
   volume: number;
-  /** How big the corner timer is while Moah is minimized or in the tray. */
+  /** How big the desktop timer is. */
   miniSize: PomodoroMiniSize;
+  /** Where the corner timer was dragged to, or null for the bottom-left corner. Changed only by dragging it. */
+  miniPosition?: { x: number; y: number } | null;
   /** A sound the person chose instead of the built-in one, or null. */
   sounds: Record<PomodoroSoundKind, PomodoroSound | null>;
 }
@@ -25,6 +27,8 @@ export interface PomodoroSettings {
 export interface PomodoroTimer {
   phase: "idle" | "focus" | "break";
   running: boolean;
+  /** A part just ended and the next one is set up, waiting for Start. */
+  waiting?: boolean;
   /** When the current phase ends (milliseconds since 1970), while running. */
   endsAt: number | null;
   remainingMs: number;
