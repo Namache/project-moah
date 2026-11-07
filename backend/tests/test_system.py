@@ -147,3 +147,18 @@ def test_agent_connecting_opens_the_app_on_each_install(monkeypatch, tmp_path):
     monkeypatch.setenv("PROJECT_BRAIN_DB_PATH", "/tmp/check.db")
     system.open_app_in_tray()
     assert started == [], "a throwaway database means nobody is asking for the app"
+
+
+def test_diagnostics_counts_the_tools_inside_the_flatpak_too(monkeypatch) -> None:
+    """Diagnostics counts the MCP tools on a server built without a database. Inside the
+    Flatpak, brain_submit_review's screenshot folder used to ask that missing database."""
+    from app.services.system import mcp_tool_count
+
+    outside = mcp_tool_count()
+    real_exists = Path.exists
+
+    def exists(self, *args, **kwargs):
+        return str(self) == "/.flatpak-info" or real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    assert mcp_tool_count() == outside > 20
