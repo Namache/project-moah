@@ -271,6 +271,8 @@ async def test_a_session_only_folder_is_never_saved_as_a_projects_folder(
         json={"name": "Ember Road", "root_path": "/sessions/brave-owl/mnt/Ember Road"},
     )
     assert refused.status_code == 422
+    if sys.platform == "win32":
+        return  # not an absolute path on Windows, so it is refused before the folder check
     assert "only exists while one session runs" in refused.text
     # A document portal path is kept: it is how a Flatpak install opens the folder.
     kept = await client.post("/api/projects", json={"name": "Ember Road", "root_path": PORTAL})
