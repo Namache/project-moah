@@ -5,6 +5,7 @@ import { usePendingReviews } from "../hooks/useReviews";
 import { useKnowledgeUpdates } from "../hooks/useGraph";
 import { CommandPalette } from "./CommandPalette";
 import { DictationDock } from "./dictation/DictationDock";
+import { PomodoroCues } from "./pomodoro/PomodoroCues";
 import { primaryNav, secondaryNav, supportNav } from "./navItems";
 import { ProjectsNav } from "./ProjectsNav";
 import { SidebarResizer, useSidebarWidth } from "./SidebarResizer";
@@ -142,6 +143,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <Notices />
       <DictationDock inline={ownMicrophone} />
+      <PomodoroCues />
       {paletteOpen && <CommandPalette projects={availableProjects} current={selectedProject} onClose={() => setPaletteOpen(false)} />}
     </div>
   );

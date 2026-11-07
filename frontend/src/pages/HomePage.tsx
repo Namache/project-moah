@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Onboarding, ONBOARDING_KEY } from "../components/onboarding/Onboarding";
 import { EmptyState, ErrorState, ProgressBar, ProjectAvatar, ProjectTile, Widget, buttonBase, buttonClasses, formatDate, toneClasses } from "../components/ui";
 import { CompactActivityItem } from "../components/activity/ActivityFeed";
+import { FocusTimerWidget } from "../components/pomodoro/FocusTimerWidget";
 import { useWorkspaceRecent } from "../hooks/useActivity";
 import { taskStatusStyle } from "../lib/tones";
 import { useLatestCheckpoint } from "../hooks/useCheckpoints";
@@ -135,6 +136,7 @@ export function HomePage() {
               </Widget>
 
               <div className="grid gap-4">
+                <FocusTimerWidget />
                 <Widget title={t("Review")} icon={ClipboardCheck} to="/review" linkLabel={t("Open Review")}>
                   {waiting > 0
                     ? <Link to="/review" className="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-forest"><span className="text-4xl font-semibold tabular-nums tracking-tight text-ink">{waiting}</span><span className="text-sm text-ink-muted">{tp(waiting, "item waits for your review", "items wait for your review")}</span></Link>
