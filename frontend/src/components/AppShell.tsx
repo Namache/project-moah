@@ -105,8 +105,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button type="button" onClick={() => setPaletteOpen(true)} aria-keyshortcuts="Control+K /" aria-haspopup="dialog" title={t("Search or jump to (Ctrl+K)")}
             className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-side-hover text-sm text-side-muted transition-colors hover:bg-side-active hover:text-side-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-side-accent lg:justify-start lg:px-2.5">
             <Search size={15} aria-hidden="true" />
-            <span className="sr-only lg:not-sr-only">{t("Search or jump to…")}</span>
-            <kbd className="ml-auto hidden rounded border border-side-line px-1 font-sans text-xs lg:inline" aria-hidden="true">Ctrl K</kbd>
+            <span className="sr-only lg:not-sr-only lg:truncate">{t("Search or jump to…")}</span>
+            <kbd className="ml-auto hidden shrink-0 whitespace-nowrap rounded border border-side-line px-1 font-sans text-xs lg:inline" aria-hidden="true">Ctrl K</kbd>
           </button>
 
           <nav aria-label={t("Workspace")} className="mt-5 w-full">

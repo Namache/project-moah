@@ -7,6 +7,7 @@ const { randomBytes } = require("node:crypto");
 const { homedir } = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
+const display = require("./display.cjs");
 
 // The app was renamed to Project Moah; keep its settings folder (window state, logs, saved
 // layout) where Project Brain put it, so the rename doesn't reset anything.
@@ -284,6 +285,36 @@ function saveWindowState() {
   }
 }
 
+function displayPrefsPath() {
+  return path.join(app.getPath("userData"), "display.json");
+}
+
+function windowDisplay() {
+  return window && !window.isDestroyed() ? screen.getDisplayMatching(window.getBounds()) : screen.getPrimaryDisplay();
+}
+
+/** What the page needs to show and apply the sizes: the saved choice and what Automatic means on this screen. */
+function displayState() {
+  const prefs = display.readPrefs(displayPrefsPath());
+  const current = windowDisplay();
+  return { ...prefs, auto: display.autoZoom(current), zoomInUse: display.zoomFor(prefs, current) };
+}
+
+function applyZoom() {
+  if (!window || window.isDestroyed()) return;
+  window.webContents.setZoomFactor(displayState().zoomInUse);
+}
+
+function saveDisplayPrefs(prefs) {
+  try {
+    display.writePrefs(displayPrefsPath(), prefs);
+  } catch (error) {
+    writeLog(`[display] ${error.message}`);
+  }
+  applyZoom();
+  window?.webContents.send("project-brain:display-changed", displayState());
+}
+
 function secureSession(origin) {
   const ses = session.defaultSession;
   const trusted = (webContents, requestingOrigin) => webContents === window?.webContents && requestingOrigin === origin;
@@ -326,6 +357,26 @@ async function openWindow(port) {
   };
   window.webContents.on("will-navigate", stayInApp);
   window.webContents.on("will-redirect", stayInApp);
+  // The saved interface size, or Automatic for this screen, from the first paint on.
+  window.webContents.on("did-finish-load", applyZoom);
+  // Ctrl+Plus, Ctrl+Minus and Ctrl+0 change the same setting as Settings > Accessibility, so it is kept.
+  window.webContents.on("before-input-event", (event, input) => {
+    const direction = display.zoomShortcut(input);
+    if (direction === null) return;
+    event.preventDefault();
+    saveDisplayPrefs(display.stepZoom(display.readPrefs(displayPrefsPath()), windowDisplay(), direction));
+  });
+  // Automatic follows the screen: moving the window to another display or changing its resolution resizes the app.
+  let lastAuto = display.autoZoom(windowDisplay());
+  const followScreen = () => {
+    const auto = display.autoZoom(windowDisplay());
+    if (auto === lastAuto) return;
+    lastAuto = auto;
+    applyZoom();
+    window?.webContents.send("project-brain:display-changed", displayState());
+  };
+  window.on("moved", followScreen);
+  screen.on("display-metrics-changed", followScreen);
   window.once("ready-to-show", () => {
     if (startInTray) {
       maximizeOnShow = state.maximized;
@@ -487,6 +538,14 @@ if (!app.requestSingleInstanceLock()) {
     apiToken = randomBytes(32).toString("hex");
     ipcMain.on("project-brain:get-token", (event) => {
       event.returnValue = event.sender === window?.webContents ? apiToken : "";
+    });
+    ipcMain.on("project-brain:get-display", (event) => {
+      event.returnValue = event.sender === window?.webContents ? displayState() : null;
+    });
+    ipcMain.handle("project-brain:set-display", (event, prefs) => {
+      if (event.sender !== window?.webContents || typeof prefs !== "object" || prefs === null) return null;
+      saveDisplayPrefs(display.cleanPrefs(prefs));
+      return displayState();
     });
     const install = installKind();
     ipcMain.on("project-brain:get-install", (event) => {

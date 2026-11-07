@@ -12,6 +12,7 @@ import { systemApi, type Diagnostics } from "../api/system";
 import { useTimeout } from "../hooks/useTimeout";
 import { languageChoices, locale, t, tp, tx, useLanguageChoice } from "../lib/i18n";
 import { themeChoices, useTheme } from "../lib/theme";
+import { percent, setDisplay, textSteps, useDisplay, zoomSteps } from "../lib/display";
 
 const megabytes = (bytes: number | null) => (bytes === null ? t("unknown") : `${new Intl.NumberFormat(locale(), { maximumFractionDigits: bytes < 10_485_760 ? 2 : 1 }).format(bytes / 1_048_576)} ${t("MB")}`);
 
@@ -51,6 +52,30 @@ function GuideLink({ to, name }: { to: string; name: string }) {
       <span><span className="block text-sm font-semibold text-ink">{name}</span><span className="block text-xs text-ink-muted">{t("Setup guide")}</span></span>
       <ArrowRight size={16} className="text-ink-subtle group-hover:text-forest" aria-hidden="true" />
     </Link>
+  );
+}
+
+/** Interface size zooms the whole window; text size scales only the text on top of it. */
+function AccessibilityCard() {
+  const display = useDisplay();
+  const desktop = Boolean(window.projectBrainDesktop?.setDisplay);
+  const zoomChoices = [
+    { value: "auto", label: desktop ? t("Automatic ({size})", { size: percent(display.auto, locale()) }) : t("Automatic") },
+    ...zoomSteps.map((step) => ({ value: String(step), label: percent(step, locale()) })),
+  ];
+  const textChoices = textSteps.map((step) => ({ value: String(step), label: step === 1 ? t("Standard") : percent(step, locale()) }));
+  return (
+    <Card id="settings-accessibility" title={t("Accessibility")}>
+      <div className="space-y-5">
+        <Choice name="interface-size" legend={t("Interface size")}
+          hint={desktop ? t("Makes everything bigger: the sidebar, panels, buttons and text. Automatic picks a size from your screen's resolution. Ctrl+Plus and Ctrl+Minus change it anywhere in the app, and Ctrl+0 goes back to Automatic.") : t("Makes everything bigger: the sidebar, panels, buttons and text.")}
+          value={String(display.zoom)} choices={zoomChoices}
+          onChange={(value) => void setDisplay({ zoom: value === "auto" ? "auto" : Number(value), text: display.text })} />
+        <Choice name="text-size" legend={t("Text size")} hint={t("Makes only the text bigger, on top of the interface size, and leaves the layout as it is.")}
+          value={String(display.text)} choices={textChoices}
+          onChange={(value) => void setDisplay({ zoom: display.zoom, text: Number(value) })} />
+      </div>
+    </Card>
   );
 }
 
@@ -114,6 +139,8 @@ export function SettingsPage() {
           {dictation && <div><label htmlFor="dictation-language" className="field-label">{t("Dictation language")}</label><p id="dictation-language-help" className="text-xs text-ink-subtle">{t("Click any text field, then press the microphone in the corner or Ctrl+Shift+Space, and speak. Automatic works for any language but takes about a second longer.")}</p><select id="dictation-language" aria-describedby="dictation-language-help" className="field-input mt-2 max-w-xs" value={dictationLanguage} onChange={(event) => setDictationLanguage(event.target.value)}><option value="auto">{t("Automatic")}</option>{dictationLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>}
         </div>
       </Card>
+
+      <AccessibilityCard />
 
       <Card id="settings-agents" title={t("Agents")}>
         <p className="text-sm text-ink-muted">{t("Connect each agent once, and it works in every project. The connection stays on this computer.")}</p>
