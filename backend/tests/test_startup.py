@@ -61,7 +61,9 @@ def test_an_older_database_is_still_migrated(tmp_path: Path) -> None:
     engine = make_engine(url)
     with engine.begin() as connection:
         connection.execute(text("UPDATE alembic_version SET version_num = '0016_pack_build'"))
-        connection.execute(text("DROP TABLE agent_session_events"))
+        # Everything later migrations add, so the database is as 0016 left it.
+        for table in ("review_files", "task_reviews", "agent_session_events"):
+            connection.execute(text(f"DROP TABLE {table}"))
     engine.dispose()
     upgrade_database(url)
     assert current_revision(url) == head_revision(resource_path("backend/migrations/versions"))

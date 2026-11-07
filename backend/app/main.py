@@ -23,6 +23,7 @@ from app.api.images import router as images_router
 from app.api.memory import router as memory_router
 from app.api.projects import router as projects_router
 from app.api.proposals import router as proposals_router
+from app.api.reviews import router as reviews_router
 from app.api.search import router as search_router
 from app.api.settings import router as settings_router
 from app.api.system import router as system_router
@@ -113,6 +114,7 @@ def create_app(
     application.include_router(graph_router)
     application.include_router(brain_router)
     application.include_router(proposals_router)
+    application.include_router(reviews_router)
     application.include_router(tasks_router)
     application.include_router(usage_router)
     application.include_router(agent_folders_router)

@@ -15,7 +15,7 @@ export function ReviewPage({ projectId, archived }: { projectId: string; archive
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">{t("Inbox")} <HelpTip label={t("About the Inbox")}>{t("Claude Code and Codex can suggest changes, such as editing a locked decision or completing a task. Nothing changes until you accept it. You can edit a suggestion first.")}</HelpTip></h2>
+          <h2 className="text-base font-semibold tracking-tight">{t("Suggestions")} <HelpTip label={t("About suggestions")}>{t("Claude Code and Codex can suggest changes, such as editing a locked decision or completing a task. Nothing changes until you accept it. You can edit a suggestion first.")}</HelpTip></h2>
           <p className="mt-1 text-sm text-ink-muted">{t("Changes your agents suggested for this project. You can edit one before accepting it.")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

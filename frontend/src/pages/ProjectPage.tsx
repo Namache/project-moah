@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Activity, Archive, BookOpen, Bot, FolderOpen, Inbox, LayoutDashboard, ListTodo, Pencil, RotateCcw, type LucideIcon } from "lucide-react";
+import { Activity, Archive, BookOpen, Bot, ClipboardCheck, FolderOpen, LayoutDashboard, ListTodo, Pencil, RotateCcw, type LucideIcon } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArchiveDialog } from "../components/ArchiveDialog";
 import { ProjectDialog } from "../components/ProjectDialog";
@@ -9,8 +9,8 @@ import { FocusCard } from "../components/tasks/FocusCard";
 import { ProjectCheckpoints } from "../components/checkpoints/CheckpointsSection";
 import { ProjectActivity } from "../components/activity/ProjectActivity";
 import { RecentActivity } from "../components/activity/RecentActivity";
-import { ReviewPage } from "./ReviewPage";
-import { usePendingProposals } from "../hooks/useProposals";
+import { ReviewScreen } from "./ReviewScreen";
+import { usePendingReviews } from "../hooks/useReviews";
 import { FilesPage } from "./FilesPage";
 import { TasksPage } from "./TasksPage";
 import { MemoryPage } from "./MemoryPage";
@@ -25,7 +25,7 @@ import { projectPath, projectSections, type ProjectSection } from "../lib/routes
 import { t } from "../lib/i18n";
 
 const NAV = projectSections;
-const sectionIcons: Record<ProjectSection, LucideIcon> = { "": LayoutDashboard, tasks: ListTodo, memory: BookOpen, context: Bot, review: Inbox, files: FolderOpen, activity: Activity };
+const sectionIcons: Record<ProjectSection, LucideIcon> = { "": LayoutDashboard, tasks: ListTodo, memory: BookOpen, context: Bot, review: ClipboardCheck, files: FolderOpen, activity: Activity };
 const isSection = (value: string): value is ProjectSection => NAV.some((item) => item.path === value);
 
 function Overview({ project }: { project: Project }) {
@@ -66,7 +66,7 @@ export function ProjectPage() {
   const { projectId = "", section } = useParams();
   const navigate = useNavigate();
   const projectQuery = useProject(projectId);
-  const pendingCount = usePendingProposals().data?.by_project?.[projectId] ?? 0;
+  const pendingCount = usePendingReviews().data?.by_project?.[projectId] ?? 0;
   const restoreProject = useRestoreProject();
   const [editing, setEditing] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -126,7 +126,7 @@ export function ProjectPage() {
       </nav>
 
       <div className="mt-6">
-        {section === "tasks" ? <TasksPage projectId={project.id} archived={project.status === "archived"} /> : section === "memory" ? <MemoryPage projectId={project.id} archived={project.status === "archived"} /> : section === "review" ? <ReviewPage projectId={project.id} archived={project.status === "archived"} /> : section === "files" ? <FilesPage projectId={project.id} archived={project.status === "archived"} /> : section === "context" ? <ContextInspector projectId={project.id} focusTaskId={project.current_focus_task_id} /> : section === "activity" ? <ProjectActivity projectId={project.id} /> : <Overview project={project} />}
+        {section === "tasks" ? <TasksPage projectId={project.id} archived={project.status === "archived"} /> : section === "memory" ? <MemoryPage projectId={project.id} archived={project.status === "archived"} /> : section === "review" ? <ReviewScreen projectId={project.id} embedded /> : section === "files" ? <FilesPage projectId={project.id} archived={project.status === "archived"} /> : section === "context" ? <ContextInspector projectId={project.id} focusTaskId={project.current_focus_task_id} /> : section === "activity" ? <ProjectActivity projectId={project.id} /> : <Overview project={project} />}
       </div>
 
       {editing && <ProjectDialog project={project} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}

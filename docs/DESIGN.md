@@ -55,13 +55,13 @@ Sentence case everywhere ("Known issues", "AI context", "New task"), never Title
 | Say | Not |
 |---|---|
 | **memory** (one memory, two memories) | record, entry, memory item |
-| **Inbox**: suggestions waiting for your decision. The sidebar Inbox shows every project, a project's Inbox tab shows that project | Review (for a page or tab) |
-| **Review**: only the task status (the board column where finished work waits for a check) | |
+| **Review**: the screen where finished agent work and suggestions wait for your decision (the sidebar Review shows every project, a project's Review tab shows that project), and the task status for finished work waiting there | Inbox |
 | **Suggestion**: a change an agent proposes for you to accept or dismiss | proposal (in the interface) |
 | **Delete**: gone forever, always confirmed | |
 | **Remove**: take something off an item (an image, a link, a shelf) | delete |
 | **Archive**: hide but keep, can be restored | |
 | **Dismiss**: say no to a suggestion | skip, reject |
+| **Reject**: send finished work back to the agent with your comments | dismiss, decline |
 | **Context pack**, **Checkpoint**, **Handoff**, **Shelf** | |
 
 Messages say what happened and what to do next: "Couldn't save. Check that Project Moah is still running, then try again."

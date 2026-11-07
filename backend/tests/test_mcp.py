@@ -108,7 +108,7 @@ async def seed(client: AsyncClient, tmp_path: Path) -> dict:
 async def test_tools_are_small_documented_and_hide_internals(database_url: str) -> None:
     async with agent(database_url) as session:
         tools = {t.name: t for t in (await session.list_tools()).tools}
-        assert len(tools) == 25 and all(n.startswith("brain_") for n in tools)
+        assert len(tools) == 27 and all(n.startswith("brain_") for n in tools)
         reads = {
             "brain_brief",
             "brain_second_opinion",
@@ -247,7 +247,9 @@ async def test_writes_respect_locks_and_attribute_the_agent(
                 status="completed",
                 reason="All done",
             )
-            assert not error and out["applied"] is False and out["proposal"] == "PROP-002"
+            # A finished task waits for the person in review, and the agent is told how.
+            assert not error and out["applied"] is True and out["status"] == "review"
+            assert "brain_submit_review" in out["next"]
             error, out = await call(
                 session,
                 "brain_create_checkpoint",

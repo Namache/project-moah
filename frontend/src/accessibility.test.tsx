@@ -13,6 +13,23 @@ const proposal = { id: "pr1", project_id: "p1", human_id: "PROP-001", agent: "co
 const pack = { project_id: "p1", project_name: "Trailhead", task: "CAMP-001", detail_level: "balanced", budget: 1500, estimated_tokens: 400, over_budget: false, text: "PROJECT", sections: [{ key: "task", title: "Current Task", tokens: 40, items: 1 }], items: [], omitted: { hidden: 1 }, warnings: [] };
 const git = { state: "ok", message: "ok", root_path: "/repo", branch: "main", detached: false, head: "abcdef12", head_subject: "x", clean: true, changed: [], changed_total: 0, warnings: [] };
 
+const row = { project_id: "p1", project_name: "Trailhead", project_icon: "⛰️", project_accent: "#D99A53", agent: "claude", reviewed_at: null, verdict: null, question: false, round: 1, generated: false };
+const timeline = {
+  waiting: [
+    { ...row, kind: "task", key: "task:t4", ref: "CAMP-004", title: "Full camp label", summary: "Should a full camp show 0?", done_at: "2026-01-03T11:00:00Z", screenshots: 0, question: true, task_status: "blocked" },
+    { ...row, kind: "task", key: "task:t2", ref: "CAMP-002", title: "Camp upgrade screen", summary: "Added the upgrade screen", done_at: "2026-01-03T10:00:00Z", screenshots: 1 },
+    { ...row, kind: "suggestion", key: "proposal:pr1", ref: "PROP-001", title: "Change DEC-001", summary: "Tests", agent: "codex", done_at: "2026-01-02T00:00:00Z", screenshots: 0 },
+  ],
+  reviewed: [{ ...row, kind: "task", key: "review:r0", ref: "CAMP-000", title: "Tents", summary: "Tents", done_at: "2026-01-01T09:00:00Z", reviewed_at: "2026-01-01T12:00:00Z", verdict: "accepted", screenshots: 0 }],
+};
+const review = {
+  project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t2", task_ref: "CAMP-002", task_title: "Camp upgrade screen", task_status: "review", task_description: "Let players upgrade camps",
+  criteria: [{ id: "c1", description: "Shows the cost", is_completed: true }, { id: "c2", description: "Works with a gamepad", is_completed: false }],
+  current: { id: "r1", round: 1, agent: "claude", kind: "work", status: "pending", options: [], follow_ups: [], moved_to: null, summary: "Added the **upgrade screen**.", done: ["Cost panel", "Upgrade button"], not_done: ["Gamepad focus"], how_to_check: "Open a camp and press *Upgrade*.", details: "> [!WARNING]\n> Saves from 0.3 need a migration.\n\n| Tier | Cost |\n|---|---|\n| 2 | 40 |", generated: false, created_at: "2026-01-03T10:00:00Z", reviewed_at: null, comment: null,
+    screenshots: [{ id: "f1", kind: "screenshot", filename: "upgrade.png", media_type: "image/png", size_bytes: 10, width: 800, height: 600, caption: "The upgrade screen", created_by: "claude", created_at: "2026-01-03T10:00:00Z" }], feedback: [] },
+  earlier: [],
+};
+
 const detail = { ...task, description: "Prevent recruitment", acceptance_criteria: [{ id: "c1", description: "Track capacity", is_completed: true, sort_order: 0 }, { id: "c2", description: "Migrate", is_completed: false, sort_order: 1 }], relationships: [], milestone: null };
 
 function route(url: string): unknown {
@@ -30,6 +47,12 @@ function route(url: string): unknown {
   if (url.startsWith("/api/projects/p1/memory")) return [memory];
   if (url.startsWith("/api/projects/p1/proposals?")) return [proposal];
   if (url === "/api/proposals/pending") return { total: 1, by_project: { p1: 1 } };
+  if (url === "/api/reviews/pending") return { total: 2, by_project: { p1: 2 }, newest: [] };
+  if (url === "/api/reviews" || url === "/api/reviews?project_id=p1") return timeline;
+  if (url === "/api/projects/p1/proposals/PROP-001") return proposal;
+  if (url === "/api/projects/p1/tasks/CAMP-002/review") return review;
+  if (url === "/api/projects/p1/tasks/CAMP-004/review") return { ...review, task_id: "t4", task_ref: "CAMP-004", task_title: "Full camp label", task_status: "blocked", criteria: [], current: { ...review.current, id: "q1", kind: "question", summary: "Should a full camp show 0?", options: ["Show 0", "Red Full label"], done: [], not_done: [], how_to_check: null, screenshots: [] } };
+  if (url.startsWith("/api/agents/settings")) return { default_agent: "claude" };
   if (url.startsWith("/api/projects/p1/context")) return pack;
   if (url === "/api/projects/p1/files/tree") return { git, entries: [{ path: "a.gd", file_id: null, has_notes: false, stale: null, changed: null }], truncated: false, source: "git" };
   if (url === "/api/projects/p1/git/commits") return { git, commits: [] };
@@ -59,8 +82,10 @@ const pages: [string, string, RegExp | string][] = [
   ["memory panel", "/projects/p1/memory?memory=DEC-001", /AI visibility/],
   ["files", "/projects/p1/files", "a.gd"],
   ["ai context", "/projects/p1/context", /about 400 tokens/],
-  ["review", "/projects/p1/review", "PROP-001"],
-  ["review inbox", "/review", "PROP-001"],
+  ["project review", "/projects/p1/review?item=task:t2", "Cost panel"],
+  ["review", "/review?item=task:t2", "Cost panel"],
+  ["review question", "/review", "Red Full label"],
+  ["review suggestion", "/review?item=proposal:pr1", "Content: 6 → 8"],
   ["usage", "/usage", "Tips for you"],
   ["search", "/search?q=camp&project=p1", "Camp capacity"],
   ["help", "/help", "How can we help?"],
