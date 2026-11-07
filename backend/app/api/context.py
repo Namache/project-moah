@@ -5,9 +5,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
+from app.models.project import Project
 from app.schemas.context import ContextPack, DetailLevel
+from app.services.brief import build_brief
 from app.services.context import ContextService
 from app.services.handoff import HandoffService
+from app.services.tokens import count_tokens
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["context"])
 DatabaseSession = Annotated[Session, Depends(get_session)]
@@ -23,9 +26,14 @@ def context_pack(
     budget: Annotated[int | None, Query(ge=100, le=20000)] = None,
     include: Annotated[list[str] | None, Query(max_length=50)] = None,
     exclude: Annotated[list[str] | None, Query(max_length=50)] = None,
+    agent: bool = False,
 ) -> ContextPack:
-    """Preview what an agent would receive. ``include`` names manual-only memory."""
-    return ContextService(session).build(
+    """Preview what an agent would receive. ``include`` names manual-only memory.
+
+    ``agent=true`` previews exactly what an agent gets on top of its start-up brief: the
+    Global rules and the project rules the brief lists are left out, as they are for an agent,
+    and ``brief_tokens`` says how big that brief is. Without it, the pack holds everything."""
+    pack = ContextService(session).build(
         project_id,
         task=task,
         query=q,
@@ -33,7 +41,14 @@ def context_pack(
         budget=budget,
         include=include,
         exclude=exclude,
+        global_rules=not agent,
+        for_agent=agent,
     )
+    if agent:
+        project = session.get(Project, project_id)
+        if project is not None and project.kind != "global":
+            pack.brief_tokens = count_tokens(build_brief(session, project))
+    return pack
 
 
 class HandoffResponse(BaseModel):

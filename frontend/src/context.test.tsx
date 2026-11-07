@@ -11,13 +11,13 @@ const pack = (detail: string, over = {}) => ({ project_id: "p1", project_name: "
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("AI context inspector", () => {
-  it("previews each detail level, shows what was left out, and includes manual-only memory on request", async () => {
+  it("previews each detail level as an agent gets it, with the brief's size, and includes manual-only memory on request", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/projects?")) return Response.json([project]);
       if (url === "/api/projects/p1") return Response.json(project);
-      if (url.startsWith("/api/projects/p1/context")) return Response.json(pack(new URL(url, "http://x").searchParams.get("detail") ?? "balanced"));
+      if (url.startsWith("/api/projects/p1/context")) return Response.json(pack(new URL(url, "http://x").searchParams.get("detail") ?? "balanced", { brief_tokens: 2400, warnings: ["No task was given and no current focus is set; this is a project overview."] }));
       if (url.startsWith("/api/projects/p1/memory")) return Response.json([{ id: "m1", human_id: "NOTE-001", title: "Manual party note", type: "note" }]);
       return Response.json([]);
     });
@@ -25,7 +25,16 @@ describe("AI context inspector", () => {
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/projects/p1/context"]}><App /></MemoryRouter></QueryClientProvider>);
 
     expect(await screen.findByText(/about 900 tokens/)).toBeInTheDocument();
-    expect(screen.getByText("2 hidden from AI")).toBeInTheDocument();
+    expect(screen.getByText(/about 2,400 tokens/)).toBeInTheDocument();
+    // Only what is needed is on the page; the rest waits under "?".
+    expect(screen.queryByText(/Left out/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no current focus is set/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Adds rules, known issues/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Help: about this pack" }));
+    expect(screen.getByText(/no current focus is set/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Help: Balanced" }));
+    expect(screen.getByText(/Adds rules, known issues/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([u]) => !String(u).startsWith("/api/projects/p1/context") || String(u).includes("agent=true"))).toBe(true);
     await user.click(screen.getByRole("radio", { name: /Minimal/ }));
     expect(await screen.findByText(/about 300 tokens/)).toBeInTheDocument();
     await user.click(await screen.findByRole("checkbox", { name: /NOTE-001/ }));

@@ -16,6 +16,8 @@ export interface ContextPack {
   items: ContextItem[];
   omitted: Record<string, number>;
   warnings: string[];
+  /** The start-up brief's size in tokens, for the agent view (agent: true) only. */
+  brief_tokens?: number | null;
 }
 
 export interface ContextOptions {
@@ -25,4 +27,6 @@ export interface ContextOptions {
   budget?: number | null;
   include?: string[];
   exclude?: string[];
+  /** Preview what an agent gets on top of its start-up brief, and the brief's size. */
+  agent?: boolean;
 }
