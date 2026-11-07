@@ -9,13 +9,14 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.core import error_log
 from app.core.config import get_database_url
 
 APP_VERSION = "0.2.0"
@@ -31,6 +32,17 @@ COUNT_TABLES = {
     "files": "project_files",
     "pending_proposals": "ai_proposals WHERE status = 'pending'",
 }
+
+
+def error_summary() -> dict:
+    """How many errors the local log holds, for the report: counts and a time, never messages."""
+    log = error_log.read(limit=10_000)
+    since = (datetime.now(UTC) - timedelta(days=1)).isoformat(timespec="seconds")
+    return {
+        "total": log["total"],
+        "last_day": sum(1 for e in log["entries"] if e["time"] >= since),
+        "last": log["entries"][0]["time"] if log["entries"] else None,
+    }
 
 
 def database_path() -> Path | None:
@@ -175,6 +187,7 @@ def diagnostics(session: Session) -> dict:
         "git": {"available": git is not None, "version": git_version},
         "mcp": {"command": " ".join(agent_launch()["command"]), "tools": mcp_tool_count()},
         "builds": pack_builds(session),
+        "errors": error_summary(),
     }
 
 

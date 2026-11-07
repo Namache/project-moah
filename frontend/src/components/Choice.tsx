@@ -1,10 +1,11 @@
 import type { LucideIcon } from "lucide-react";
+import { HelpTip } from "./ui";
 
-/** A row of radio buttons that looks like a segmented control. */
-export function Choice<T extends string>({ name, legend, hint, value, choices, onChange }: { name: string; legend: string; hint?: string; value: T; choices: { value: T; label: string; icon?: LucideIcon }[]; onChange: (value: T) => void }) {
+/** A row of radio buttons that looks like a segmented control. `help` puts the explanation under a "?" beside the name. */
+export function Choice<T extends string>({ name, legend, hint, help, value, choices, onChange }: { name: string; legend: string; hint?: string; help?: string; value: T; choices: { value: T; label: string; icon?: LucideIcon }[]; onChange: (value: T) => void }) {
   return (
     <fieldset>
-      <legend className="field-label">{legend}</legend>
+      <legend className="field-label flex items-center gap-2">{legend}{help && <HelpTip label={legend}>{help}</HelpTip>}</legend>
       {hint && <p className="text-xs text-ink-subtle">{hint}</p>}
       <div className="segmented mt-2">
         {choices.map(({ value: option, label, icon: Icon }) => (

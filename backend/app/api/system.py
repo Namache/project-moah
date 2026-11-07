@@ -3,9 +3,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from app.core import error_log
 from app.db.session import get_session
 from app.services.agent_connect import connect_agents
 from app.services.system import agent_launch, diagnostics, export_backup
@@ -29,6 +31,28 @@ def post_connect_agents() -> dict[str, Any]:
 @router.get("/diagnostics")
 def get_diagnostics(session: DatabaseSession) -> dict[str, Any]:
     return diagnostics(session)
+
+
+class WindowError(BaseModel):
+    message: str = Field(min_length=1, max_length=4_000)
+    detail: str = Field(default="", max_length=20_000)
+
+
+@router.get("/errors")
+def get_errors() -> dict[str, Any]:
+    """The local error log, newest first. It is read from files on this computer only."""
+    return error_log.read()
+
+
+@router.post("/errors", status_code=204)
+def post_error(error: WindowError) -> None:
+    """An error in the app window itself, which cannot write files."""
+    error_log.write("window", error.message, error.detail)
+
+
+@router.delete("/errors", status_code=204)
+def delete_errors() -> None:
+    error_log.clear()
 
 
 @router.get("/export")
