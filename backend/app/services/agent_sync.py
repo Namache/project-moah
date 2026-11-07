@@ -6,8 +6,11 @@ Rules:
 - Temporary and scratch folders, worktrees (counted under their repository) and Codex's one-off chat
   folders are skipped. A folder inside another found folder belongs to the outer one.
 - A folder inside an existing project's folder is already covered.
-- Nothing is guessed: when an existing project without a folder has a similar name, a person is
-  asked to confirm the match. Otherwise a new project is created, named after the folder.
+- A folder named like the one a person chose for a project through the Flatpak file picker (a
+  document portal path, which hides where the folder is) is that project's folder.
+- Nothing else is guessed: when an existing project without a folder has a similar name, a person
+  is asked to confirm the match. Otherwise a new project is created, named after the folder.
+- A project can have several folders: its own, and every folder linked to it here.
 - A decision is remembered, so an ignored or archived folder is never brought back.
 """
 
@@ -29,6 +32,7 @@ from app.models.agent_folder import AgentFolder
 from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.activity import acting_as
+from app.services.folders import is_portal_folder, sandbox_folder
 from app.services.projects import ProjectService, name_key
 from app.services.usage import (
     WINDOWS_FOLDER,
@@ -149,7 +153,7 @@ def project_folder(folder: str) -> str | None:
     )
     if any(inside_folder(folder, root) for root in skipped):
         return None
-    if ONE_OFF_CODEX.search(folder):
+    if ONE_OFF_CODEX.search(folder) or sandbox_folder(folder):
         return None
     return folder if folder != "/" and folder_key(folder) != folder_key(home) else None
 
@@ -212,6 +216,10 @@ def sync_agent_folders(session: Session, sightings: dict[str, Sighting] | None =
         if covering is not None:
             # Already a project's folder, or a person has since set it: nothing to decide.
             row.status, row.project_id, row.updated_at = "linked", covering.id, now
+        elif (chosen := _picked_through_portal(projects, Path(folder).name)) is not None:
+            # The person chose this folder in the app through the Flatpak file picker, which
+            # hides where it is. Agents now work in it: it is that project's folder.
+            row.status, row.project_id, row.updated_at = "linked", chosen.id, now
         else:
             name = Path(folder).name
             match = next(
@@ -240,6 +248,19 @@ def sync_agent_folders(session: Session, sightings: dict[str, Sighting] | None =
         # Another process synced the same folder at the same moment; its result stands.
         session.rollback()
     return {"created": created, "suggested": suggested}
+
+
+def _picked_through_portal(projects: list[Project], name: str) -> Project | None:
+    """The one project whose folder is a document portal path ending in ``name``, if any."""
+    found = [
+        p
+        for p in projects
+        if p.status != "archived"
+        and p.root_path
+        and is_portal_folder(p.root_path)
+        and folder_key(Path(normalize_folder(p.root_path)).name) == folder_key(name)
+    ]
+    return found[0] if len(found) == 1 else None
 
 
 def _create_project(session: Session, folder: str) -> Project | None:
@@ -277,11 +298,10 @@ def decide(
         target = ProjectService(session).get(project_id or row.project_id or "")
         if target.kind != "project":
             raise HTTPException(status_code=409, detail="Choose a project for this folder.")
-        if target.root_path and normalize_folder(target.root_path) != folder:
-            raise HTTPException(
-                status_code=409, detail=f"{target.name} already has a folder: {target.root_path}"
-            )
-        ProjectService(session).update(target.id, ProjectUpdate(root_path=folder))
+        if not target.root_path:
+            ProjectService(session).update(target.id, ProjectUpdate(root_path=folder))
+        # A project that has a folder keeps it (it may be how the app opens the folder, as with
+        # the Flatpak file picker), and this one becomes another folder of the project.
         row.status, row.project_id = "linked", target.id
     elif action == "create":
         project = _create_project(session, folder)

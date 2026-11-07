@@ -29,6 +29,13 @@ def clean_root_path(value: str | None) -> str | None:
     if cleaned is not None:
         if "\x00" in cleaned or not Path(cleaned).is_absolute():
             raise ValueError("root_path must be an absolute filesystem path")
+        from app.services.folders import sandbox_folder
+
+        if sandbox_folder(cleaned):
+            raise ValueError(
+                "this folder only exists while one session runs, so agents could never match "
+                "it later; use the project's real folder"
+            )
     return cleaned
 
 

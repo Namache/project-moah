@@ -68,9 +68,9 @@ def print_brief(session, args: argparse.Namespace) -> None:
     cwd = args.cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     try:
         found, _ = resolve_project(session, args.project, cwd)
-        note = None
+        note = hint = None
     except ProjectChoiceError as error:
-        found, note = None, str(error)
+        found, note, hint = None, str(error), error.hint
     # Claude Code hands the hook its session id: remember it with the project, so token use in
     # that session's log can be matched to its tasks.
     hook_agent = "claude" if args.agent == "agent" else args.agent.strip().casefold()
@@ -78,7 +78,7 @@ def print_brief(session, args: argparse.Namespace) -> None:
         record_start(session, hook_agent, read_hook_input(), found.id if found else None)
     except Exception:  # noqa: BLE001 - the brief matters more than the record
         session.rollback()
-    print(with_update_check(session, build_brief(session, found, note)), flush=True)
+    print(with_update_check(session, build_brief(session, found, note, hint)), flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:

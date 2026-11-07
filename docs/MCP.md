@@ -30,7 +30,7 @@ Each agent is connected once, for every project, without `--project`. The Connec
 - Codex: `[mcp_servers.project-moah]` in `~/.codex/config.toml`, and a line in `~/.codex/AGENTS.md` asking it to call `brain_brief` first.
 - Claude desktop app, Chat tab: `mcpServers.project-moah` in `~/.config/Claude/claude_desktop_config.json`.
 
-The project comes from the agent's working folder, compared as path text (`/var/home` and `/home` are one spelling), so a folder the sandbox cannot open still matches. Outside every project the brief carries only the Global rules. Each brief also runs **Sync from agents**: the folders Claude Code and Codex sessions start in become projects (temporary folders, worktrees and Codex one-off chats skipped); a folder whose name resembles an existing folderless project is asked about on the Projects page, never guessed.
+The project comes from the agent's working folder, compared as path text (`/var/home` and `/home` are one spelling), so a folder the sandbox cannot open still matches. A project's folders are its own folder and every folder Sync from agents linked to it or created it from; when none holds the working folder, a folder in the same Git repository does (the `origin` remote, read from the repository's config file; Git is not run). When nothing matches, the brief says why if Project Moah knows: an ignored folder, one waiting for the person's answer, an archived project, or a temporary folder. Outside every project the brief carries only the Global rules. Each brief also runs **Sync from agents**: the folders Claude Code and Codex sessions start in become projects (temporary folders, worktrees and Codex one-off chats skipped); a folder whose name resembles an existing folderless project is asked about on the Projects page, never guessed; a folder named like one chosen for a project through the Flatpak file picker (a `/run/user/<id>/doc/` path, which hides where the folder is) is linked to that project.
 
 ## Tools
 
@@ -79,7 +79,7 @@ The sandbox has the same `/home` link, so once a folder is shared, both spelling
 
 ## Rules the server enforces
 
-- **No guessing the project.** An explicit project wins. Otherwise the working folder must lie inside exactly one project's repository folder, the deepest match. Two projects with the same folder, or no match, return the candidates and ask the agent to choose.
+- **No guessing the project.** An explicit project wins. Otherwise the working folder must lie inside exactly one project's folder, the deepest match, or else in the same Git repository as exactly one project's folder. Two projects with the same folder, or no match, return the candidates and ask the agent to choose.
 - **Locked memory cannot be changed by an agent.** Edits, replacement, archiving, invalidating and deleting are refused with a message pointing to `brain_create_proposal`. Agents cannot lock or unlock.
 - **Completing or archiving a task becomes a proposal.** `brain_update_task` applies other fields and creates a proposal for those two.
 - **Agent writes are attributed.** Every activity event and agent-created record names the agent. Agent-created memory is unlocked and marked as agent-written.

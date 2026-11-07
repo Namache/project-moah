@@ -294,7 +294,10 @@ def unfinished_lines(
     return lines
 
 
-def build_brief(session: Session, project: Project | None, note: str | None = None) -> str:
+def build_brief(
+    session: Session, project: Project | None, note: str | None = None, hint: str | None = None
+) -> str:
+    """``note`` is why no project was chosen, and ``hint`` what the person can do about it."""
     lines = ["PROJECT MOAH BRIEF", "", "GLOBAL RULES (every project, every chat)"]
     rules = global_rules(session)
     # Global IDs are prefixed: projects number their own rules from RULE-001 too.
@@ -306,7 +309,7 @@ def build_brief(session: Session, project: Project | None, note: str | None = No
                 "No Project Moah project matches this folder, so only the global rules apply. "
                 "To use a project, pass project= or add this folder to a project in the app."
             )
-        lines += ["", note]
+        lines += ["", note] + ([hint] if hint else [])
     else:
         lines += ["", f"PROJECT: {project.name} ({project.slug})"]
         if note:

@@ -292,11 +292,11 @@ def build_server(
         sync_quietly(session)  # a folder first seen in this session gets its project now
         try:
             found, _ = pick(session, project, cwd)
-            note = None
+            note = hint = None
         except ProjectChoiceError as error:
-            found, note = None, str(error)
+            found, note, hint = None, str(error), error.hint
         briefed["project"] = found.id if found is not None and found.kind != "global" else None
-        return with_update_check(session, build_brief(session, found, note))
+        return with_update_check(session, build_brief(session, found, note, hint))
 
     @tool(READ)
     def brain_second_opinion(

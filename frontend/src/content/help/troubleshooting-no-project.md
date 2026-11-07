@@ -15,6 +15,9 @@ The agent says it cannot find or identify your project.
 - The MCP server is not connected, or was added before Project Moah was opened for the first time.
 - The agent was started outside the project's folder, and no project was named.
 - The project is archived, which agents can read but not change.
+- The folder was set to **Ignore** in Sync from agents, or is still waiting for your answer on the Projects page.
+
+The start-up brief says which of these applies when Project Moah knows.
 
 ## How to fix
 
