@@ -710,10 +710,55 @@ class TaskService:
         self._apply_status_timestamps(task, previous, status, now)
         if status == "completed" and previous != "completed":
             self._settle_completion_proposals(task, now)
+        if previous in ("review", "blocked") and status != previous:
+            self._settle_waiting_review(task, previous, status, now)
         if status in CLOSED_STATUSES:
             project = self.projects.get(task.project_id)
             if project.current_focus_task_id == task.id:
                 project.current_focus_task_id = None
+
+    def _settle_waiting_review(self, task: Task, previous: str, status: str, now: datetime) -> None:
+        """A task leaving review without Accept or Reject still settles its waiting report, so
+        Review never keeps a stale one. The person moving it to Done (or archiving it) accepts
+        the work; moving it to any other column sends it back without a comment. An agent taking
+        the task back withdraws its report instead: it hands the task over again when done.
+        Leaving Blocked settles an agent's waiting question the same way: moved by the person it
+        counts as answered on the board, moved by an agent it is withdrawn."""
+        from app.models.proposal import Proposal
+        from app.models.review import TaskReview
+        from app.services.activity import current_actor
+
+        by_person = current_actor()[0] == "human"
+        accepted = status in CLOSED_STATUSES
+        question = previous == "blocked"
+        for review in self.session.scalars(
+            select(TaskReview).where(
+                TaskReview.task_id == task.id,
+                TaskReview.status == "pending",
+                TaskReview.kind == ("question" if question else "work"),
+            )
+        ):
+            if review.status != "pending":
+                continue  # decided in Review a moment ago, not saved yet
+            if not by_person:
+                review.status = "replaced"
+                continue
+            review.status = "answered" if question else "accepted" if accepted else "rejected"
+            review.reviewed_at, review.moved_to = now, status
+        if by_person and not accepted and not question:
+            # A waiting "complete this task" suggestion no longer applies either.
+            for proposal in self.session.scalars(
+                select(Proposal).where(
+                    Proposal.project_id == task.project_id,
+                    Proposal.status == "pending",
+                    Proposal.proposal_type == "complete_task",
+                    Proposal.target_entity_id == task.id,
+                )
+            ):
+                if proposal.status != "pending":
+                    continue
+                proposal.status, proposal.reviewed_at = "rejected", now
+                proposal.review_note = "Moved back out of review on the board."
 
     def _settle_completion_proposals(self, task: Task, now: datetime) -> None:
         """Completing a task directly does what an agent's waiting "complete this task" proposal

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Play, Plus, Archive, ArrowDown, ArrowUp, RotateCcw, Trash2, X, Target } from "lucide-react";
+import { Play, Plus, Archive, ArrowDown, ArrowUp, ClipboardCheck, RotateCcw, Trash2, X, Target } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Button } from "../ui";
+import { Button, buttonBase, buttonClasses } from "../ui";
 import { useCriterionActions, useDeleteTask, useFocus, useMilestones, useRelationshipActions, useStartTask, useTask, useTasks, useUpdateTask } from "../../hooks/useTasks";
 import type { RelationshipType, TaskDetail, TaskPriority, TaskStatus } from "../../types/task";
 import { boardColumns, priorityLabels } from "../../types/task";
@@ -136,6 +136,8 @@ export function TaskPanel({ projectId, projectArchived, taskRef, onClose, onChan
               {!projectArchived && (task.status === "archived"
                 ? <Button variant="primary" onClick={() => save({ status: "todo" })}><RotateCcw size={16} aria-hidden="true" />{t("Restore task")}</Button>
                 : task.status === "completed" ? null
+                : task.status === "review"
+                  ? <Link to={`/review?item=${encodeURIComponent(`task:${task.id}`)}`} className={`${buttonBase} ${buttonClasses.primary}`} title={t("See what the agent did, then accept or reject it")}><ClipboardCheck size={16} aria-hidden="true" />{t("Open review")}</Link>
                 : task.status === "in_progress" && task.is_focus
                   ? <Button onClick={() => focus.mutate(null)} disabled={focus.isPending} title={t("Stop pointing agents at this task")}><Target size={16} aria-hidden="true" />{t("Clear focus")}</Button>
                   : <Button variant="primary" onClick={() => start.mutate(task.id)} disabled={start.isPending} title={t("Mark in progress and make it the project's focus")}><Play size={16} aria-hidden="true" />{task.status === "in_progress" ? t("Continue work") : t("Start work")}</Button>)}

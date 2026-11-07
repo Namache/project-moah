@@ -1,4 +1,4 @@
-import { Activity as ActivityIcon, CheckCircle2, Crosshair, FolderKanban, Inbox, Plus } from "lucide-react";
+import { Activity as ActivityIcon, CheckCircle2, ClipboardCheck, Crosshair, FolderKanban, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Onboarding, ONBOARDING_KEY } from "../components/onboarding/Onboarding";
@@ -9,7 +9,7 @@ import { useWorkspaceRecent } from "../hooks/useActivity";
 import { taskStatusStyle } from "../lib/tones";
 import { useLatestCheckpoint } from "../hooks/useCheckpoints";
 import { useProjects } from "../hooks/useProjects";
-import { usePendingProposals } from "../hooks/useProposals";
+import { usePendingReviews } from "../hooks/useReviews";
 import { useOverviews } from "../hooks/useTasks";
 import { readPref } from "../lib/prefs";
 import { projectPath, taskPath } from "../lib/routes";
@@ -76,7 +76,7 @@ function ProjectTileLink({ project, overview, pending }: { project: Project; ove
       <Link to={projectPath(project.id)} className="group block rounded-xl p-1.5 hover:bg-hover focus-visible:outline-2 focus-visible:outline-forest">
         <span className="relative block">
           <ProjectTile project={project} className="transition-transform group-hover:-translate-y-0.5" />
-          {pending > 0 && <span className="absolute -right-1.5 -top-1.5 min-w-6 rounded-full border-2 border-surface bg-primary px-1.5 text-center text-xs font-semibold leading-5 text-white" aria-label={t("{count} in Inbox", { count: pending })}>{pending}</span>}
+          {pending > 0 && <span className="absolute -right-1.5 -top-1.5 min-w-6 rounded-full border-2 border-surface bg-primary px-1.5 text-center text-xs font-semibold leading-5 text-white" aria-label={t("{count} waiting for review", { count: pending })}>{pending}</span>}
         </span>
         <span className="mt-2.5 block truncate text-center text-sm font-semibold text-ink">{project.name}</span>
         <span className="mt-0.5 block truncate text-center text-xs text-ink-subtle">
@@ -93,7 +93,7 @@ export function HomePage() {
   const overviews = useOverviews();
   const [params] = useSearchParams();
   const [guideClosed, setGuideClosed] = useState(false);
-  const pending = usePendingProposals().data;
+  const pending = usePendingReviews().data;
   const recent = useWorkspaceRecent();
 
   // Decide once, when the project list first loads, so creating a project inside the guide
@@ -137,9 +137,9 @@ export function HomePage() {
 
               <div className="grid gap-4">
                 <FocusTimerWidget />
-                <Widget title={t("Inbox")} icon={Inbox} to="/review" linkLabel={t("Open Inbox")}>
+                <Widget title={t("Review")} icon={ClipboardCheck} to="/review" linkLabel={t("Open Review")}>
                   {waiting > 0
-                    ? <Link to="/review" className="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-forest"><span className="text-4xl font-semibold tabular-nums tracking-tight text-ink">{waiting}</span><span className="text-sm text-ink-muted">{tp(waiting, "suggestion waits for your decision", "suggestions wait for your decision")}</span></Link>
+                    ? <Link to="/review" className="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-forest"><span className="text-4xl font-semibold tabular-nums tracking-tight text-ink">{waiting}</span><span className="text-sm text-ink-muted">{tp(waiting, "item waits for your review", "items wait for your review")}</span></Link>
                     : <p className="flex items-center gap-2.5 text-sm text-ink-muted"><CheckCircle2 size={22} className="text-success" aria-hidden="true" />{t("All caught up")}</p>}
                 </Widget>
                 <Widget title={t("Recent activity")} icon={ActivityIcon} to="/activity" linkLabel={t("All activity")}>

@@ -17,13 +17,17 @@ export const queryKeys = {
   checkpoints: (projectId: string) => ["checkpoints", projectId] as const,
   proposals: (projectId: string) => ["proposals", projectId] as const,
   proposalsPending: ["proposals-pending"] as const,
+  // The Review timeline: the second key is a project ID, or "all" for every project.
+  reviews: (projectId?: string) => ["reviews", projectId ?? "all"] as const,
+  reviewsPending: ["reviews-pending"] as const,
+  review: (projectId: string, taskRef: string) => ["review", projectId, taskRef] as const,
   agentSettings: ["agent-settings"] as const,
   taskSettings: ["task-settings"] as const,
   agentFolders: ["agent-folders"] as const,
 };
 
 /** Views that combine every project: lists, overviews, search, activity, and the review badge. */
-const WORKSPACE_KEYS = ["projects", "overviews", "workspace-tasks", "search", "activity", "proposals-pending", "brain-all", "brain-health"];
+const WORKSPACE_KEYS = ["projects", "overviews", "workspace-tasks", "search", "activity", "proposals-pending", "reviews", "reviews-pending", "brain-all", "brain-health"];
 
 /** Refreshes everything the workspace-wide views show. */
 export function invalidateWorkspace(client: QueryClient): Promise<unknown> {

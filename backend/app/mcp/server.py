@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable
 from functools import wraps
+from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
@@ -32,6 +33,7 @@ from app.schemas.checkpoint import CheckpointCreate
 from app.schemas.graph import ShelfUpdate
 from app.schemas.memory import HUMAN, MemoryCreate, MemorySupersede, MemoryUpdate
 from app.schemas.proposal import ProposalCreate
+from app.schemas.review import AskPerson, ReviewSubmit
 from app.schemas.task import TaskCreate, TaskUpdate
 from app.services.activity import acting_as
 from app.services.agent_prompts import second_opinion
@@ -49,6 +51,7 @@ from app.services.memory import MemoryService
 from app.services.projects import ProjectService
 from app.services.proposals import ProposalService, actor_for
 from app.services.retrieval import RetrievalService
+from app.services.reviews import ReviewService, Screenshot
 from app.services.search import SearchService
 from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
@@ -63,8 +66,9 @@ and checkpoints for every project. At the start of a session, call brain_brief w
 folder as cwd, unless a Project Moah brief is already in your context, and follow it. The
 person's earlier answers are recorded here, so check Moah (brain_context_pack or brain_search)
 before you ask them anything. Writing records and checkpoints is part of the work and needs no
-permission. Global rules, global decisions, locked records and completing a task go to the
-person for review (brain_create_proposal); set a finished task to status review."""
+permission. Global rules, global decisions and locked records go to the person as proposals
+(brain_create_proposal). Hand a finished task to the person with brain_submit_review; if you
+cannot go on without their answer, ask with brain_ask_person."""
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 WRITE = ToolAnnotations(
@@ -80,6 +84,121 @@ DUPLICATE_HINT = (
     "If one of these already says it, use brain_update_memory or brain_supersede_memory "
     "instead of keeping two records."
 )
+
+REVIEW_HINT = (
+    'Not handed over yet: now call brain_submit_review(task="{task}", summary, done, not_done, '
+    "how_to_check, screenshots). The person reviews finished work in Project Moah's Review "
+    "screen, and a chat reply never reaches it. Writing it needs no permission."
+)
+ASK_HINT = (
+    "Not asked yet: if you need the person's answer to go on, now call "
+    'brain_ask_person(task="{task}", question, options). The question waits in Project Moah\'s '
+    "Review screen until they answer; a chat reply may never reach them."
+)
+TEXT_ATTACHMENT_LIMIT = 4000
+
+
+def review_drop_folder(session: Session) -> Path | None:
+    """Where agents save screenshots when this server runs in the Flatpak sandbox, which can
+    read only its own data folder. None outside the sandbox: any path works there."""
+    if not Path("/.flatpak-info").exists():
+        return None
+    database = session.get_bind().url.database
+    if not database:
+        return None
+    return Path(database).resolve().parent / "review-files"
+
+
+def review_drop_folder_for(session_factory: sessionmaker[Session]) -> Path | None:
+    with session_factory() as session:
+        return review_drop_folder(session)
+
+
+def read_screenshots(
+    paths: list[str], captions: list[str] | None, drop: Path | None
+) -> list[Screenshot]:
+    """The screenshot files an agent named, read from disk. Relative paths start at the folder
+    this server runs in, which is the agent's working folder."""
+    from app.models.review import MAX_REVIEW_FILE_BYTES
+
+    hint = (
+        f" This Project Moah runs in a Flatpak sandbox and reads screenshots only from {drop}:"
+        " save or copy them there and pass those paths."
+        if drop is not None
+        else ""
+    )
+    shots = []
+    for index, raw in enumerate(paths):
+        path = Path(raw.strip()).expanduser()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        try:
+            if not path.is_file():
+                raise ValueError(f"No screenshot file at {raw}.{hint}")
+            if path.stat().st_size > MAX_REVIEW_FILE_BYTES:
+                raise ValueError(f"{raw} is over 5 MB: save a smaller PNG or a JPEG.")
+            data = path.read_bytes()
+        except OSError:
+            raise ValueError(f"Project Moah can't read {raw}.{hint}") from None
+        caption = captions[index] if captions and index < len(captions) else None
+        shots.append(Screenshot(data=data, filename=path.name, caption=caption))
+    return shots
+
+
+def clear_dropped(paths: list[str], drop: Path | None) -> None:
+    """Screenshots saved in the drop folder are in the database now: remove the copies."""
+    if drop is None:
+        return
+    for raw in paths:
+        path = Path(raw.strip()).expanduser()
+        try:
+            if path.resolve().parent == drop.resolve():
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def review_for_agent(session: Session, task_id: str) -> dict:
+    """The latest review round of a task, as an agent needs it: the person's verdict, comment
+    and attachments (text files inline, pictures through brain_view_images)."""
+    reviews = ReviewService(session)
+    latest = reviews.latest(task_id)
+    if latest is None:
+        return {}
+    question = latest.kind == "question"
+    state = {
+        "pending": f"waiting for the person's {'answer' if question else 'review'}",
+        "accepted": "accepted by the person",
+        "rejected": "sent back by the person: fix what the comment asks, then submit again",
+        "answered": "answered by the person: go on with the task using their answer",
+    }[latest.status]
+    if latest.moved_to and not latest.comment:
+        state = f"{state.split(':')[0]} by moving the task to {latest.moved_to} on the board"
+    review: dict[str, Any] = {
+        "round": latest.round,
+        "status": state,
+        "submitted_by": latest.agent,
+        "question" if question else "summary": latest.summary,
+    }
+    if question and latest.options:
+        review["options"] = list(latest.options)
+    if latest.status != "pending":
+        review["comment"] = latest.comment or ""
+        files = reviews.feedback_files(latest.id)
+        if files:
+            review["attachments"] = []
+            for row in files:
+                entry: dict[str, Any] = {"id": row.id, "filename": row.filename}
+                if row.media_type == "text/plain":
+                    text = row.data.decode("utf-8", errors="replace")
+                    if len(text) > TEXT_ATTACHMENT_LIMIT:
+                        text = text[:TEXT_ATTACHMENT_LIMIT] + "\n[cut]"
+                    entry["text"] = text
+                else:
+                    entry["view"] = f'brain_view_images(record="{row.id}")'
+                review["attachments"].append(entry)
+    return {"review": review}
+
 
 GLOBAL_PERSON_TYPES = ("rule", "decision")
 GLOBAL_RULE_MESSAGE = (
@@ -545,14 +664,29 @@ def build_server(
     def brain_get_task(session: Session, task: str, project: str | None = None) -> dict:
         """Full detail for one task: description, acceptance criteria, relationships, and milestone."""
         found, _ = pick(session, project)
-        return TaskService(session).detail(found.id, task).model_dump(mode="json")
+        detail = TaskService(session).detail(found.id, task)
+        return {**detail.model_dump(mode="json"), **review_for_agent(session, detail.id)}
 
     @tool(READ)
     def brain_view_images(session: Session, record: str, project: str | None = None) -> list:
         """See the images a person attached to a task or memory record (PROJ-6, DEC-3, or one
         image's id). Records that have images list them under images; this returns the pictures
-        themselves, so look at them before working from the record."""
+        themselves, so look at them before working from the record. For a task sent back from
+        review, it also shows the pictures the person attached to their comment."""
         found, _ = pick(session, project)
+        reviews = ReviewService(session)
+        attached = reviews.find_file(record.strip())
+        if attached is not None and attached.project_id in (found.id, GLOBAL_PROJECT_ID):
+            if attached.media_type == "text/plain":
+                return [TextContent(type="text", text=attached.data.decode("utf-8", "replace"))]
+            return [
+                TextContent(type="text", text=f"{attached.filename} ({attached.media_type})"),
+                ImageContent(
+                    type="image",
+                    data=base64.b64encode(attached.data).decode(),
+                    mime_type=attached.media_type,
+                ),
+            ]
         service = ImageService(session)
         try:
             one = service.get(found.id, record.strip())
@@ -574,6 +708,12 @@ def build_server(
                 for ref in service.for_records(kind, [owner_id])[owner_id]
             ]
         )
+        if one is None and kind == "task":
+            latest = reviews.latest(owner_id)
+            if latest is not None and latest.status == "rejected":
+                images += [
+                    f for f in reviews.feedback_files(latest.id) if f.media_type != "text/plain"
+                ]
         if not images:
             return [TextContent(type="text", text=f"{row.human_id} has no images.")]
         blocks: list = []
@@ -791,9 +931,10 @@ def build_server(
         reason: str = "",
         links: list[str] | None = None,
     ) -> dict:
-        """Update a task's working fields. Completing or archiving a task is not applied: it becomes a
-        proposal for a person to review. Setting status in_progress makes it this session's task.
-        links adds typed links, each written "relationship target" ("blocked_by PROJ-4")."""
+        """Update a task's working fields. A finished task goes to the person's review: status
+        completed or review moves it to review (then call brain_submit_review). Archiving
+        becomes a proposal. Setting status in_progress makes it this session's task. links adds
+        typed links, each written "relationship target" ("blocked_by PROJ-4")."""
         found, _ = pick(session, project, write=True)
         changes = {
             k: v
@@ -808,31 +949,16 @@ def build_server(
         }
         if not changes and not links:
             raise ValueError("Give at least one field to change.")
+        if status == "completed":
+            # People decide when work is complete: a finished task waits in review.
+            current = TaskService(session).get(found.id, task)
+            if current.status in ("completed", "archived"):
+                raise ValueError(
+                    f"{current.human_id} is already {current.status}. Nothing changed."
+                )
+            changes["status"] = status = "review"
         TaskUpdate.model_validate(changes)
         proposals = ProposalService(session)
-        if status == "completed":
-            rest = {k: v for k, v in changes.items() if k != "status"}
-            # The proposal comes first: if it is refused, nothing else has been applied.
-            p = proposals.create(
-                found.id,
-                ProposalCreate(
-                    proposal_type="complete_task",
-                    target=task,
-                    payload={},
-                    reason=reason or "Agent reports the task is complete.",
-                ),
-                agent=agent,
-            )
-            if rest:
-                TaskService(session).update(found.id, task, TaskUpdate.model_validate(rest))
-            return {
-                "applied": False,
-                "needs_review": True,
-                "proposal": p.human_id,
-                "message": "Completing a task needs a person's review. A proposal was created.",
-                # Links describe the task without changing it, so they need no review.
-                **link_written(session, found.id, f"task:{task}", actor=agent, links=links or []),
-            }
         if status == "archived":
             p = proposals.create(
                 found.id,
@@ -859,12 +985,106 @@ def build_server(
         )
         if updated.status == "in_progress" and status == "in_progress":
             working.set(found.id, updated.id)
-        return {
+        result = {
             "applied": True,
             "task": updated.human_id,
             "status": updated.status,
             **link_written(session, found.id, f"task:{updated.id}", actor=agent, links=links or []),
         }
+        if status == "review" and ReviewService(session).submitted_review(updated.id) is None:
+            result["next"] = REVIEW_HINT.format(task=updated.human_id)
+        if status == "blocked" and ReviewService(session).asked_question(updated.id) is None:
+            result["next"] = ASK_HINT.format(task=updated.human_id)
+        return result
+
+    @tool(WRITE)
+    def brain_ask_person(
+        session: Session,
+        task: str,
+        question: str,
+        context: str | None = None,
+        options: list[str] | None = None,
+        project: str | None = None,
+    ) -> dict:
+        """Ask the person something only they can answer when you cannot go on without it: a
+        choice, a fact, an approval. Use it whenever you stop to ask, also when you ask in the
+        chat: a chat question is easily lost, this one waits in Project Moah's Review screen
+        until they answer. Check Moah first (brain_search): they may have answered before. The
+        task moves to Blocked; the answer then shows in the brief and brain_get_task, and the
+        task is in progress again. question: one or two plain sentences (several questions can
+        go in one). context: optional Markdown on what you found and what each choice would
+        mean. options: up to 6 short answers to pick from. Then stop; don't guess the answer."""
+        found, _ = pick(session, project, write=True)
+        payload = AskPerson(question=question, context=context, options=options or [])
+        review = ReviewService(session).ask(found.id, task, payload, agent)
+        row = session.get(Task, review.task_id)
+        working.set(found.id, row.id)
+        return {
+            "asked": row.human_id,
+            "status": row.status,
+            "message": "It waits in the person's Review screen. Stop work on this task and tell "
+            "them you asked; the brief shows their answer when it comes.",
+        }
+
+    def brain_submit_review(
+        session: Session,
+        task: str,
+        summary: str,
+        done: list[str],
+        not_done: list[str] | None = None,
+        how_to_check: str | None = None,
+        details: str | None = None,
+        screenshots: list[str] | None = None,
+        captions: list[str] | None = None,
+        project: str | None = None,
+    ) -> dict:
+        """Hand a finished task to the person for review; it moves to status review and waits
+        in Project Moah's Review screen until they accept it or send it back with comments.
+        summary: two or three plain sentences on what changed for them. done: each thing
+        finished, one short line each. not_done: what is left, skipped, failed or unverified
+        (be honest; an empty list says everything was done). how_to_check: steps the person
+        can follow to see it working. details: optional Markdown for anything else (tables,
+        code, notes; "> [!WARNING]" makes a warning box). screenshots: image file paths (PNG,
+        JPEG, WebP or GIF, up to 10, 5 MB each), with captions in the same order. Attach
+        screenshots whenever the result is something the person can see (a screen, a page, a
+        chart, a document, a game scene): take them with the tools you have, for example
+        Playwright or a screenshot command. Submitting again replaces a review still waiting.
+        After a send-back, brain_get_task shows the person's comment."""
+        found, _ = pick(session, project, write=True)
+        payload = ReviewSubmit(
+            summary=summary,
+            done=done,
+            not_done=not_done or [],
+            how_to_check=how_to_check,
+            details=details,
+        )
+        drop = review_drop_folder(session)
+        shots = read_screenshots(screenshots or [], captions, drop)
+        review = ReviewService(session).submit(found.id, task, payload, agent, shots)
+        clear_dropped(screenshots or [], drop)
+        row = session.get(Task, review.task_id)
+        working.set(found.id, row.id)
+        result = {
+            "submitted": row.human_id,
+            "round": review.round,
+            "status": row.status,
+            "screenshots": len(shots),
+            "message": "It waits in the person's Review screen. Don't keep working on it unless "
+            "they send it back; the brief and brain_get_task then show their comment.",
+        }
+        if not shots:
+            result["note"] = (
+                "No screenshots attached. If the person can see the result, submit again with "
+                "screenshots."
+            )
+        return result
+
+    if (drop := review_drop_folder_for(session_factory)) is not None:
+        brain_submit_review.__doc__ += (
+            f" On this computer Project Moah runs in a sandbox: save screenshots in {drop}"
+            " and pass those paths."
+        )
+    tool(WRITE)(brain_submit_review)
 
     @tool(WRITE)
     def brain_create_checkpoint(
@@ -1303,9 +1523,18 @@ def build_server(
         project: str | None = None,
     ) -> dict:
         """Suggest a change for a person to review: create_memory, update_memory, supersede_memory,
-        complete_task, update_task, add_acceptance_criterion, associate_file, or create_bug. Use this for
-        locked memory and for completing tasks. Nothing changes until it is accepted."""
+        update_task, add_acceptance_criterion, associate_file, or create_bug. Use this for locked
+        memory and global rules. Nothing changes until it is accepted. A finished task goes to
+        the person with brain_submit_review instead."""
         found, _ = pick(session, project, write=True)
+        if proposal_type == "complete_task" and target:
+            moved = TaskService(session).update(found.id, target, TaskUpdate(status="review"))
+            return {
+                "applied": False,
+                "status": moved.status,
+                "message": f"{moved.human_id} is now in review. "
+                + REVIEW_HINT.format(task=moved.human_id),
+            }
         p = ProposalService(session).create(
             found.id,
             ProposalCreate(

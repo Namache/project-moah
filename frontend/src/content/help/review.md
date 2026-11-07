@@ -1,15 +1,40 @@
 ---
-title: Inbox and suggestions
+title: Review
 category: Core features
-summary: Accept, edit or dismiss changes Claude Code and Codex suggest.
-keywords: inbox, review, proposal, suggestion, accept, reject, edit, locked
-related: memory, troubleshooting-bad-proposal
+summary: Check what Claude Code and Codex finished, answer their questions, and accept the work or send it back with comments.
+keywords: review, inbox, finished, accept, reject, comments, screenshots, question, blocked, answer, follow-up, criteria, suggestion, proposal, locked
+related: tasks, memory, troubleshooting-bad-proposal
 ---
 
-Claude Code and Codex can suggest changes, such as editing a locked decision, completing a task, or adding a known issue. Nothing changes until you accept it.
+When Claude Code or Codex finishes a task, the task moves to **Review** and the agent hands you a short report: what it did, what it did not do, how to check it, and screenshots of anything you can see. It only moves to Done when you accept it.
 
-**Inbox** in the sidebar lists everything waiting, from every project and the Global rules, grouped by project. Each project's *Inbox* tab shows the same suggestions for that project, plus the ones you already decided under *Decided*.
+**Review** in the sidebar fills the whole window. On the left is a timeline of everything agents finished, from every project: *Needs your answer* and *Needs review* first, then *Reviewed*. Each row shows the task, its column on the board (with the same colours as the board), which agent did it, when it finished, and when you accepted or rejected it. Use the Up and Down arrows (or J and K) to move through it. Each project's *Review* tab shows the same, for that project only.
 
-For each suggestion you see what will change, why the agent suggests it, and whether the target is locked. You can **Accept**, **Edit and accept**, or **Dismiss**. *Accept all* applies everything waiting, oldest first; any that cannot apply stay in the list with the reason.
+On the right is the selected report, in colour: green for what was done, red for what was not, and the screenshots. Click a screenshot to see it large. The quote button next to any line copies it into your comment.
+
+Under the report is your comment box. Type, or press the microphone to dictate. Attach files or images with the paperclip, by dragging them in, or by pasting a screenshot.
+
+- **Accept** moves the task to *Done* on the board.
+- **Reject** needs a comment or a file. The task goes back to *In progress* with your comments, and the next agent that works on it sees them first. *Open in Claude Code* (or Codex) opens the agent with the fix typed in, for you to read and send. Moah never starts an agent itself.
+
+If an agent finished without writing a report, Moah shows its last checkpoint instead, marked *From checkpoint*.
+
+Moving a task on the board counts too. Dragging a task out of Review to *Done* accepts the work, and dragging it to any other column sends it back without a comment. Either way it moves to *Reviewed*, marked *Moved to … on the board*.
+
+## Acceptance criteria and leftovers
+
+While the work waits, the task's acceptance criteria are ticked. Untick any that isn't met before you accept: Accept records your ticks. When you reject, only the ones you unticked are recorded.
+
+Each line under *Not done* has a **Make a task** button, which makes it a new task in *To do*, related to this one. When you accept, Moah also offers to make tasks from everything still left (the Not done lines and the criteria you unticked), in *To do* or *Backlog*. Untick that box if you don't want them. A line that became a task shows that task and its column.
+
+## Questions from agents
+
+When an agent can't go on without you (a choice, a fact, an approval), it asks in Review instead of guessing. The task moves to *Blocked* and the question waits under *Needs your answer*, at the top, until you answer it. Pick one of the agent's suggested answers or write your own, then press **Send answer**. The task goes back to *In progress*, and the next agent that opens the project sees your answer first. *Open in Claude Code with my answer* hands it over now.
+
+If an agent marked a task *Blocked* without asking, Moah shows its last checkpoint there instead. A task you blocked yourself on the board doesn't wait in Review. Moving a task out of *Blocked* on the board settles its question too.
+
+## Suggestions
+
+Agents can also suggest changes, such as editing a locked decision or adding a known issue. Suggestions wait in the same timeline, marked *Suggestion*. Nothing changes until you accept one. You can **Accept**, **Edit and accept**, or **Dismiss** it, and *Accept all* applies everything waiting in that project, oldest first.
 
 Accepting a change to a locked memory applies it because you reviewed it. The memory stays locked.

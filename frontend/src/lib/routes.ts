@@ -5,7 +5,7 @@ export const GLOBAL_ID = "global";
 export type ProjectSection = "" | "tasks" | "memory" | "context" | "review" | "files" | "activity";
 
 /** A project's sections in the order its tabs (and the command palette) show them. */
-export const projectSections: { label: string; path: ProjectSection }[] = [labels({ label: msg("Overview"), path: "" }, ["label"]), labels({ label: msg("Tasks"), path: "tasks" }, ["label"]), labels({ label: msg("Memory"), path: "memory" }, ["label"]), labels({ label: msg("AI context"), path: "context" }, ["label"]), labels({ label: msg("Inbox"), path: "review" }, ["label"]), labels({ label: msg("Files"), path: "files" }, ["label"]), labels({ label: msg("Activity"), path: "activity" }, ["label"])];
+export const projectSections: { label: string; path: ProjectSection }[] = [labels({ label: msg("Overview"), path: "" }, ["label"]), labels({ label: msg("Tasks"), path: "tasks" }, ["label"]), labels({ label: msg("Memory"), path: "memory" }, ["label"]), labels({ label: msg("AI context"), path: "context" }, ["label"]), labels({ label: msg("Review"), path: "review" }, ["label"]), labels({ label: msg("Files"), path: "files" }, ["label"]), labels({ label: msg("Activity"), path: "activity" }, ["label"])];
 type Query = Record<string, string | null | undefined>;
 
 function withQuery(path: string, query: Query = {}): string {

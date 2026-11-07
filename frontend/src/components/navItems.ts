@@ -1,4 +1,4 @@
-import { Activity, Brain, CircleHelp, FolderKanban, Gauge, Globe2, House, Inbox, ListTodo, Settings2, type LucideIcon } from "lucide-react";
+import { Activity, Brain, CircleHelp, ClipboardCheck, FolderKanban, Gauge, Globe2, House, ListTodo, Settings2, type LucideIcon } from "lucide-react";
 import { labels, msg } from "../lib/i18n";
 
 export interface NavItem { label: string; to: string; icon: LucideIcon }
@@ -6,7 +6,7 @@ export interface NavItem { label: string; to: string; icon: LucideIcon }
 /** Pages used most days, at the top of the sidebar. */
 export const primaryNav: NavItem[] = [
   labels({ label: msg("Home"), to: "/", icon: House }, ["label"]),
-  labels({ label: msg("Inbox"), to: "/review", icon: Inbox }, ["label"]),
+  labels({ label: msg("Review"), to: "/review", icon: ClipboardCheck }, ["label"]),
   labels({ label: msg("All tasks"), to: "/tasks", icon: ListTodo }, ["label"]),
   labels({ label: msg("Brain"), to: "/brain", icon: Brain }, ["label"]),
 ];
