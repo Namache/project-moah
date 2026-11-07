@@ -26,8 +26,26 @@ export interface AgentLaunch { install: "flatpak" | "deb" | "linux" | "windows" 
 
 export interface AgentConnection { agent: "claude" | "codex"; status: "connected" | "not_found" | "failed"; detail: string }
 
+export const DIAGNOSTICS_TIMEOUT_MS = 30_000;
+
 export const systemApi = {
-  diagnostics: (signal?: AbortSignal) => request<Diagnostics>("/system/diagnostics", { signal }),
+  /** A check that takes too long ends with a message and a Retry button instead of "Checking…" for good. */
+  async diagnostics(signal?: AbortSignal): Promise<Diagnostics> {
+    const limit = new AbortController();
+    let expired = false;
+    const timer = setTimeout(() => { expired = true; limit.abort(); }, DIAGNOSTICS_TIMEOUT_MS);
+    const forward = () => limit.abort();
+    signal?.addEventListener("abort", forward);
+    try {
+      return await request<Diagnostics>("/system/diagnostics", { signal: limit.signal });
+    } catch (error) {
+      if (expired) throw new ApiError(t("The check took too long. Try again, or restart Project Moah if it keeps happening."), 0);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", forward);
+    }
+  },
   agentCommand: (signal?: AbortSignal) => request<AgentLaunch>("/system/agent-command", { signal }),
   errors: (signal?: AbortSignal) => request<ErrorLog>("/system/errors", { signal }),
   reportError: (message: string, detail: string) => request<void>("/system/errors", json("POST", { message, detail })),

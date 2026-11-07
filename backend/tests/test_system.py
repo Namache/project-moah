@@ -147,3 +147,30 @@ def test_agent_connecting_opens_the_app_on_each_install(monkeypatch, tmp_path):
     monkeypatch.setenv("PROJECT_BRAIN_DB_PATH", "/tmp/check.db")
     system.open_app_in_tray()
     assert started == [], "a throwaway database means nobody is asking for the app"
+
+
+async def test_git_never_inherits_the_services_input(
+    client: AsyncClient, database_url: str, monkeypatch, tmp_path: Path
+) -> None:
+    """The desktop service waits on its input; on Windows a child that shares it can hang."""
+    import subprocess
+
+    from app.services import git as git_service
+    from app.services import system
+
+    monkeypatch.setenv("PROJECT_BRAIN_DATABASE_URL", database_url)
+    seen: list[object] = []
+
+    def fake_run(args, **options):
+        seen.append(options.get("stdin"))
+        out, err = "git version 2.47.0", ""
+        if not options.get("text"):
+            out, err = out.encode(), err.encode()
+        return subprocess.CompletedProcess(args, 0, stdout=out, stderr=err)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(system.shutil, "which", lambda name: "/usr/bin/git")
+    git_service.GitService._git(tmp_path, "status")
+    report = (await client.get("/api/system/diagnostics")).json()
+    assert report["git"]["version"] == "git version 2.47.0"
+    assert seen == [subprocess.DEVNULL, subprocess.DEVNULL]

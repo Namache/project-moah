@@ -175,6 +175,11 @@ class GitService:
         try:
             done = subprocess.run(  # noqa: S603 - fixed argument list, no shell
                 [git, "--no-pager", "-c", "core.quotepath=off", "-C", str(root), *args],
+                # The desktop app's service waits on its input for Electron to close it. On
+                # Windows, a program that inherits that input can stall at start-up while the
+                # wait goes on, and Git for Windows' helper process can keep the output open
+                # past the timeout, so the request (Diagnostics, say) would never answer.
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 timeout=TIMEOUT_SECONDS,
                 env=env,

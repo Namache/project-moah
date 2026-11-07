@@ -345,6 +345,7 @@ export const ru: Record<string, Translation> = {
   "Healthy": "В порядке",
   "Needs attention": "Требует внимания",
   "Diagnostics are unavailable": "Диагностика недоступна",
+  "The check took too long. Try again, or restart Project Moah if it keeps happening.": "Проверка заняла слишком много времени. Попробуйте ещё раз или перезапустите Project Moah, если это повторяется.",
   "Database": "База данных",
   "Needs attention: {integrity}, {count} link problems": "Требует внимания: {integrity}, проблем со связями: {count}",
   "schema {name}": "схема {name}",

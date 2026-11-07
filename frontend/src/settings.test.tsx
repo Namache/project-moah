@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { LanguageRoot, setLanguage } from "./lib/i18n";
 import { diagnosticReport, errorLogText } from "./pages/SettingsPage";
+import { DIAGNOSTICS_TIMEOUT_MS, systemApi } from "./api/system";
 import { initDisplay, setDisplay } from "./lib/display";
 
 const diag = { app_version: "0.1.0", python: "3.13.1", platform: "Linux", sqlite_version: "3.51.2", database: { path: "/home/u/.var/app/x/data/project-brain/project-brain.db", size_bytes: 204800, migration: "0007_proposals", integrity: "ok", foreign_key_problems: 0, search_index_ready: true }, counts: { projects: 2, tasks: 5, pending_proposals: 1 }, git: { available: false, version: null }, mcp: { command: "project-brain-mcp", tools: 15 } };
@@ -166,6 +167,22 @@ describe("settings", () => {
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear log" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/system/errors", expect.objectContaining({ method: "DELETE" }));
     expect(await screen.findByText("No errors so far.")).toBeInTheDocument();
+  });
+
+  it("gives up on a diagnostics check that never answers, with a clear message", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_u: RequestInfo | URL, options?: RequestInit) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    })));
+    const outcome = systemApi.diagnostics().catch((error: Error) => error.message);
+    await vi.advanceTimersByTimeAsync(DIAGNOSTICS_TIMEOUT_MS);
+    expect(await outcome).toBe("The check took too long. Try again, or restart Project Moah if it keeps happening.");
+    // Leaving the page cancels the check without that message.
+    const page = new AbortController();
+    const left = systemApi.diagnostics(page.signal).catch((error: Error) => error.name);
+    page.abort();
+    expect(await left).toBe("AbortError");
+    vi.useRealTimers();
   });
 
   it("writes the copied error log in English, with a note when only the newest are shown", () => {
