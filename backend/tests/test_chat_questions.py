@@ -289,10 +289,14 @@ def test_a_broken_hook_input_never_fails_the_agent(database_url: str, monkeypatc
 
 def test_a_turn_without_a_question_ends_before_loading_the_database(tmp_path: Path) -> None:
     """The Stop hook runs after every turn: most end without a question and must stay cheap."""
+    import os
     import subprocess
     import sys
 
     backend = Path(__file__).resolve().parents[1]
+    # The rest of the environment stays: Windows can't load asyncio without SYSTEMROOT.
+    env = {k: v for k, v in os.environ.items() if k != "PROJECT_BRAIN_DATABASE_URL"}
+    env["PROJECT_BRAIN_DB_PATH"] = str(tmp_path / "moah.db")
     probe = (
         "import sys, runpy\n"
         "sys.argv = ['project-moah-mcp', '--agent', 'claude', '--hook', 'stop']\n"
@@ -308,7 +312,7 @@ def test_a_turn_without_a_question_ends_before_loading_the_database(tmp_path: Pa
             capture_output=True,
             text=True,
             cwd=backend,
-            env={"PROJECT_BRAIN_DB_PATH": str(tmp_path / "moah.db"), "PATH": "/usr/bin:/bin"},
+            env=env,
             timeout=60,
         )
         assert done.stdout.strip() == loads, done.stderr
