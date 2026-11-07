@@ -22,3 +22,6 @@ cd "$repo_root/frontend"
 npm run check
 npm run test
 npm run build
+
+cd "$repo_root/desktop"
+node --test ./*.test.cjs

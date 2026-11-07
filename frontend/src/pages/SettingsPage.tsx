@@ -1,5 +1,6 @@
 import { AgentSettingsCard } from "../components/AgentSettingsCard";
 import { TaskSettingsCard } from "../components/TaskSettingsCard";
+import { FocusTimerSettings } from "../components/pomodoro/FocusTimerSettings";
 import { useDictationAvailable } from "../components/dictation/useDictationAvailable";
 import { dictationLanguages, useDictationLanguage } from "../lib/dictationLanguage";
 import { Choice } from "../components/Choice";
@@ -141,6 +142,8 @@ export function SettingsPage() {
       </Card>
 
       <AccessibilityCard />
+
+      <FocusTimerSettings />
 
       <Card id="settings-agents" title={t("Agents")}>
         <p className="text-sm text-ink-muted">{t("Connect each agent once, and it works in every project. The connection stays on this computer.")}</p>

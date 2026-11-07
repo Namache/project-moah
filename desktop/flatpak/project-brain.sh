@@ -12,4 +12,10 @@ exec 9>"$lock_dir/instance.lock"
 if flock -n 9; then
   rm -f "$profile_dir/SingletonLock" "$profile_dir/SingletonCookie" "$profile_dir/SingletonSocket"
 fi
-exec zypak-wrapper /app/lib/project-brain/project-brain-desktop --ozone-platform-hint=auto "$@"
+# While the focus timer is on, its small corner window has to stay on top in the corner, which
+# Wayland doesn't let apps do: the app then runs through XWayland (see desktop/pomodoro.cjs).
+platform="--ozone-platform-hint=auto"
+if [ -f "$profile_dir/use-x11" ] && [ -n "${DISPLAY:-}" ]; then
+  platform="--ozone-platform=x11"
+fi
+exec zypak-wrapper /app/lib/project-brain/project-brain-desktop "$platform" "$@"

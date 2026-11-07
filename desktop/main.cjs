@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, screen, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, powerMonitor, screen, session, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
 const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { randomBytes } = require("node:crypto");
@@ -8,6 +8,7 @@ const { homedir } = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const display = require("./display.cjs");
+const { createPomodoro, relaunchForX11 } = require("./pomodoro.cjs");
 
 // The app was renamed to Project Moah; keep its settings folder (window state, logs, saved
 // layout) where Project Brain put it, so the rename doesn't reset anything.
@@ -20,6 +21,9 @@ function settingsParent() {
   }
 }
 app.setPath("userData", path.join(settingsParent(), "Project Brain"));
+
+// With the focus timer on, a Linux Wayland session starts Moah again through XWayland (see pomodoro.cjs).
+const relaunching = relaunchForX11(app);
 
 // The window only ever talks to the local service. Without this, Chromium on Windows looks for
 // a "wpad" proxy on the network as soon as it loads a page.
@@ -42,6 +46,7 @@ let apiToken = "";
 let logStream = null;
 let logPath = "";
 let fatalShown = false;
+let pomodoro = null;
 
 // The page is served by the local service and loads nothing from elsewhere: scripts, styles, icons and
 // API calls all come from its own origin. React sets inline style properties, so inline styles stay allowed.
@@ -115,6 +120,11 @@ const RUSSIAN = {
   "{count} proposals need your decision": "Предложений, ждущих вашего решения: {count}",
   "{agent} in {project}: {summary}": "{agent} в «{project}»: {summary}",
   "Open the Inbox to accept or reject them.": "Откройте «Входящие», чтобы принять или отклонить их.",
+  "Focus": "Фокус",
+  "Break": "Перерыв",
+  "Paused": "На паузе",
+  "{count} waiting for review": "Ждут проверки: {count}",
+  "{time} left": "Осталось {time}",
 };
 function say(text, vars = {}) {
   const chosen = app.getLocale().toLowerCase().startsWith("ru") ? RUSSIAN[text] ?? text : text;
@@ -355,6 +365,7 @@ async function openWindow(port) {
   const stayInApp = (event, url) => {
     if (originOf(url) !== origin) event.preventDefault();
   };
+  pomodoro?.attachWindow(window);
   window.webContents.on("will-navigate", stayInApp);
   window.webContents.on("will-redirect", stayInApp);
   // The saved interface size, or Automatic for this screen, from the first paint on.
@@ -486,6 +497,7 @@ async function checkProposals(port) {
   const first = notifiedProposals === null;
   const fresh = first ? [] : newest.filter((proposal) => !notifiedProposals.has(proposal.id));
   notifiedProposals = new Set(newest.map((proposal) => proposal.id));
+  pomodoro?.setPending(pending.total, fresh);
   if (!Notification.isSupported()) return;
   if (first && pending.total > 0) {
     notify(
@@ -505,7 +517,9 @@ function watchProposals(port) {
   setInterval(() => void checkProposals(port), PROPOSAL_CHECK_MS).unref();
 }
 
-if (!app.requestSingleInstanceLock()) {
+if (relaunching) {
+  app.exit(0);
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", (event, argv) => {
@@ -514,6 +528,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("before-quit", (event) => {
     quitting = true;
+    pomodoro?.dispose();
     if (backendStoppedForQuit) return;
     event.preventDefault();
     void stopBackend().finally(() => {
@@ -573,6 +588,8 @@ if (!app.requestSingleInstanceLock()) {
       const result = await dialog.showOpenDialog(window, { title: heading, properties: ["openDirectory"] });
       return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
     });
+    pomodoro = createPomodoro({ app, getMainWindow: () => window, showMainWindow: showWindow, say, writeLog });
+    powerMonitor.on("resume", () => pomodoro?.wake());
     try {
       const port = await startBackend();
       await waitForHealth(port);

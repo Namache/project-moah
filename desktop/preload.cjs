@@ -25,5 +25,26 @@ contextBridge.exposeInMainWorld(
     chooseFolder: (title) => ipcRenderer.invoke("project-brain:choose-folder", title),
     // Opens claude:// or codex:// links only; resolves to false when nothing could open it.
     openAgent: (url) => ipcRenderer.invoke("project-brain:open-agent", url),
+    // The focus timer runs in the main process, so it keeps time while the window is hidden.
+    pomodoro: Object.freeze({
+      get: () => ipcRenderer.invoke("pomodoro:get"),
+      update: (partial) => ipcRenderer.invoke("pomodoro:update", partial),
+      command: (name) => ipcRenderer.invoke("pomodoro:command", name),
+      chooseSound: (kind, text) => ipcRenderer.invoke("pomodoro:choose-sound", kind, text),
+      resetSound: (kind) => ipcRenderer.invoke("pomodoro:reset-sound", kind),
+      // The bytes of a sound the person chose, or null for the built-in one.
+      sound: (kind) => ipcRenderer.invoke("pomodoro:sound", kind),
+      quit: () => ipcRenderer.invoke("pomodoro:quit"),
+      onState: (listener) => {
+        const handler = (_event, state) => listener(state);
+        ipcRenderer.on("pomodoro:state", handler);
+        return () => ipcRenderer.off("pomodoro:state", handler);
+      },
+      onCue: (listener) => {
+        const handler = (_event, kind) => listener(kind);
+        ipcRenderer.on("pomodoro:cue", handler);
+        return () => ipcRenderer.off("pomodoro:cue", handler);
+      },
+    }),
   }),
 );
