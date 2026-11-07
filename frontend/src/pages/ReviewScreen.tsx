@@ -67,7 +67,7 @@ function TaskPanel({ item, onDecided }: { item: ReviewItem; onDecided: (verdict:
   const reopenable = work && round.status === "accepted" && (detail.task_status === "completed" || detail.task_status === "archived");
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
         <div className="mx-auto max-w-5xl">
           <ReviewDocument detail={detail} project={project} onQuote={(text) => put(text)} onPick={(text) => put(text, true)} ticks={ticks} followUps={actions} />
         </div>
@@ -170,10 +170,12 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
     select(rest[Math.min(Math.max(index, 0), rest.length - 1)] ?? null);
   }
 
+  // Every scrolling pane here is `relative`. Screen reader text is positioned absolutely, and in a
+  // pane that isn't positioned it escapes the pane's scrolling and stretches the window below it.
   return (
-    <div ref={box} className={`flex min-h-0 flex-col bg-canvas lg:flex-row ${embedded ? "h-[calc(100vh-13rem)] min-h-[36rem] overflow-hidden rounded-xl border border-line" : "h-screen"}`}
+    <div ref={box} className={`relative flex min-h-0 flex-col bg-canvas lg:flex-row ${embedded ? "h-[calc(100vh-13rem)] min-h-[36rem] overflow-hidden rounded-xl border border-line" : "h-screen"}`}
       style={{ ["--review-list" as string]: `${listWidth}px` }}>
-      <aside aria-label={t("Review timeline")} className="max-h-[42vh] shrink-0 overflow-y-auto border-b border-line bg-surface/60 px-4 py-5 lg:max-h-none lg:w-[var(--review-list)] lg:border-b-0">
+      <aside aria-label={t("Review timeline")} className="relative max-h-[42vh] shrink-0 overflow-y-auto border-b border-line bg-surface/60 px-4 py-5 lg:max-h-none lg:w-[var(--review-list)] lg:border-b-0">
         {!embedded && (
           <div className="mb-4 px-1">
             <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("Review")}</h1>
@@ -197,7 +199,7 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
       <PaneResizer width={listWidth} min={LIST_MIN} max={listMax} fallback={LIST_WIDTH} onResize={setListWidth} label={t("Resize the task list")} />
       <section aria-label={t("Selected review")} className="flex min-h-0 min-w-0 flex-1 flex-col">
         {item?.kind === "task" ? <TaskPanel key={`${item.project_id}:${item.ref}`} item={item} onDecided={decided} />
-          : item?.kind === "suggestion" ? <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8"><SuggestionPanel key={item.key} item={item} waitingHere={item.reviewed_at === null ? waiting.filter((i) => i.kind === "suggestion" && i.project_id === item.project_id).length : 0} /></div>
+          : item?.kind === "suggestion" ? <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8"><SuggestionPanel key={item.key} item={item} waitingHere={item.reviewed_at === null ? waiting.filter((i) => i.kind === "suggestion" && i.project_id === item.project_id).length : 0} /></div>
           : !timeline.isPending && (
             <div className="flex flex-1 items-center justify-center p-8">
               <EmptyState icon={<ClipboardCheck size={26} />} title={t("Nothing to review yet")}>

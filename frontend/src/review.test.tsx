@@ -147,6 +147,26 @@ describe("Review screen", () => {
     localStorage.removeItem("moah.review.listWidth");
   });
 
+  it("keeps its screen reader text inside the panes that scroll", async () => {
+    setup();
+    renderAt("/review");
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    await within(timeline).findByRole("list", { name: "Finished work to check" });
+    await screen.findByText("Open the task");
+    // Screen reader text is positioned absolutely. Unless something inside the scrolling pane is
+    // positioned too, that text escapes the pane and the window scrolls on into empty space.
+    const positioned = (el: Element) => /(^|\s|:)(relative|absolute|fixed|sticky)(\s|$)/.test(el.className);
+    const hidden = Array.from(timeline.parentElement!.querySelectorAll(".sr-only"));
+    expect(hidden.length).toBeGreaterThan(2);
+    for (const text of hidden) {
+      const pane = text.parentElement?.closest(".overflow-y-auto");
+      if (!pane) continue;
+      let holder = text.parentElement;
+      while (holder && !positioned(holder)) holder = holder.parentElement;
+      expect(holder !== null && pane.contains(holder), text.textContent ?? "").toBe(true);
+    }
+  });
+
   it("draws the review as colourful Markdown, never as raw HTML", async () => {
     setup();
     renderAt("/review");
