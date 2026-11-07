@@ -6,12 +6,15 @@ import { App } from "./App";
 import { LanguageRoot, initLanguage } from "./lib/i18n";
 import { initTheme } from "./lib/theme";
 import { initDisplay } from "./lib/display";
+import { initErrorReporting } from "./lib/errorReporting";
 import "@fontsource-variable/inter/wght.css";
 import "./styles.css";
 
 initTheme();
 initDisplay();
 initLanguage();
+
+initErrorReporting();
 
 const queryClient = new QueryClient({
   defaultOptions: {

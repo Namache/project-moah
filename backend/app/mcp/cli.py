@@ -11,6 +11,7 @@ import argparse
 import os
 import sys
 
+from app.core import error_log
 from app.core.config import get_database_url
 from app.db.migrate import upgrade_database
 from app.db.session import make_engine, make_session_factory
@@ -84,6 +85,7 @@ def print_brief(session, args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     url = get_database_url()
+    error_log.install("mcp")  # the start-up brief too: a failure there is otherwise silent
     upgrade_database(url)
     engine = make_engine(url)
     try:

@@ -8,6 +8,7 @@ const { homedir } = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const display = require("./display.cjs");
+const { createErrorLog } = require("./errorlog.cjs");
 
 // The app was renamed to Project Moah; keep its settings folder (window state, logs, saved
 // layout) where Project Brain put it, so the rename doesn't reset anything.
@@ -42,6 +43,9 @@ let apiToken = "";
 let logStream = null;
 let logPath = "";
 let fatalShown = false;
+// Errors also go to a small JSON log that Settings > Diagnostics shows; set up once the folder exists.
+let errorLogPath = "";
+let recordError = () => {};
 
 // The page is served by the local service and loads nothing from elsewhere: scripts, styles, icons and
 // API calls all come from its own origin. React sets inline style properties, so inline styles stay allowed.
@@ -124,6 +128,7 @@ function say(text, vars = {}) {
 /** Shows one error and quits. Later failures caused by the same problem are only logged. */
 function fatal(title, message) {
   writeLog(`[fatal] ${title}: ${message}`);
+  recordError(`${title}: ${message}`);
   if (fatalShown) return;
   fatalShown = true;
   dialog.showErrorBox(title, message);
@@ -172,7 +177,7 @@ function startBackend() {
     const executable = backendExecutable();
     const child = spawn(executable, [], {
       cwd: path.dirname(executable),
-      env: { ...process.env, PROJECT_BRAIN_DESKTOP_TOKEN: apiToken, PYTHONUNBUFFERED: "1" },
+      env: { ...process.env, PROJECT_BRAIN_DESKTOP_TOKEN: apiToken, PROJECT_BRAIN_DESKTOP_ERROR_LOG: errorLogPath, PYTHONUNBUFFERED: "1" },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -214,6 +219,7 @@ function startBackend() {
     child.stderr.on("data", (chunk) => writeLog(`[service] ${String(chunk).trimEnd()}`));
     child.on("error", (error) => {
       writeLog(`[service error] ${error.message}`);
+      recordError(`The local service could not start: ${error.message}`, error.stack ?? "");
       if (!settled) {
         settled = true;
         clearTimeout(timeout);
@@ -227,6 +233,7 @@ function startBackend() {
         clearTimeout(timeout);
         reject(new Error(`The local service exited before startup (${code ?? signal}).`));
       } else if (ready && !stopping) {
+        recordError(`The local service stopped unexpectedly (${code ?? signal}).`);
         if (window) fatal(say("Project Moah stopped"), say("Its local service stopped unexpectedly. Restart Project Moah to continue."));
         else fatal(say("Project Moah could not open"), `${say("The local service stopped during startup ({reason}).", { reason: code ?? signal })}\n\n${say("Details were saved to {path}", { path: logPath })}`);
       }
@@ -355,6 +362,11 @@ async function openWindow(port) {
   const stayInApp = (event, url) => {
     if (originOf(url) !== origin) event.preventDefault();
   };
+  window.webContents.on("render-process-gone", (event, details) => {
+    writeLog(`[window] render process gone: ${details.reason} (${details.exitCode})`);
+    if (details.reason !== "clean-exit") recordError(`The app window stopped (${details.reason}, code ${details.exitCode}).`);
+  });
+  window.webContents.on("preload-error", (event, preloadPath, error) => recordError(`The window's preload script failed: ${error.message}`, error.stack ?? ""));
   window.webContents.on("will-navigate", stayInApp);
   window.webContents.on("will-redirect", stayInApp);
   // The saved interface size, or Automatic for this screen, from the first paint on.
@@ -505,6 +517,17 @@ function watchProposals(port) {
   setInterval(() => void checkProposals(port), PROPOSAL_CHECK_MS).unref();
 }
 
+// A monitor only listens: Electron still shows its own error dialog as before.
+process.on("uncaughtExceptionMonitor", (error) => {
+  writeLog(`[uncaught] ${error?.stack ?? error}`);
+  recordError(error?.message ?? String(error), error?.stack ?? "");
+});
+process.on("unhandledRejection", (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  writeLog(`[unhandled rejection] ${error.stack ?? error.message}`);
+  recordError(error.message, error.stack ?? "");
+});
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -535,6 +558,8 @@ if (!app.requestSingleInstanceLock()) {
     mkdirSync(logDir, { recursive: true });
     logPath = path.join(logDir, "desktop.log");
     logStream = createWriteStream(logPath, { flags: "a" });
+    errorLogPath = path.join(logDir, "errors-desktop.log");
+    recordError = createErrorLog(errorLogPath);
     apiToken = randomBytes(32).toString("hex");
     ipcMain.on("project-brain:get-token", (event) => {
       event.returnValue = event.sender === window?.webContents ? apiToken : "";
@@ -563,6 +588,7 @@ if (!app.requestSingleInstanceLock()) {
         return true;
       } catch (error) {
         writeLog(`[open agent] ${error.message}`);
+        recordError(`Could not open the agent's app: ${error.message}`, "", "warning");
         return false;
       }
     });

@@ -30,6 +30,7 @@
     "files": [
       "main.cjs",
       "display.cjs",
+      "errorlog.cjs",
       "preload.cjs",
       "assets/**",
       "package.json"

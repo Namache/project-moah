@@ -17,7 +17,10 @@ async def serve() -> bool:
     # start-up brief, which need neither the web server nor the app's HTTP routes.
     import uvicorn
 
+    from app.core import error_log
     from app.main import create_app
+
+    error_log.install("service")
 
     token = os.getenv("PROJECT_BRAIN_DESKTOP_TOKEN")
     if not token:

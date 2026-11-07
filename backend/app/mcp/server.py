@@ -10,6 +10,7 @@ Rules this adapter keeps:
 from __future__ import annotations
 
 import base64
+import traceback
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
@@ -21,6 +22,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException
 
+from app.core import error_log
 from app.mcp.cli import main, with_update_check  # noqa: F401 - old entry point
 from app.mcp.linking import SessionPacks, SessionTask, link_written, sort_named
 from app.mcp.projects import ProjectChoiceError, resolve_project
@@ -145,6 +147,13 @@ def _message(error: Exception) -> str:
     return f"{type(error).__name__}: {error}"
 
 
+def _unexpected(error: Exception) -> bool:
+    """An error of the app itself, as opposed to a tool call the agent can correct."""
+    if isinstance(error, HTTPException):
+        return error.status_code >= 500
+    return not isinstance(error, ValidationError | ProjectChoiceError | ValueError | ToolError)
+
+
 def build_server(
     session_factory: sessionmaker[Session],
     *,
@@ -183,6 +192,10 @@ def build_server(
                         return with_restart_notice(result, session)
                     except Exception as error:  # noqa: BLE001 - turned into a plain message
                         session.rollback()
+                        if _unexpected(error):
+                            error_log.write(
+                                "mcp", f"{fn.__name__}: {_message(error)}", traceback.format_exc()
+                            )
                         raise ToolError(_message(error)) from None
 
             # The session is injected, so it must not appear in the tool's schema.
