@@ -21,14 +21,16 @@ def logs(tmp_path: Path, monkeypatch, database_url: str) -> Path:
 
 
 def test_entries_sit_beside_the_database_and_hide_private_text(logs: Path, monkeypatch) -> None:
-    monkeypatch.setattr(Path, "home", lambda: Path("/home/someone"))
+    home = Path("/home/someone")
+    monkeypatch.setattr(Path, "home", lambda: home)
     error_log.write(
         "service",
-        "IntegrityError at /home/someone/repo",
+        f"IntegrityError at {home / 'repo'}",
         "[SQL: INSERT INTO tasks (title) VALUES (?)]\n[parameters: ('Top secret plan',)]",
     )
     line = json.loads((logs / "errors-service.log").read_text(encoding="utf-8"))
-    assert line["source"] == "service" and line["message"] == "IntegrityError at ~/repo"
+    assert line["source"] == "service"
+    assert line["message"] == f"IntegrityError at {Path('~') / 'repo'}"
     assert "Top secret plan" not in line["detail"] and "[parameters hidden]" in line["detail"]
 
 
