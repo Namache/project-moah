@@ -85,39 +85,57 @@ body { font-size: var(--text-base); }
 /*
  * Dark theme. src/lib/theme.ts sets data-theme on <html> from the person's choice (System, Light or Dark).
  * Only tokens change here: the semantic colours and status tones above.
+ * Soft on purpose: charcoal instead of near-black, off-white text and calmer status colours, so long
+ * evenings read gently. Text still keeps at least 4.5:1 contrast, small grey text included.
  */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-canvas: #121614;
-  --color-sidebar: #0e1110;
-  --color-surface: #191e1b;
-  --color-forest: #5bbf9c;
-  --color-primary: #1f7a62;
-  --color-primary-hover: #248a6f;
-  --color-sage-pale: #183129;
-  --color-line: #29302c;
-  --color-line-strong: #39413d;
-  --color-line-hover: #4a534e;
-  --color-ink: #e5ebe7;
-  --color-ink-muted: #a6b0ab;
-  --color-ink-subtle: #8d9792;
-  --color-hover: rgb(255 255 255 / 0.06);
-  --color-side: #0c100e;
-  --color-neutral-soft: #262d29;
-  --color-neutral-ink: #c4ccc8;
-  --color-info-soft: color-mix(in oklab, var(--color-info) 20%, var(--color-surface));
-  --color-info-ink: color-mix(in oklab, var(--color-info) 45%, white);
-  --color-success-soft: color-mix(in oklab, var(--color-success) 20%, var(--color-surface));
-  --color-success-ink: color-mix(in oklab, var(--color-success) 45%, white);
-  --color-warning-soft: color-mix(in oklab, var(--color-warning) 20%, var(--color-surface));
-  --color-warning-ink: color-mix(in oklab, var(--color-warning) 45%, white);
-  --color-danger-soft: color-mix(in oklab, var(--color-danger) 20%, var(--color-surface));
-  --color-danger-ink: color-mix(in oklab, var(--color-danger) 45%, white);
-  --color-special-soft: color-mix(in oklab, var(--color-special) 20%, var(--color-surface));
-  --color-special-ink: color-mix(in oklab, var(--color-special) 45%, white);
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
-  --shadow-card-hover: 0 4px 16px rgb(0 0 0 / 0.45);
-  --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --color-canvas: #212423;
+  --color-sidebar: #1b1e1d;
+  --color-surface: #292c2b;
+  --color-forest: #7cc2a6;
+  --color-primary: #2b7a63;
+  --color-primary-hover: #33876e;
+  --color-sage-pale: #283832;
+  --color-line: #363a38;
+  --color-line-strong: #434846;
+  --color-line-hover: #535856;
+  --color-ink: #e3e5e2;
+  --color-ink-muted: #abb0ac;
+  --color-ink-subtle: #969b97;
+  --color-hover: rgb(255 255 255 / 0.05);
+  --color-side: #1b1e1d;
+  --color-side-ink: #e3e5e2;
+  --color-side-muted: #a3a9a5;
+  --color-side-hover: rgb(255 255 255 / 0.06);
+  --color-side-active: rgb(255 255 255 / 0.1);
+  --color-side-line: rgb(255 255 255 / 0.08);
+  --color-side-accent: #80bfa5;
+  --color-side-new: #2b7a63;
+  --color-side-new-hover: #33876e;
+  --color-neutral: #8a908c;
+  --color-neutral-soft: #323634;
+  --color-neutral-ink: #c6cac7;
+  --color-info: #5b8fe0;
+  --color-success: #3daa82;
+  --color-warning: #e0a43a;
+  --color-danger: #e06467;
+  --color-special: #9677e0;
+  --color-info-soft: color-mix(in oklab, var(--color-info) 18%, var(--color-surface));
+  --color-info-ink: color-mix(in oklab, var(--color-info) 50%, var(--color-ink));
+  --color-success-soft: color-mix(in oklab, var(--color-success) 18%, var(--color-surface));
+  --color-success-ink: color-mix(in oklab, var(--color-success) 50%, var(--color-ink));
+  --color-warning-soft: color-mix(in oklab, var(--color-warning) 18%, var(--color-surface));
+  --color-warning-ink: color-mix(in oklab, var(--color-warning) 50%, var(--color-ink));
+  --color-danger-soft: color-mix(in oklab, var(--color-danger) 18%, var(--color-surface));
+  --color-danger-ink: color-mix(in oklab, var(--color-danger) 50%, var(--color-ink));
+  --color-special-soft: color-mix(in oklab, var(--color-special) 18%, var(--color-surface));
+  --color-special-ink: color-mix(in oklab, var(--color-special) 50%, var(--color-ink));
+  --color-danger-solid: #b0392f;
+  --color-danger-solid-hover: #9c3129;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.25);
+  --shadow-card-hover: 0 4px 16px rgb(0 0 0 / 0.3);
+  --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.06);
 }
 
 /* In the base layer so text-size utilities on buttons and fields (e.g. text-sm in Button) still apply. */
