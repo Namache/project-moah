@@ -5,10 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { LanguageRoot, initLanguage } from "./lib/i18n";
 import { initTheme } from "./lib/theme";
+import { initDisplay } from "./lib/display";
 import "@fontsource-variable/inter/wght.css";
 import "./styles.css";
 
 initTheme();
+initDisplay();
 initLanguage();
 
 const queryClient = new QueryClient({

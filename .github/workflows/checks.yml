@@ -70,3 +70,6 @@ jobs:
           npm run check --prefix frontend
           npm run test --prefix frontend
           npm run build --prefix frontend
+
+      - name: Desktop tests
+        run: node --test "desktop/*.test.cjs"
