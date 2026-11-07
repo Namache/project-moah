@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -144,6 +145,7 @@ def open_app_in_tray() -> None:
 
 
 def diagnostics(session: Session) -> dict:
+    from app.services import dictation
     from app.services.builds import pack_builds  # it imports APP_VERSION from here
 
     path = database_path()
@@ -188,6 +190,8 @@ def diagnostics(session: Session) -> dict:
         "mcp": {"command": " ".join(agent_launch()["command"]), "tools": mcp_tool_count()},
         "builds": pack_builds(session),
         "errors": error_summary(),
+        # Whether dictation works here and how the speech engine did lately: times, never words.
+        "dictation": asdict(dictation.dictation.status()),
     }
 
 

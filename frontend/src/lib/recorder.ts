@@ -23,9 +23,18 @@ export interface Recording {
   cancel: () => void;
 }
 
-export async function startRecording(onLimit?: () => void): Promise<Recording> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
+export interface RecordingOptions {
+  /** Which microphone, and how its sound is cleaned up: Settings > Dictation. */
+  constraints?: MediaTrackConstraints;
+  /** How loud the newest sound is, from 0 to 1, a few times a second: for a level meter. */
+  onLevel?: (level: number) => void;
+}
+
+export async function startRecording(onLimit?: () => void, { constraints, onLevel }: RecordingOptions = {}): Promise<Recording> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints ?? { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
   const context = new AudioContext();
+  // A context made outside a click can start paused, and a paused one records nothing.
+  if (context.state === "suspended") await context.resume().catch(() => {});
   const source = context.createMediaStreamSource(stream);
   // ScriptProcessor needs no separate worklet file, which the app's content policy would have to allow.
   const processor = context.createScriptProcessor(4096, 1, 1);
@@ -34,7 +43,9 @@ export async function startRecording(onLimit?: () => void): Promise<Recording> {
   let limited = false;
   processor.onaudioprocess = (event) => {
     if (limited) return;
-    store.push(event.inputBuffer.getChannelData(0));
+    const chunk = event.inputBuffer.getChannelData(0);
+    store.push(chunk);
+    onLevel?.(level(chunk));
     if (store.length / rate >= MAX_SECONDS) { limited = true; onLimit?.(); }
   };
   source.connect(processor);
@@ -76,6 +87,16 @@ export class SampleStore {
   slice(from: number, to: number): Float32Array {
     return this.buffer.slice(Math.max(0, from), Math.min(to, this.length));
   }
+}
+
+/** Loudness from 0 to 1 for a level meter: speech at a normal distance reaches about the middle. */
+export function level(samples: Float32Array): number {
+  if (!samples.length) return 0;
+  let sum = 0;
+  for (const value of samples) sum += value * value;
+  const rms = Math.sqrt(sum / samples.length);
+  // Decibels from -60 (silence) to 0 (as loud as it gets), so quiet voices still move the bar.
+  return rms <= 0 ? 0 : Math.max(0, Math.min(1, (20 * Math.log10(rms) + 60) / 60));
 }
 
 /** Quiet enough to count as a pause between phrases (a little above what the speech service treats as silence). */

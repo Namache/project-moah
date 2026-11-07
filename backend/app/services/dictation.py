@@ -10,11 +10,15 @@ import io
 import os
 import re
 import threading
+import time
+import traceback
 import wave
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.core import error_log
 from app.core.resources import resource_path
 
 MODEL_FILE = "ggml-base-q5_1.bin"
@@ -34,6 +38,9 @@ MAX_AUDIO_BYTES = MAX_AUDIO_SECONDS * SAMPLE_RATE * 2 + 1024
 IDLE_UNLOAD_SECONDS = 600
 # Below this loudness a clip counts as silence; whisper tends to invent words for silence.
 SILENCE_RMS = 0.004
+# A clip waits at most this long for the one before it; then it says the engine is busy instead
+# of leaving the person looking at "Finishing the text…".
+BUSY_WAIT_SECONDS = 45
 
 # whisper marks sounds that are not speech like "[BLANK_AUDIO]" or "(keyboard clicking)".
 _NON_SPEECH = re.compile(r"\[[^\]]*\]|\([^)]*\)|\*[^*]*\*")
@@ -103,28 +110,64 @@ class WhisperEngine:
 
 
 @dataclass
+class EngineReport:
+    """What the speech engine did lately, for Settings and the diagnostic report. Times only,
+    never words: what someone said is not kept."""
+
+    loaded: bool = False
+    load_seconds: float | None = None
+    last_seconds: float | None = None
+    last_audio_seconds: float | None = None
+    last_finished: str | None = None
+    last_error: str | None = None
+    last_error_at: str | None = None
+    # Set while a clip is being turned into text: a time long past means the engine is stuck.
+    busy_since: str | None = None
+    threads: int = 0
+
+
+@dataclass
 class Status:
     available: bool
     reason: str | None = None
+    engine: EngineReport = field(default_factory=EngineReport)
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class Dictation:
     """One shared speech engine for the whole app, used by one clip at a time."""
 
-    def __init__(self, engine_factory=WhisperEngine) -> None:
+    def __init__(self, engine_factory=WhisperEngine, busy_wait: float = BUSY_WAIT_SECONDS) -> None:
         self._engine_factory = engine_factory
         self._engine: Engine | None = None
         self._lock = threading.Lock()
         self._unload_timer: threading.Timer | None = None
+        self._busy_wait = busy_wait
+        self._problem: str | None = None
+        self.report = EngineReport(threads=max(1, min(8, (os.cpu_count() or 2) - 1)))
 
     def status(self) -> Status:
         if model_path() is None:
             return Status(False, reason="The speech model is not part of this build.")
-        try:
-            import pywhispercpp  # noqa: F401
-        except ImportError:
-            return Status(False, reason="The speech engine is not part of this build.")
-        return Status(True)
+        if problem := self._engine_problem():
+            return Status(False, reason=problem)
+        return Status(True, engine=EngineReport(**asdict(self.report)))
+
+    def _engine_problem(self) -> str | None:
+        """Why the speech engine cannot start, checked once per run. It loads the native part,
+        not only the Python wrapper: a missing library (a DLL on Windows) then hides the
+        microphone instead of failing on the first recording."""
+        if self._problem is None:
+            try:
+                import pywhispercpp.model  # noqa: F401
+            except Exception as error:  # noqa: BLE001 - a broken install says so instead of failing
+                self._problem = self._record(_import_problem(error), traceback.format_exc())
+            else:
+                self._problem = ""
+        return self._problem or None
 
     def transcribe_wav(
         self, data: bytes, language: str = "auto", live: bool = False
@@ -136,21 +179,63 @@ class Dictation:
         samples = decode_wav(data)
         if is_silent(samples):
             return "", language
-        with self._lock:
+        return self._run(samples, language, live)
+
+    def _run(self, samples, language: str, live: bool) -> tuple[str, str]:
+        # Waiting forever behind a stuck clip is what leaves "Finishing the text…" on screen.
+        if not self._lock.acquire(timeout=self._busy_wait):
+            raise self._failed(
+                "The speech engine is still busy with an earlier recording. Wait a moment, or "
+                "restart Project Moah if this keeps happening."
+            )
+        try:
+            self.report.busy_since = _now()
             engine = self._load()
-            text, detected = engine.transcribe(samples, language, live)
+            started = time.monotonic()
+            try:
+                text, detected = engine.transcribe(samples, language, live)
+            except DictationError:
+                raise
+            except Exception as error:  # noqa: BLE001 - say what broke, and log it
+                raise self._failed(
+                    f"The speech engine failed: {error}", traceback.format_exc()
+                ) from error
+            self.report.last_seconds = round(time.monotonic() - started, 2)
+            self.report.last_audio_seconds = round(len(samples) / SAMPLE_RATE, 1)
+            self.report.last_finished = _now()
             self._schedule_unload()
+        finally:
+            self.report.busy_since = None
+            self._lock.release()
         return clean_text(text), detected
+
+    def _record(self, message: str, detail: str = "") -> str:
+        """Keep a problem for Settings and write it to the error log."""
+        message = error_log.clean(message, 500)
+        self.report.last_error, self.report.last_error_at = message, _now()
+        error_log.write("service", f"Dictation: {message}", detail)
+        return message
+
+    def _failed(self, message: str, detail: str = "") -> DictationError:
+        """A DictationError that is also kept for Settings and written to the error log."""
+        return DictationError(self._record(message, detail))
 
     def _load(self) -> Engine:
         if self._engine is None:
             path = model_path()
             if path is None:
-                raise DictationError("The speech model is not part of this build.")
+                raise self._failed("The speech model is not part of this build.")
+            started = time.monotonic()
             try:
                 self._engine = self._engine_factory(path)
             except ImportError as error:
-                raise DictationError("The speech engine is not part of this build.") from error
+                raise self._failed(_import_problem(error), traceback.format_exc()) from error
+            except Exception as error:  # noqa: BLE001 - a model that will not load says why
+                raise self._failed(
+                    f"The speech model could not be loaded: {error}", traceback.format_exc()
+                ) from error
+            self.report.loaded = True
+            self.report.load_seconds = round(time.monotonic() - started, 2)
         return self._engine
 
     def _schedule_unload(self) -> None:
@@ -164,6 +249,14 @@ class Dictation:
         with self._lock:
             self._engine = None
             self._unload_timer = None
+            self.report.loaded = False
+
+
+def _import_problem(error: Exception) -> str:
+    """A build without the engine, or an engine whose native part will not load."""
+    if isinstance(error, ImportError) and error.name in ("pywhispercpp", "pywhispercpp.model"):
+        return "The speech engine is not part of this build."
+    return f"The speech engine could not start: {error}"
 
 
 def decode_wav(data: bytes):
