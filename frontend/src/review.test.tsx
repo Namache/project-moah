@@ -203,6 +203,16 @@ describe("Review screen", () => {
     await waitFor(() => expect(openAgent).toHaveBeenCalled());
   });
 
+  it("shows a question you answered in the agent's own chat as answered there", async () => {
+    const { state } = setup();
+    state.reviewed = [{ ...camp4, key: "review:q9", task_status: "in_progress", reviewed_at: "2026-01-03T11:40:00Z", verdict: "answered", moved_to: "chat" }, ...state.reviewed];
+    renderAt("/review");
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    const reviewed = await within(timeline).findByRole("list", { name: "Reviewed" });
+    expect(within(reviewed).getByText("Answered in the chat")).toBeInTheDocument();
+    expect(within(reviewed).queryByText(/on the board/)).not.toBeInTheDocument();
+  });
+
   it("moves through the timeline with J and K", async () => {
     setup();
     const user = userEvent.setup();

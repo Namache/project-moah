@@ -83,24 +83,66 @@ def _read_json(path: Path) -> dict:
     return data
 
 
-def _brief_hook(command: list[str]) -> dict:
-    # Claude Code runs hooks through a shell and has no "args" field. On Windows that shell is
-    # cmd.exe or Git Bash, which spell "$VAR" differently, so the brief reads the folder itself.
+def _line(parts: list[str]) -> str:
+    """One shell line. Claude Code and Codex run hooks through a shell and have no "args"
+    field; on Windows that shell is cmd.exe or Git Bash, which both read double quotes."""
     if sys.platform == "win32":
-        line = " ".join(f'"{part}"' if " " in part else part for part in [*command, "--brief"])
-        return {"type": "command", "command": line, "timeout": 20}
-    line = f'{shlex.join([*command, "--brief", "--cwd"])} "$CLAUDE_PROJECT_DIR"'
+        return " ".join(f'"{part}"' if " " in part else part for part in parts)
+    return shlex.join(parts)
+
+
+def _brief_hook(command: list[str]) -> dict:
+    # cmd.exe and Git Bash spell "$VAR" differently, so on Windows the brief reads the folder
+    # itself.
+    if sys.platform == "win32":
+        return {"type": "command", "command": _line([*command, "--brief"]), "timeout": 20}
+    line = f'{_line([*command, "--brief", "--cwd"])} "$CLAUDE_PROJECT_DIR"'
     return {"type": "command", "command": line, "timeout": 20}
 
 
-def _with_brief_hook(settings: dict, command: list[str]) -> dict:
-    """Settings with exactly one Project Moah session hook, keeping every other hook."""
-    groups = settings.setdefault("hooks", {}).setdefault("SessionStart", [])
-    for group in groups:
-        group["hooks"] = [hook for hook in group.get("hooks", []) if "--brief" not in str(hook)]
-    groups[:] = [group for group in groups if group["hooks"]]
-    groups.append({"matcher": "startup|clear|compact", "hooks": [_brief_hook(command)]})
+def _turn_hook(command: list[str], agent: str, hook: str) -> dict:
+    """The hook that catches a question the agent stops on (stop), or the person's reply to it
+    (prompt): services/chat_questions.py. It prints nothing and never fails the turn."""
+    entry = {
+        "type": "command",
+        "command": _line([*command, "--agent", agent, "--hook", hook]),
+        "timeout": 15,
+    }
+    if agent == "claude" and hook == "prompt":
+        entry["async"] = True  # Claude Code sends the message without waiting for it
+    return entry
+
+
+def _is_ours(hook: object) -> bool:
+    text = str(hook)
+    return "--brief" in text or ("--hook" in text and _ours(text))
+
+
+def _with_hooks(settings: dict, groups_by_event: dict[str, dict]) -> dict:
+    """Settings with exactly one Project Moah hook group per event, keeping every other hook."""
+    hooks = settings.setdefault("hooks", {})
+    for event, group in groups_by_event.items():
+        groups = hooks.setdefault(event, [])
+        for existing in groups:
+            existing["hooks"] = [h for h in existing.get("hooks", []) if not _is_ours(h)]
+        groups[:] = [existing for existing in groups if existing["hooks"]]
+        groups.append(group)
     return settings
+
+
+def _claude_hooks(command: list[str]) -> dict[str, dict]:
+    return {
+        "SessionStart": {"matcher": "startup|clear|compact", "hooks": [_brief_hook(command)]},
+        "Stop": {"hooks": [_turn_hook(command, "claude", "stop")]},
+        "UserPromptSubmit": {"hooks": [_turn_hook(command, "claude", "prompt")]},
+    }
+
+
+def _codex_hooks(command: list[str]) -> dict[str, dict]:
+    return {
+        "Stop": {"hooks": [_turn_hook(command, "codex", "stop")]},
+        "UserPromptSubmit": {"hooks": [_turn_hook(command, "codex", "prompt")]},
+    }
 
 
 def connect_claude(command: list[str]) -> bool:
@@ -121,7 +163,7 @@ def connect_claude(command: list[str]) -> bool:
         "env": {},
     }
     settings_path = home / "settings.json"
-    settings = _with_brief_hook(_read_json(settings_path), command)
+    settings = _with_hooks(_read_json(settings_path), _claude_hooks(command))
     _write(config, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     _write(settings_path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
     return True
@@ -153,6 +195,10 @@ def connect_codex(command: list[str]) -> bool:
         return False
     config_path = home / "config.toml"
     _write(config_path, _with_codex_server(_read(config_path), command))
+    # Codex runs these only after the person trusts them once with /hooks (Help says so).
+    hooks_path = home / "hooks.json"
+    hooks = _with_hooks(_read_json(hooks_path), _codex_hooks(command))
+    _write(hooks_path, json.dumps(hooks, indent=2, ensure_ascii=False) + "\n")
     agents_path = home / "AGENTS.md"
     agents = _read(agents_path)
     if "brain_brief" not in agents:

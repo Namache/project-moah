@@ -60,6 +60,9 @@ from app.services.tasks import TaskService
 
 WAITING_STATUS = "review"
 QUESTION_STATUS = "blocked"  # where a task waits while an agent's question waits for an answer
+# moved_to of a question the person answered by replying in the agent's chat
+# (services/chat_questions.py), not in Review: the agent already has the answer.
+ANSWERED_IN_CHAT = "chat"
 CLOSED = ("completed", "archived")
 TITLE_LIMIT = 200
 REVIEWED_LIMIT = 80
@@ -367,6 +370,8 @@ class ReviewService:
                     ReviewFile.review_id == review.id, ReviewFile.kind == "feedback"
                 )
             )
+            if review.moved_to == ANSWERED_IN_CHAT:
+                continue  # answered in the agent's own chat: it has the answer already
             if review.moved_to and not review.comment and not count:
                 continue  # dragged back on the board: nothing for the agent to read
             found.append((task, review, count))
@@ -442,7 +447,14 @@ class ReviewService:
         self.session.delete(row)
         self.session.commit()
 
-    def decide(self, project_id: str, task_ref: str, decision: ReviewDecision) -> ReviewDetail:
+    def decide(
+        self,
+        project_id: str,
+        task_ref: str,
+        decision: ReviewDecision,
+        answered_in: str | None = None,
+    ) -> ReviewDetail:
+        """``answered_in`` is ANSWERED_IN_CHAT for a reply the person wrote in the agent's chat."""
         task, waits = self._waiting(project_id, task_ref)
         answering = decision.verdict == "answer"
         if answering != (waits == "question"):
@@ -471,8 +483,11 @@ class ReviewService:
         ]
         review.comment = comment
         review.reviewed_at = now
+        if answering and answered_in:
+            review.moved_to = answered_in
         event = "QUESTION_ANSWERED" if answering else f"REVIEW_{review.status.upper()}"
-        self._log(task, event, review, comment=_one_line(comment or "", 200))
+        extra = {"answered_in": answered_in} if answering and answered_in else {}
+        self._log(task, event, review, comment=_one_line(comment or "", 200), **extra)
         if not answering:
             self._tick(task, decision.criteria, only_unmet=decision.verdict == "reject", now=now)
         if decision.verdict == "accept":

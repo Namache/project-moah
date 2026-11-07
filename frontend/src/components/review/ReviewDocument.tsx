@@ -262,7 +262,7 @@ function Decision({ detail, round }: { detail: ReviewDetail; round: ReviewRound 
     <section className={`rounded-xl border-l-4 px-4 py-3 ${tone[0]}`}>
       <h3 className={`flex flex-wrap items-center gap-2 text-sm font-semibold ${tone[1]}`}>
         <Icon size={16} aria-hidden="true" />
-        {round.moved_to ? t("You moved it to {status} on the board", { status: statusLabels[round.moved_to] }) : said}
+        {round.moved_to === "chat" ? t("You answered in the agent's chat") : round.moved_to ? t("You moved it to {status} on the board", { status: statusLabels[round.moved_to] }) : said}
         <span className="font-normal" title={exactly(round.reviewed_at)}>· {when(round.reviewed_at)}</span>
       </h3>
       {round.comment && <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6 text-ink">{round.comment}</p>}

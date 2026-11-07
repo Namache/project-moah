@@ -42,7 +42,7 @@ export interface ReviewRound {
   reviewed_at: string | null;
   comment: string | null;
   /** Set when the person decided by moving the task on the board: the column it went to. */
-  moved_to: TaskStatus | null;
+  moved_to: TaskStatus | "chat" | null;
   follow_ups: FollowUp[];
   screenshots: ReviewFile[];
   feedback: ReviewFile[];
@@ -81,7 +81,7 @@ export interface ReviewItem {
   question: boolean;
   /** The task's board column now; null for a suggestion. */
   task_status: TaskStatus | null;
-  moved_to: TaskStatus | null;
+  moved_to: TaskStatus | "chat" | null;
   round: number;
   screenshots: number;
   generated: boolean;

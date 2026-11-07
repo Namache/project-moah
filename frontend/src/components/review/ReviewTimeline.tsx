@@ -9,9 +9,9 @@ import { AgentChip, exactly, when } from "./reviewBits";
 
 function Verdict({ item }: { item: ReviewItem }) {
   if (item.verdict === "answered") {
-    return <span className="inline-flex items-center gap-1 text-xs font-semibold text-info-ink"><MessageSquareReply size={13} aria-hidden="true" />{item.moved_to ? t("Moved to {status} on the board", { status: statusLabels[item.moved_to] }) : t("Answered")}</span>;
+    return <span className="inline-flex items-center gap-1 text-xs font-semibold text-info-ink"><MessageSquareReply size={13} aria-hidden="true" />{item.moved_to === "chat" ? t("Answered in the chat") : item.moved_to ? t("Moved to {status} on the board", { status: statusLabels[item.moved_to] }) : t("Answered")}</span>;
   }
-  if (item.moved_to) {
+  if (item.moved_to && item.moved_to !== "chat") {
     const accepted = item.verdict === "accepted";
     return <span className={`inline-flex items-center gap-1 text-xs font-semibold ${accepted ? "text-success-ink" : "text-danger-ink"}`}>{accepted ? <CircleCheck size={13} aria-hidden="true" /> : <RotateCcw size={13} aria-hidden="true" />}{t("Moved to {status} on the board", { status: statusLabels[item.moved_to] })}</span>;
   }
