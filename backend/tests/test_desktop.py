@@ -10,6 +10,7 @@ from threading import Thread
 import pytest
 from httpx import ASGITransport, AsyncClient, Client
 
+from app import desktop_server
 from app.core.resources import resource_path
 from app.main import create_app
 
@@ -64,7 +65,7 @@ def test_resources_use_pyinstaller_bundle_root(monkeypatch, tmp_path: Path) -> N
     assert resource_path("frontend/dist") == tmp_path / "frontend/dist"
 
 
-def test_desktop_server_announces_port_and_stops_on_stdin_eof(tmp_path: Path) -> None:
+def skip_without_loopback() -> None:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM):
             pass
@@ -72,6 +73,38 @@ def test_desktop_server_announces_port_and_stops_on_stdin_eof(tmp_path: Path) ->
         if error.errno == errno.EPERM:
             pytest.skip("This sandbox blocks loopback sockets")
         raise
+
+
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def test_the_service_keeps_last_runs_port_so_the_window_keeps_its_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skip_without_loopback()
+    wanted = free_port()
+    with desktop_server.loopback_listener(wanted) as listener:
+        assert listener.getsockname() == ("127.0.0.1", wanted)
+        # Taken (here by the first listener): any free port instead of failing to start.
+        with desktop_server.loopback_listener(wanted) as other:
+            assert other.getsockname()[1] not in (wanted, 0)
+    # Free again right after it closed.
+    with desktop_server.loopback_listener(wanted) as again:
+        assert again.getsockname()[1] == wanted
+    with desktop_server.loopback_listener(None) as anywhere:
+        assert anywhere.getsockname()[1] > 0
+
+    for value, port in [("51234", 51234), ("80", None), ("70000", None), ("x", None), ("", None)]:
+        monkeypatch.setenv(desktop_server.PORT_ENV, value)
+        assert desktop_server.preferred_port() == port
+
+
+def test_desktop_server_announces_port_and_stops_on_stdin_eof(tmp_path: Path) -> None:
+    skip_without_loopback()
+    wanted = free_port()
 
     frontend_dist = tmp_path / "dist"
     frontend_dist.mkdir()
@@ -81,6 +114,7 @@ def test_desktop_server_announces_port_and_stops_on_stdin_eof(tmp_path: Path) ->
         PROJECT_BRAIN_DESKTOP_TOKEN="desktop-integration-token",
         PROJECT_BRAIN_FRONTEND_DIST=str(frontend_dist),
         PROJECT_BRAIN_DB_PATH=str(tmp_path / "desktop.db"),
+        PROJECT_BRAIN_PORT=str(wanted),
     )
     process = subprocess.Popen(
         [sys.executable, "-m", "app.desktop_server"],
@@ -100,6 +134,7 @@ def test_desktop_server_announces_port_and_stops_on_stdin_eof(tmp_path: Path) ->
         ready = output.get(timeout=15)
         assert ready.startswith("PROJECT_BRAIN_READY ")
         port = int(ready.removeprefix("PROJECT_BRAIN_READY ").strip())
+        assert port == wanted  # the port Electron remembered from the last run
         with Client(base_url=f"http://127.0.0.1:{port}", timeout=5) as client:
             assert client.get("/").text == "Project Moah desktop"
             assert client.get("/api/health").status_code == 401
