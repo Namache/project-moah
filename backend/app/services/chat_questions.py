@@ -41,11 +41,10 @@ from app.schemas.review import (
     ReviewDecision,
 )
 from app.services.activity import acting_as
-from app.services.agent_sessions import TASK
+from app.services.agent_sessions import PROMPT, TASK
 from app.services.hook_text import asks, question_parts, stop_message, valid_id
 from app.services.reviews import ANSWERED_IN_CHAT, CLOSED, QUESTION_STATUS, ReviewService
 
-PROMPT = "prompt"  # agent_session_events.source for a message the person wrote
 ASKABLE = ("backlog", "todo", "in_progress", "blocked")
 # Where a message the person wrote may find its task: open work, not what is waiting or done.
 PROMPT_STATUSES = ("backlog", "todo", "in_progress", "blocked", "review")
@@ -161,6 +160,22 @@ def named_task(session: Session, project: Project, message: str) -> Task | None:
     return session.get(Task, inferred[0]) if inferred else None
 
 
+def id_named(session: Session, project: Project, message: str) -> Task | None:
+    """The one open task of ``project`` the message names by ID, or None when it names none or
+    several (a message comparing two tasks says nothing about which one comes next)."""
+    from app.services.context import REF_PATTERN, ContextService
+    from app.services.tasks import CLOSED_STATUSES
+
+    finder = ContextService(session)
+    found = {
+        task.id: task
+        for ref in REF_PATTERN.findall(message)
+        if (task := finder._task_by_ref(project.id, ref)) is not None
+        and task.status not in CLOSED_STATUSES
+    }
+    return next(iter(found.values())) if len(found) == 1 else None
+
+
 def _actor(agent: str) -> tuple[str, str]:
     """Who the question is from, the way the MCP server attributes the agent's own calls."""
     return (agent if agent in ("claude", "codex") else "system", agent)
@@ -230,7 +245,18 @@ def record_prompt(session: Session, agent: str, hook_input: Mapping[str, object]
                     answered_in=ANSWERED_IN_CHAT,
                 )
     project = _project(session, agent, session_id, hook_input.get("cwd"))
-    named = named_task(session, project, prompt) if task is None and project and prompt else None
+    named = None
+    if project and prompt:
+        # No task yet: the task the message names or plainly matches. Already on a task: only
+        # another open task the message names by ID ("now do HAB-5") moves the session there,
+        # so the agent's next notes and checkpoint land on the work the person asked for.
+        named = (
+            named_task(session, project, prompt)
+            if task is None
+            else id_named(session, project, prompt)
+        )
+        if named is not None and task is not None and named.id == task.id:
+            named = None
     session.add(
         AgentSessionEvent(
             agent=agent,
