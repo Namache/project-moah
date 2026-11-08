@@ -457,6 +457,37 @@ function showWindow() {
   window.focus();
 }
 
+/**
+ * After an update: close this copy and open the newly installed one. A Flatpak keeps running the
+ * files it started with, so there the new copy is started through the Flatpak portal, which
+ * opens the latest installed version in a sandbox of its own.
+ */
+async function restartForUpdate() {
+  if (stopping) return;
+  writeLog("[update] restarting to open the newly installed build");
+  quitting = true;
+  saveWindowState();
+  pomodoro?.dispose();
+  await stopBackend();
+  backendStoppedForQuit = true;
+  if (installKind() === "flatpak") {
+    // The new copy must not find this one still holding the single-instance lock.
+    app.releaseSingleInstanceLock();
+    try {
+      const child = spawn("flatpak-spawn", ["--latest-version", "/app/bin/project-brain"], { detached: true, stdio: "ignore" });
+      child.on("error", (error) => writeLog(`[update] ${error.message}`));
+      child.unref();
+      // Give the portal a moment to take the request before this sandbox goes away.
+      setTimeout(() => app.exit(0), 1_500);
+      return;
+    } catch (error) {
+      writeLog(`[update] ${error.message}`);
+    }
+  }
+  app.relaunch();
+  app.exit(0);
+}
+
 /** Linux desktops without a tray (plain GNOME) accept a tray icon and never show it. */
 function linuxTrayIsShown() {
   try {
@@ -653,6 +684,11 @@ if (relaunching) {
         recordError(`Could not open the agent's app: ${error.message}`, "", "warning");
         return false;
       }
+    });
+    ipcMain.handle("project-brain:restart-for-update", (event) => {
+      if (event.sender !== window?.webContents) return false;
+      void restartForUpdate();
+      return true;
     });
     ipcMain.handle("project-brain:choose-folder", async (event, title) => {
       // Only the app's own window may open the chooser.

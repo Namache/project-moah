@@ -10,10 +10,20 @@ from starlette.background import BackgroundTask
 from app.core import error_log
 from app.db.session import get_session
 from app.services.agent_connect import connect_agents
+from app.services.builds import UpdateWatch, update_status
 from app.services.system import agent_launch, diagnostics, export_backup
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 DatabaseSession = Annotated[Session, Depends(get_session)]
+# This service's own build, noted when it started, to tell the window about a newer install.
+_watch: UpdateWatch | None = None
+
+
+def watch() -> UpdateWatch:
+    global _watch
+    if _watch is None:
+        _watch = UpdateWatch()
+    return _watch
 
 
 @router.get("/agent-command")
@@ -26,6 +36,12 @@ def get_agent_command() -> dict[str, Any]:
 def post_connect_agents() -> dict[str, Any]:
     """Connect Claude Code and Codex, for the Connect button in Help."""
     return {"results": connect_agents()}
+
+
+@router.get("/update")
+def get_update(session: DatabaseSession) -> dict[str, Any]:
+    """Whether Project Moah was updated while this window was open, so it can offer a restart."""
+    return update_status(session, watch())
 
 
 @router.get("/diagnostics")

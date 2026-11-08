@@ -158,3 +158,19 @@ async def test_an_empty_list_right_after_an_update_still_answers(
             session, "brain_context_pack", task="CAMP-001", project="trailhead"
         )
         assert not error and pack.startswith("MOAH WAS UPDATED")
+
+
+async def test_the_window_hears_about_an_install_made_while_it_was_open(database_url: str):
+    from app.api import system as system_api
+
+    system_api._watch = UpdateWatch(OLD)
+    try:
+        async with app_client(database_url) as client:
+            first = (await client.get("/api/system/update")).json()
+            assert first == {"running": OLD.label, "newer": False, "installed": None}
+            with factory(database_url)() as db:
+                register_build(db, NEW, installed=False)  # an agent started on the new build
+            later = (await client.get("/api/system/update")).json()
+            assert later == {"running": OLD.label, "newer": True, "installed": NEW.label}
+    finally:
+        system_api._watch = None

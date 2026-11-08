@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld(
     // Opens the system folder chooser. In a Flatpak this goes through the file portal,
     // which grants the app access to just the folder the person picks. The title comes in the app's language.
     chooseFolder: (title) => ipcRenderer.invoke("project-brain:choose-folder", title),
+    // Closes Moah and opens the newly installed version.
+    restartForUpdate: () => ipcRenderer.invoke("project-brain:restart-for-update"),
     // Opens claude:// or codex:// links only; resolves to false when nothing could open it.
     openAgent: (url) => ipcRenderer.invoke("project-brain:open-agent", url),
     // The focus timer runs in the main process, so it keeps time while the window is hidden.

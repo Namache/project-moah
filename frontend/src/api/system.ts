@@ -29,6 +29,9 @@ export interface AgentLaunch { install: "flatpak" | "deb" | "linux" | "windows" 
 
 export interface AgentConnection { agent: "claude" | "codex"; status: "connected" | "not_found" | "failed"; detail: string }
 
+/** Whether Project Moah was updated while the window was open. */
+export interface UpdateStatus { running: string; newer: boolean; installed: string | null }
+
 export const DIAGNOSTICS_TIMEOUT_MS = 30_000;
 
 export const systemApi = {
@@ -50,6 +53,7 @@ export const systemApi = {
     }
   },
   agentCommand: (signal?: AbortSignal) => request<AgentLaunch>("/system/agent-command", { signal }),
+  update: (signal?: AbortSignal) => request<UpdateStatus>("/system/update", { signal }),
   errors: (signal?: AbortSignal) => request<ErrorLog>("/system/errors", { signal }),
   reportError: (message: string, detail: string) => request<void>("/system/errors", json("POST", { message, detail })),
   clearErrors: () => request<void>("/system/errors", { method: "DELETE" }),
