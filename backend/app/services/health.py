@@ -189,6 +189,7 @@ class HealthService:
         self.shelves = ShelfService(session)
         # Health, suggestions and patterns all read a project's clusters: find them once per view.
         self._clusters: dict[int, tuple[dict, list[dict]]] = {}
+        self._settings: dict[str, AppSetting | None] | None = None
 
     # ---- health -------------------------------------------------------------------------
 
@@ -252,16 +253,22 @@ class HealthService:
         )
         out = []
         suggestions = []
-        for project in sorted(projects, key=lambda p: p.id != GLOBAL_PROJECT_ID):
-            view = self.graph.view(project.id)
-            if not view["nodes"]:
-                continue
-            name = "Global rules" if project.id == GLOBAL_PROJECT_ID else project.name
-            out.append({"id": project.id, "name": name, **self.project(project.id, view)})
-            suggestions += [
-                {**s, "project_id": project.id, "project_name": name}
-                for s in self.suggestions(project.id, view)
-            ]
+        # A read-only pass: settings and shelf trees are read once, not once per cluster.
+        self._settings = {}
+        try:
+            with self.shelves.reading():
+                for project in sorted(projects, key=lambda p: p.id != GLOBAL_PROJECT_ID):
+                    view = self.graph.view(project.id)
+                    if not view["nodes"]:
+                        continue
+                    name = "Global rules" if project.id == GLOBAL_PROJECT_ID else project.name
+                    out.append({"id": project.id, "name": name, **self.project(project.id, view)})
+                    suggestions += [
+                        {**s, "project_id": project.id, "project_name": name}
+                        for s in self.suggestions(project.id, view)
+                    ]
+        finally:
+            self._settings = None
         dismissed = set(self._dismissed())
         suggestions += [
             s for s in self.share_suggestions() if f"{s['project_id']}|{s['key']}" not in dismissed
@@ -276,7 +283,7 @@ class HealthService:
 
     def _trend(self, project_id: str, name: str, size: int) -> str | None:
         """'new' or 'growing' against the last daily snapshot; None when there is none yet."""
-        row = self.session.get(AppSetting, CLUSTER_SNAPSHOT)
+        row = self._setting(CLUSTER_SNAPSHOT)
         if row is None or not row.value:
             return None
         before = (row.value.get("projects") or {}).get(project_id, {})
@@ -876,8 +883,17 @@ class HealthService:
         self.session.add(row)
         self.session.commit()
 
+    def _setting(self, key: str) -> AppSetting | None:
+        """A setting row; read once while ``workspace`` runs (a missing row is asked for again
+        on every ``session.get``)."""
+        if self._settings is None:
+            return self.session.get(AppSetting, key)
+        if key not in self._settings:
+            self._settings[key] = self.session.get(AppSetting, key)
+        return self._settings[key]
+
     def _dismissed(self) -> list[str]:
-        row = self.session.get(AppSetting, DISMISSED)
+        row = self._setting(DISMISSED)
         return list(row.value or []) if row else []
 
     def _merge(self, project_id: str, fold_id: str, keep_id: str, actor: str) -> dict:

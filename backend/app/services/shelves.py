@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from contextlib import contextmanager
 from functools import lru_cache
 
 from sqlalchemy import func, select
@@ -130,6 +131,7 @@ class ShelfService:
         self.projects = ProjectService(session)
         self.graph = GraphService(session)
         self.activity = ActivityService(session)
+        self._reading: dict[str, list] | None = None
 
     def get(self, project_id: str, ref: str) -> Shelf:
         """By internal id or by name, case-insensitive. A path ("Game design > Game mechanics")
@@ -514,42 +516,21 @@ class ShelfService:
         if not text.strip():
             return None
         words = stems(text)
-        trees = [(self._shelves(project_id), self.memberships(project_id))]
-        if project_id != GLOBAL_PROJECT_ID:
-            trees.append(self.shared(project_id))
-        trees = [(shelves, members) for shelves, members in trees if shelves]
-        signals: dict[str, list[tuple[tuple[str, ...], float]]] = {}
-        sharing: Counter[tuple[str, ...]] = Counter()
-        for shelves, _ in trees:
-            for s in shelves:
-                found: dict[tuple[str, ...], float] = {}
-                for index, signal in enumerate([s.name, *self._keywords(s)]):
-                    parts = _signal_parts(signal)
-                    if not parts or parts in found or (index > 0 and is_common(signal)):
-                        continue
-                    found[parts] = 2.0 if index == 0 else 1.5 if len(parts) > 1 else 1.0
-                signals[s.id] = list(found.items())
-                sharing.update(found.keys())  # how many shelves carry each signal
+        signals, sharing, trees = self._suggest_trees(project_id)
         best: tuple[float, int, str] | None = None
         chosen: ShelfActivation | None = None
-        for shelves, members in trees:
-            by_id = {s.id: s for s in shelves}
-            children: Counter[str | None] = Counter(
-                s.parent_id if s.parent_id in by_id else None for s in shelves
-            )
-            own = self.owned({n for nodes in members.values() for n in nodes}, project_id)
-            filed = {sid: nodes & own for sid, nodes in members.items()}
-            close = {sid: nodes & (near or set()) for sid, nodes in members.items()}
-
-            under: dict[str, set[Node]] = {sid: set() for sid in by_id}
-            near_under: dict[str, set[Node]] = {sid: set() for sid in by_id}
+        for tree in trees:
+            shelves, members, by_id = tree["shelves"], tree["members"], tree["by_id"]
+            under, total = tree["under"], tree["total"]
+            near_under: dict[str, set[Node]] = {}
+            if near:
+                close = {sid: nodes & near for sid, nodes in members.items()}
+                near_under = {sid: set() for sid in by_id}
+                for s in shelves:
+                    for above in tree["paths"][s.id]:
+                        near_under[above.id] |= close.get(s.id, set())
             for s in shelves:
-                for above in _chain(s, by_id):
-                    under[above.id] |= filed.get(s.id, set())
-                    near_under[above.id] |= close.get(s.id, set())
-            total = len(own)
-            for s in shelves:
-                path = _chain(s, by_id)
+                path = tree["paths"][s.id]
                 hits: list[str] = []
                 own_words = 0.0
                 for parts, weight in signals[s.id]:
@@ -564,17 +545,7 @@ class ShelfService:
                     for parts, weight in signals[above.id]
                     if all(p in words for p in parts)
                 )
-                # The branch: the broadest shelf on the path that has siblings ("Knowledge"
-                # alone at the top says nothing; "Software engineering" beside "Game
-                # development" does).
-                branch = next(
-                    (
-                        a
-                        for a in path
-                        if children[a.parent_id if a.parent_id in by_id else None] > 1
-                    ),
-                    path[0],
-                )
+                branch = tree["branches"][s.id]
                 share = len(under[branch.id]) / total if total else 0.0
                 if share == 0 and total >= SETTLED:
                     factor = 0.5  # a settled project that never filed anything here
@@ -632,6 +603,84 @@ class ShelfService:
         self.session.add(row)
         self.session.commit()
         return noted
+
+    def _suggest_trees(self, project_id: str) -> tuple[dict, Counter, list[dict]]:
+        """What ``suggest`` scores that doesn't depend on the text: each shelf's words, how
+        many shelves share each, and per tree (the project's own and the shared one) its
+        shelves, what sits on them, each shelf's path and branch and the project's records
+        under each shelf. Inside ``reading()`` this is worked out once per project, not once
+        per suggestion."""
+        if self._reading is not None and project_id in self._reading:
+            return self._reading[project_id]
+        pairs = [(self._shelves(project_id), self.memberships(project_id))]
+        if project_id != GLOBAL_PROJECT_ID:
+            pairs.append(self.shared(project_id))
+        pairs = [(shelves, members) for shelves, members in pairs if shelves]
+        signals: dict[str, list[tuple[tuple[str, ...], float]]] = {}
+        sharing: Counter[tuple[str, ...]] = Counter()
+        for shelves, _ in pairs:
+            for s in shelves:
+                found: dict[tuple[str, ...], float] = {}
+                for index, signal in enumerate([s.name, *self._keywords(s)]):
+                    parts = _signal_parts(signal)
+                    if not parts or parts in found or (index > 0 and is_common(signal)):
+                        continue
+                    found[parts] = 2.0 if index == 0 else 1.5 if len(parts) > 1 else 1.0
+                signals[s.id] = list(found.items())
+                sharing.update(found.keys())  # how many shelves carry each signal
+        trees = []
+        for shelves, members in pairs:
+            by_id = {s.id: s for s in shelves}
+            children: Counter[str | None] = Counter(
+                s.parent_id if s.parent_id in by_id else None for s in shelves
+            )
+            own = self.owned({n for nodes in members.values() for n in nodes}, project_id)
+            filed = {sid: nodes & own for sid, nodes in members.items()}
+            paths = {s.id: _chain(s, by_id) for s in shelves}
+            under: dict[str, set[Node]] = {sid: set() for sid in by_id}
+            for s in shelves:
+                for above in paths[s.id]:
+                    under[above.id] |= filed.get(s.id, set())
+            # The branch: the broadest shelf on the path that has siblings ("Knowledge" alone
+            # at the top says nothing; "Software engineering" beside "Game development" does).
+            branches = {
+                s.id: next(
+                    (
+                        a
+                        for a in paths[s.id]
+                        if children[a.parent_id if a.parent_id in by_id else None] > 1
+                    ),
+                    paths[s.id][0],
+                )
+                for s in shelves
+            }
+            trees.append(
+                {
+                    "shelves": shelves,
+                    "members": members,
+                    "by_id": by_id,
+                    "paths": paths,
+                    "branches": branches,
+                    "under": under,
+                    "total": len(own),
+                }
+            )
+        out = (signals, sharing, trees)
+        if self._reading is not None:
+            self._reading[project_id] = out
+        return out
+
+    @contextmanager
+    def reading(self):
+        """For a read-only pass that asks ``suggest`` many times (Brain health): the shelf
+        trees are read once and reused until the block ends. Nothing may change shelves or
+        what is on them inside it."""
+        outer = self._reading
+        self._reading = {} if outer is None else outer
+        try:
+            yield
+        finally:
+            self._reading = outer
 
     def owned(self, nodes: set[Node], project_id: str) -> set[Node]:
         """The records among ``nodes`` that belong to the project itself."""
