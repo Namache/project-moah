@@ -9,6 +9,7 @@ import pytest
 from httpx import AsyncClient
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
+from mcp.types import Implementation
 
 from tests.conftest import app_client
 
@@ -17,10 +18,16 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 
 @asynccontextmanager
-async def agent(database_url: str, name: str = "claude", *extra: str):
+async def agent(
+    database_url: str,
+    name: str = "claude",
+    *extra: str,
+    start: tuple[str, ...] = ("-m", "app.mcp"),
+    client: str | None = None,
+):
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "app.mcp", "--agent", name, *extra],
+        args=[*start, "--agent", name, *extra],
         cwd=str(BACKEND),
         env={
             "PROJECT_BRAIN_DATABASE_URL": database_url,
@@ -31,7 +38,11 @@ async def agent(database_url: str, name: str = "claude", *extra: str):
             "PROJECT_BRAIN_EXPLORE": "0",  # packs are compared exactly
         },
     )
-    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+    info = Implementation(name=client, version="1.0") if client else None
+    async with (
+        stdio_client(params) as (read, write),
+        ClientSession(read, write, client_info=info) as session,
+    ):
         await session.initialize()
         yield session
 
@@ -856,3 +867,43 @@ async def test_agents_archive_and_restore_memory_only_on_request(
         archived = [e for e in events if e["event_type"] == "MEMORY_ARCHIVED"]
         assert len(archived) == 1
         assert archived[0]["metadata"]["asked_by_person"].startswith("archive the blue theme")
+
+
+# The Flatpak's MCP server, as an agent starts it, with a stand-in for /.flatpak-info.
+AS_FLATPAK = (
+    "import sys; from pathlib import Path; from app.services import agent_connect; "
+    "agent_connect.FLATPAK_INFO = Path(sys.argv[1]); from app.mcp.cli import main; "
+    "sys.exit(main(sys.argv[2:]))"
+)
+
+
+async def test_an_old_flatpak_connection_hears_once_how_to_refresh_it(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        await seed(client, tmp_path)
+    info = tmp_path / "flatpak-info"
+    info.write_text("[Context]\nfilesystems=~/.claude/projects:ro;~/.codex/sessions:ro;\n")
+    start = ("-c", AS_FLATPAK, str(info))
+    # Connected by 0.3.0 or older: no --session-id, and the container kept the environment.
+    async with agent(database_url, "claude", start=start, client="claude-code") as session:
+        # An empty list of rows has no room for it: the answer stays as it is, the notice waits.
+        error, tasks = await call(
+            session, "brain_list_tasks", project="trailhead", status=["review"]
+        )
+        assert not error and tasks == [], tasks
+        error, task = await call(session, "brain_get_task", task="CAMP-001", project="trailhead")
+        assert not error and task["moah_connection"].startswith("MOAH CONNECTION IS OUT OF DATE")
+        assert "--filesystem=home" in task["moah_connection"] and task["title"] == "Camp capacity"
+        error, brief = await call(session, "brain_brief", project="trailhead")
+        assert not error and "MOAH CONNECTION" not in brief
+    # Connect's current entry passes the session, even an empty one: nothing to refresh.
+    async with agent(
+        database_url, "claude", "--session-id", "", start=start, client="claude-code"
+    ) as session:
+        error, task = await call(session, "brain_get_task", task="CAMP-001", project="trailhead")
+        assert not error and "moah_connection" not in task
+    # The Claude desktop app starts it the same way, but Connect never changes its entry.
+    async with agent(database_url, "claude", start=start, client="claude-ai") as session:
+        error, task = await call(session, "brain_get_task", task="CAMP-001", project="trailhead")
+        assert not error and "moah_connection" not in task

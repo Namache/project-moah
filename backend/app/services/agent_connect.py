@@ -2,11 +2,16 @@
 
 Writes the same settings Help lists by hand. Other settings in those files are kept, a first
 backup is saved next to each changed file, and running it again changes nothing new.
+
+People connect once. After an update, the app refreshes the connections it finds when it starts
+(`refresh_connections`), and the sandboxed Flatpak, which can't, has Moah tell the agent how
+(`connection_notice`).
 """
 
 from __future__ import annotations
 
 import configparser
+import copy
 import json
 import os
 import re
@@ -16,6 +21,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from app.core import error_log
+from app.services.agent_sessions import SESSION_ENV
 from app.services.system import FLATPAK_ID, agent_launch
 from app.services.usage import claude_home, codex_home
 
@@ -72,6 +79,10 @@ def _write(path: Path, text: str) -> None:
         shutil.copy2(path, backup)
     temporary = path.with_name(f"{path.name}.moah-new")
     temporary.write_bytes(text.encode("utf-8"))
+    if path.exists():
+        # Keep the file's permissions: ~/.claude.json is often private (0600), and a fresh
+        # file would take the default ones and be readable by every account on the computer.
+        shutil.copymode(path, temporary)
     os.replace(temporary, path)
 
 
@@ -158,22 +169,43 @@ def _claude_server(command: list[str]) -> dict:
     return {"type": "stdio", "command": "sh", "args": ["-c", line], "env": {}}
 
 
-def connect_claude(command: list[str]) -> bool:
-    """False when Claude Code isn't on this computer."""
+def _claude_connected(data: dict) -> bool:
+    servers = data.get("mcpServers")
+    if not isinstance(servers, dict):
+        return False
+    return SERVER_NAME in servers or _ours(json.dumps(servers.get(OLD_SERVER_NAME, "")))
+
+
+def _write_json_if_changed(path: Path, before: dict, after: dict) -> None:
+    if after != before:
+        _write(path, json.dumps(after, indent=2, ensure_ascii=False) + "\n")
+
+
+def connect_claude(command: list[str], *, refresh: bool = False) -> bool:
+    """False when Claude Code isn't on this computer, or, to refresh, isn't connected to Moah."""
     home = claude_home()
     custom_home = bool(os.environ.get("CLAUDE_CONFIG_DIR"))
     config = (home if custom_home else Path.home()) / ".claude.json"
     if not home.exists() and not config.exists():
         return False
-    data = _read_json(config)
+    before = _read_json(config)
+    if refresh and not _claude_connected(before):
+        return False
+    data = copy.deepcopy(before)
     servers = data.setdefault("mcpServers", {})
     if _ours(json.dumps(servers.get(OLD_SERVER_NAME, ""))):
         del servers[OLD_SERVER_NAME]
-    servers[SERVER_NAME] = _claude_server(command)
+    entry = _claude_server(command)
+    old = servers.get(SERVER_NAME)
+    if isinstance(old, dict) and isinstance(old.get("env"), dict):
+        entry["env"] = old["env"]  # variables a person added stay
+    servers[SERVER_NAME] = entry
     settings_path = home / "settings.json"
-    settings = _with_hooks(_read_json(settings_path), _claude_hooks(command))
-    _write(config, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    _write(settings_path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    settings_before = _read_json(settings_path)
+    settings = _with_hooks(copy.deepcopy(settings_before), _claude_hooks(command))
+    # Claude Code rewrites its own file often: touch it only when something really changed.
+    _write_json_if_changed(config, before, data)
+    _write_json_if_changed(settings_path, settings_before, settings)
     return True
 
 
@@ -196,17 +228,38 @@ def _with_codex_server(config: str, command: list[str]) -> str:
     return updated
 
 
-def connect_codex(command: list[str]) -> bool:
-    """False when Codex isn't on this computer."""
+def _codex_connected(config: str) -> bool:
+    if CODEX_SECTION.search(config):
+        return True
+    return any(_ours(m[0].split("\n", 1)[-1]) for m in OLD_CODEX_SECTION.finditer(config))
+
+
+def _same_toml(before: str, after: str) -> bool:
+    try:
+        return tomllib.loads(before) == tomllib.loads(after)
+    except tomllib.TOMLDecodeError:
+        return False
+
+
+def connect_codex(command: list[str], *, refresh: bool = False) -> bool:
+    """False when Codex isn't on this computer, or, to refresh, isn't connected to Moah."""
     home = codex_home()
     if not home.exists():
         return False
     config_path = home / "config.toml"
-    _write(config_path, _with_codex_server(_read(config_path), command))
+    config = _read(config_path)
+    if refresh and not _codex_connected(config):
+        return False
+    updated = _with_codex_server(config, command)
+    if not _same_toml(config, updated):
+        _write(config_path, updated)
     # Codex runs these only after the person trusts them once with /hooks (Help says so).
     hooks_path = home / "hooks.json"
-    hooks = _with_hooks(_read_json(hooks_path), _codex_hooks(command))
-    _write(hooks_path, json.dumps(hooks, indent=2, ensure_ascii=False) + "\n")
+    hooks_before = _read_json(hooks_path)
+    hooks = _with_hooks(copy.deepcopy(hooks_before), _codex_hooks(command))
+    _write_json_if_changed(hooks_path, hooks_before, hooks)
+    if refresh:
+        return True  # once connected, AGENTS.md is the person's to change
     agents_path = home / "AGENTS.md"
     agents = _read(agents_path)
     if "brain_brief" not in agents:
@@ -233,6 +286,53 @@ def connect_agents(launch: dict | None = None) -> list[dict]:
         except (OSError, ValueError) as error:
             results.append({"agent": agent, "status": "failed", "detail": str(error)})
     return results
+
+
+def refresh_connections(launch: dict | None = None) -> list[str]:
+    """At the app's start, point the agents already connected to Moah at this install again.
+
+    An update that changes how agents start Moah, or an install in another folder, then needs no
+    Connect. Agents that were never connected stay untouched, and files are written only when
+    something changed. Returns the connected agents. Never raises: a problem goes to the error
+    log, and Connect in Help still works.
+    """
+    try:
+        launch = launch or agent_launch()
+        if blocked_reason(launch):
+            return []  # the sandboxed Flatpak: its agents hear it from connection_notice
+    except Exception as error:  # noqa: BLE001 - a background check must never stop the app
+        error_log.write("service", f"Checking the agent connections: {error}")
+        return []
+    connected = []
+    for agent, connect in (("claude", connect_claude), ("codex", connect_codex)):
+        try:
+            if connect(launch["command"], refresh=True):
+                connected.append(agent)
+        except Exception as error:  # noqa: BLE001 - as above
+            error_log.write("service", f"Refreshing the {agent} connection: {error}")
+    return connected
+
+
+def connection_notice(agent: str, session_id: str | None) -> str | None:
+    """What to tell an agent whose Flatpak connection was made before Connect passed on its
+    session (Project Moah 0.3.0 and older), when that matters: Claude Code runs where its
+    environment doesn't reach the Flatpak, such as a distrobox. Then the person's reply in the
+    chat can't close the question it answers. None when the connection is fine.
+
+    The sandboxed Flatpak can't rewrite the agent's settings itself, so the agent does, once.
+    """
+    if not FLATPAK_INFO.exists() or agent.strip().casefold() != "claude":
+        return None
+    if session_id is not None or os.environ.get(SESSION_ENV):
+        return None  # a current connection, or the session arrived anyway
+    return (
+        "MOAH CONNECTION IS OUT OF DATE: this Claude Code connection to Project Moah was set up "
+        "by an older version, so Moah doesn't get this session's id, and the person's answers in "
+        "this chat can't close their questions in Review. Everything else works. Refresh it once "
+        f"by running this command: {FLATPAK_CONNECT} . It takes effect in the next Claude Code "
+        "session. It changes the agent's settings, so ask the person first and run it only "
+        "when they agree; otherwise tell them this command once."
+    )
 
 
 def main() -> int:

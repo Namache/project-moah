@@ -6,13 +6,14 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 
+import anyio
 import pytest
 from httpx import AsyncClient
 
 from app.db.session import make_engine, make_session_factory
 from app.models.agent_session import AgentSessionEvent
 from app.services import tokens
-from app.services.agent_sessions import SessionTracker, read_hook_input, record_start
+from app.services.agent_sessions import NEAR, SessionTracker, read_hook_input, record_start
 from app.services.token_calibration import load, measure, save
 from app.services.usage import PackSample, UsageReader, moah_tool, task_marks_in
 from tests.test_usage import claude_line, iso, logs, write  # noqa: F401 - logs is a fixture
@@ -91,6 +92,136 @@ async def test_mcp_server_follows_clear_and_records_each_sessions_task(
         # No session id anywhere: nothing is recorded, nothing breaks.
         assert record_start(session, "claude", {}, None, {}) is None
         assert SessionTracker("codex", {}).refresh(session) is False
+
+
+async def test_a_server_without_a_session_id_adopts_the_one_that_started_with_it(
+    client: AsyncClient, database_url: str
+) -> None:
+    """A sandboxed Flatpak server set up before the id was passed as an argument gets no
+    session id. It takes over the session the hook saw start next to it, and only that one."""
+    from app.services.agent_sessions import CLAIM
+
+    game = (await client.post("/api/projects", json={"name": "Game"})).json()
+    other = (await client.post("/api/projects", json={"name": "Other"})).json()
+    task = (await client.post(f"/api/projects/{game['id']}/tasks", json={"title": "A"})).json()
+    born = datetime.now(UTC)
+    settled = born + timedelta(seconds=20)  # adoption waits until NEAR has passed
+    # Like the Flatpak: no CLAUDE_PID reaches the hook either.
+    with factory(database_url)() as session:
+        record_start(session, "claude", {"session_id": "mine", "source": "startup"}, game["id"], {})
+        record_start(session, "claude", {"session_id": "elsewhere"}, other["id"], {})
+        tracker = SessionTracker("claude", {}, now=born)
+        assert tracker.refresh(session, game["id"]) is False and tracker.current is None  # early
+        # Adopting is no change of session: what this server already did stays its own.
+        assert tracker.refresh(session, game["id"], settled) is False and tracker.current == "mine"
+        tracker.record_tasks(session, {game["id"]: task["id"]})
+        # A second server without an id in the same project finds nothing left to take.
+        late = SessionTracker("claude", {}, now=born)
+        assert late.refresh(session, game["id"], settled) is False and late.current is None
+        rows = session.query(AgentSessionEvent).filter_by(session_id="mine").all()
+        assert sorted(r.source for r in rows) == sorted(["startup", CLAIM, "task"])
+    with factory(database_url)() as session:
+        # Two sessions started together in one project: which is ours can't be told, so none.
+        record_start(session, "claude", {"session_id": "a", "source": "startup"}, other["id"], {})
+        record_start(session, "claude", {"session_id": "b", "source": "startup"}, other["id"], {})
+        both = SessionTracker("claude", {}, now=born)
+        assert both.refresh(session, other["id"], settled) is False and both.current is None
+
+        # A session that started long before this server is not adopted, and a server that
+        # has looked for half an hour stops looking.
+        old = SessionTracker("claude", {}, now=born + timedelta(hours=1))
+        assert old.adopt(session, game["id"], born + timedelta(hours=1, seconds=20)) is False
+        assert tracker.adopt(session, game["id"], settled) is False  # already has its session
+        stale = SessionTracker("claude", {}, now=born)
+        assert stale.adopt(session, None, now=born + timedelta(hours=1)) is False
+
+
+async def test_a_flatpak_server_links_its_task_without_being_given_the_session(
+    client: AsyncClient, database_url: str
+) -> None:
+    """The real MCP server, started with no CLAUDE_CODE_SESSION_ID, records the task an agent
+    works on under the session the start-up hook saw."""
+    from tests.test_mcp import agent, call
+
+    game = (await client.post("/api/projects", json={"name": "Game"})).json()
+    task = (await client.post(f"/api/projects/{game['id']}/tasks", json={"title": "A"})).json()
+    with factory(database_url)() as session:
+        record_start(session, "claude", {"session_id": "s-1", "source": "startup"}, game["id"], {})
+    async with agent(database_url, "claude", "--project", "Game") as mcp:
+        failed, _ = await call(mcp, "brain_context_pack", task=task["human_id"])
+        assert not failed  # too early to adopt: a neighbour's hook could still arrive
+        await anyio.sleep(NEAR.total_seconds() + 1)
+        failed, _ = await call(mcp, "brain_get_task", task=task["human_id"])
+        assert not failed
+    with factory(database_url)() as session:
+        rows = session.query(AgentSessionEvent).filter_by(source="task").all()
+        assert [(r.session_id, r.task_id) for r in rows] == [("s-1", task["id"])]
+
+
+async def test_a_late_hook_does_not_let_a_neighbour_take_the_session(
+    client: AsyncClient, database_url: str
+) -> None:
+    """Two sessions a minute apart in one project, the second one's start-up hook recorded
+    after its server's first call: neither server takes the other's session (they swapped
+    when sessions up to two minutes away could be adopted)."""
+    game = (await client.post("/api/projects", json={"name": "Game"})).json()
+    t0 = datetime.now(UTC)
+
+    def start(session, sid: str, at: datetime) -> None:
+        session.add(
+            AgentSessionEvent(
+                agent="claude",
+                session_id=sid,
+                project_id=game["id"],
+                source="startup",
+                created_at=at,
+            )
+        )
+        session.commit()
+
+    with factory(database_url)() as session:
+        start(session, "A", t0)
+        server_a = SessionTracker("claude", {}, now=t0)
+        server_b = SessionTracker("claude", {}, now=t0 + timedelta(seconds=60))
+        server_b.refresh(session, game["id"], t0 + timedelta(seconds=61))  # before B's hook
+        start(session, "B", t0 + timedelta(seconds=63))
+        server_a.refresh(session, game["id"], t0 + timedelta(seconds=64))
+        server_b.refresh(session, game["id"], t0 + timedelta(seconds=76))
+        assert (server_a.current, server_b.current) == ("A", "B")
+
+
+async def test_a_server_waits_before_adopting_so_a_late_hook_is_seen(
+    client: AsyncClient, database_url: str
+) -> None:
+    """B starts 9 s after A. B's server is called before B's own hook is recorded: taking the
+    only session in sight would take A's. Waiting until NEAR has passed lets B's hook arrive,
+    and then the two are too close to tell apart."""
+    game = (await client.post("/api/projects", json={"name": "Game"})).json()
+    t0 = datetime.now(UTC)
+
+    def start(session, sid: str, at: datetime) -> None:
+        session.add(
+            AgentSessionEvent(
+                agent="claude",
+                session_id=sid,
+                project_id=game["id"],
+                source="startup",
+                created_at=at,
+            )
+        )
+        session.commit()
+
+    with factory(database_url)() as session:
+        start(session, "A", t0)
+        server_b = SessionTracker("claude", {}, now=t0 + timedelta(seconds=9))
+        assert server_b.refresh(session, game["id"], t0 + timedelta(seconds=10)) is False
+        assert server_b.current is None  # not A's
+        start(session, "B", t0 + timedelta(seconds=11))
+        # Two sessions started 11 s apart: which is whose can't be told, so neither is taken.
+        server_a = SessionTracker("claude", {}, now=t0)
+        server_a.refresh(session, game["id"], t0 + timedelta(seconds=26))
+        server_b.refresh(session, game["id"], t0 + timedelta(seconds=27))
+        assert (server_a.current, server_b.current) == (None, None)
 
 
 async def test_brief_hook_records_the_session(

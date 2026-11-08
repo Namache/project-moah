@@ -222,6 +222,99 @@ def test_the_flatpak_hands_claude_codes_session_to_the_server(
     assert agent_connect._claude_server(LAUNCH["command"])["command"] == EXE
 
 
+def test_refresh_at_start_moves_connected_agents_to_this_install(home: Path) -> None:
+    """After an update or a move to another folder, agents connected before keep working: the
+    app points them at itself when it starts, and nobody presses Connect again."""
+    (home / ".claude").mkdir()
+    (home / ".codex").mkdir()
+    old = {"type": "stdio", "command": "old.exe", "args": ["--mcp"], "env": {"MY_VAR": "1"}}
+    servers = {"project-moah": old, "other": {"command": "x"}}
+    (home / ".claude.json").write_text(json.dumps({"mcpServers": servers, "theme": "dark"}))
+    (home / ".codex/config.toml").write_text(
+        'model = "gpt"\n\n[mcp_servers.project-moah]\ncommand = "old.exe"\nargs = ["--mcp"]\n'
+    )
+    (home / ".codex/AGENTS.md").write_text("My own notes.\n")
+
+    assert agent_connect.refresh_connections(LAUNCH) == ["claude", "codex"]
+
+    config = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
+    server = config["mcpServers"]["project-moah"]
+    assert server["command"] == EXE and server["args"] == ["--mcp", "--agent", "claude"]
+    assert server["env"] == {"MY_VAR": "1"}  # the person's own variables stay
+    assert config["theme"] == "dark" and config["mcpServers"]["other"] == {"command": "x"}
+    settings = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
+    assert set(settings["hooks"]) == {"SessionStart", "Stop", "UserPromptSubmit"}
+    saved = tomllib.loads((home / ".codex/config.toml").read_text(encoding="utf-8"))
+    assert saved["model"] == "gpt" and saved["mcp_servers"]["project-moah"]["command"] == EXE
+    # Once connected, AGENTS.md is the person's: a refresh doesn't add the brief line back.
+    assert (home / ".codex/AGENTS.md").read_text(encoding="utf-8") == "My own notes.\n"
+
+
+def test_refresh_leaves_agents_alone_that_were_never_connected_or_are_current(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (home / ".claude").mkdir()
+    (home / ".codex").mkdir()
+    (home / ".claude.json").write_text(json.dumps({"mcpServers": {"other": {}}}))
+    (home / ".codex/config.toml").write_text('model = "gpt"\n')
+
+    assert agent_connect.refresh_connections(LAUNCH) == []
+    files = sorted(path.name for path in home.rglob("*") if path.is_file())
+    assert files == [".claude.json", "config.toml"]  # no hooks, no brief, no backups
+
+    agent_connect.connect_agents(LAUNCH)
+    writes: list[Path] = []
+    monkeypatch.setattr(agent_connect, "_write", lambda path, _text: writes.append(path))
+    # Claude Code rewrites its own file all the time: an unchanged connection isn't written.
+    assert agent_connect.refresh_connections(LAUNCH) == ["claude", "codex"]
+    assert writes == []
+
+
+def test_refresh_never_stops_the_app(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (home / ".claude").mkdir()
+    (home / ".claude.json").write_text("{ not json")
+    logged: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        agent_connect.error_log,
+        "write",
+        lambda source, message, *_, **__: logged.append((source, message)),
+    )
+    assert agent_connect.refresh_connections(LAUNCH) == []
+    assert [source for source, _ in logged] == ["service"] and "claude" in logged[0][1]
+    assert (home / ".claude.json").read_text() == "{ not json"
+
+
+def test_refresh_does_nothing_where_the_app_cant_change_agent_settings(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (home / ".codex").mkdir()
+    original = '[mcp_servers.project-moah]\ncommand = "old.exe"\n'
+    (home / ".codex/config.toml").write_text(original)
+    (home / "flatpak-info").write_text(SANDBOX)
+    monkeypatch.setattr(agent_connect, "FLATPAK_INFO", home / "flatpak-info")
+    source = {"install": "source", "command": ["python", "-m", "app.mcp"]}
+    for launch in (FLATPAK, source):
+        assert agent_connect.refresh_connections(launch) == []
+    assert (home / ".codex/config.toml").read_text() == original
+
+
+def test_an_old_flatpak_connection_is_told_how_to_refresh(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sandboxed Flatpak can't rewrite an agent's settings, so the agent hears how to, once
+    per session, when its connection predates the session id and the id didn't arrive."""
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setattr(agent_connect, "FLATPAK_INFO", home / "flatpak-info")
+    assert agent_connect.connection_notice("claude", None) is None  # not a Flatpak
+    (home / "flatpak-info").write_text(SANDBOX)
+    notice = agent_connect.connection_notice("claude", None)
+    assert notice and agent_connect.FLATPAK_CONNECT in notice
+    assert agent_connect.connection_notice("claude", "") is None  # Connect's entry, no id set
+    assert agent_connect.connection_notice("codex", None) is None
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "0b5e8c1a-2f4d")
+    assert agent_connect.connection_notice("claude", None) is None  # the id arrived anyway
+
+
 def test_replaces_the_old_project_brain_connection(home: Path) -> None:
     (home / ".claude").mkdir()
     old = {"command": "flatpak", "args": ["run", "--command=project-brain-mcp"]}
@@ -265,3 +358,18 @@ async def test_connect_button_endpoint(
     response = await client.post("/api/system/connect-agents")
     assert response.status_code == 200
     assert statuses(response.json()["results"]) == {"claude": "not_found", "codex": "not_found"}
+
+
+def test_writing_settings_keeps_their_permissions(tmp_path) -> None:
+    """A private settings file stays private after Moah rewrites it."""
+    import os
+    import stat
+
+    from app.services.agent_connect import _write
+
+    config = tmp_path / ".claude.json"
+    config.write_text("{}")
+    os.chmod(config, 0o600)
+    private = stat.S_IMODE(config.stat().st_mode)  # Windows keeps only a read-only flag
+    _write(config, '{"mcpServers": {}}\n')
+    assert stat.S_IMODE(config.stat().st_mode) == private
