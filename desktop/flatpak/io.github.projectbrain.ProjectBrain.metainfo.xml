@@ -9,6 +9,7 @@
   </description>
   <launchable type="desktop-id">io.github.projectbrain.ProjectBrain.desktop</launchable>
   <releases>
+    <release version="0.4.0" date="2026-11-08"/>
     <release version="0.3.0" date="2026-11-07"/>
     <release version="0.2.0" date="2026-11-06"/>
     <release version="0.1.6" date="2026-11-03"/>
