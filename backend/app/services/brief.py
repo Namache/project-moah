@@ -9,6 +9,7 @@ asked the person again what those records already said (2026-11-02 test).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from sqlalchemy import func, or_, select
@@ -245,6 +246,37 @@ def brief_decided(session: Session, project: Project, task: Task) -> list[Memory
     shown = {m.human_id for m in listed_rules(project.id, records) + standing_records(records)}
     own = latest_checkpoint(session, project.id, task.id)
     return decided_for(session, project, task, own, shown)
+
+
+# Words before a ref that make it a neighbour of the work, not its subject: "Unblocked by
+# PROJ-044", "same cause as PROJ-030", "after IDLE-005".
+ASIDE = re.compile(
+    r"\b(?:by|after|before|like|than|as|from|see|via|unlike|blocks|blocking|per|since)\W*$",
+    re.IGNORECASE,
+)
+
+
+def headline_tasks(
+    session: Session, project: Project, title: str | None, summary: str | None
+) -> list[Task]:
+    """The tasks a checkpoint is about, by its headline: refs in its title (not those named as
+    an aside, "unblocked by PROJ-044") or one that opens its summary ("IDLE-6: popup laid out").
+    A task the body only mentions doesn't count: notes name related tasks all the time."""
+    texts = [_main_refs(title)]
+    opening = MENTION_PATTERN.match((summary or "").lstrip())
+    if opening is not None and not opening.group("scope"):
+        texts.append(opening.group("ref"))
+    return named_tasks(session, project, texts)
+
+
+def _main_refs(text: str | None) -> str:
+    """The refs of a title that aren't asides, as one string named_tasks can read."""
+    text = text or ""
+    return " ".join(
+        found.group("ref")
+        for found in MENTION_PATTERN.finditer(text)
+        if not found.group("scope") and not ASIDE.search(text[: found.start()])
+    )
 
 
 def named_tasks(session: Session, project: Project, texts: Iterable[str | None]) -> list[Task]:

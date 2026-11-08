@@ -44,7 +44,7 @@ from app.services.activity import acting_as
 from app.services.agent_prompts import second_opinion
 from app.services.agent_sessions import SessionTracker
 from app.services.agent_sync import sync_quietly
-from app.services.brief import build_brief, checkpoint_task, named_tasks
+from app.services.brief import build_brief, checkpoint_task, headline_tasks
 from app.services.builds import UpdateWatch
 from app.services.checkpoints import CheckpointService
 from app.services.context import ContextService
@@ -1375,8 +1375,9 @@ def build_server(
         if task is None:
             # A note about another task belongs to it, not to the one the session last touched:
             # "IDLE-006 popup laid out" while the session's task is IDLE-005. Only when the
-            # note names exactly one task, and not the session's own ("after IDLE-005" stays).
-            named = named_tasks(session, found, [title, summary, completed_work])
+            # note's headline (its title, or the ref opening its summary) names exactly one
+            # task, not as an aside ("unblocked by IDLE-005"), and not the session's own.
+            named = headline_tasks(session, found, title, summary)
             if len(named) == 1 and (current is None or named[0].id != current.id):
                 moved = named[0]
                 task = moved.id

@@ -664,3 +664,35 @@ async def test_a_checkpoint_lands_on_the_task_it_names(
             session, "brain_create_checkpoint", title="Slider styled", project=pid
         )
         assert not failed and after["task"] == sound
+
+
+async def test_a_checkpoint_that_only_mentions_another_task_stays_on_its_own(
+    database_url: str,
+) -> None:
+    """QA 2026-11-08: "Unblocked by PROJ-044" or a task named in passing in the summary moved the
+    note, and the session, to that task. Only the headline decides."""
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+    offline, sound = rec["offline"]["human_id"], rec["sound"]["human_id"]
+    async with agent(database_url) as session:
+        failed, _ = await call(session, "brain_context_pack", task=offline, project=pid)
+        assert not failed
+        for title, summary in [
+            (f"Cap applied, unblocked by {sound}", None),
+            ("Cap applied", f"Same cause as the bug in {sound}."),
+            (f"Cap applied after {sound}", None),
+        ]:
+            extra = {"summary": summary} if summary else {}
+            failed, note = await call(
+                session, "brain_create_checkpoint", title=title, project=pid, **extra
+            )
+            assert not failed and note["task"] == offline, (title, note)
+        # A summary that opens with the ref is about that task.
+        failed, moved = await call(
+            session,
+            "brain_create_checkpoint",
+            title="Slider laid out",
+            summary=f"{sound}: the volume slider is laid out.",
+            project=pid,
+        )
+        assert not failed and moved["task"] == sound
