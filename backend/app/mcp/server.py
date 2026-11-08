@@ -429,7 +429,7 @@ def build_server(
             return None
         try:
             return resolve_project(session, None, None, default_project)[0].id
-        except ProjectChoiceError:  # no project for the folder: adopt by time alone
+        except ProjectChoiceError:  # no project for the folder: adopt nothing
             return None
 
     def tool(annotations: ToolAnnotations):

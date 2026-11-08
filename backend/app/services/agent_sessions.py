@@ -105,6 +105,10 @@ class SessionTracker:
         now = now or datetime.now(UTC)
         if not self.born + NEAR <= now <= self.born + LOOK:
             return False
+        if project_id is None:
+            # No folder project: a desktop app's server, which its chats share. Matching by
+            # time alone would take over a terminal session that started at the same moment.
+            return False
         claimed = select(AgentSessionEvent.session_id).where(
             AgentSessionEvent.agent == self.agent,
             AgentSessionEvent.source.in_((CLAIM, TASK)),
@@ -115,8 +119,7 @@ class SessionTracker:
             AgentSessionEvent.created_at.between(self.born - NEAR, self.born + NEAR),
             AgentSessionEvent.session_id.not_in(claimed),
         )
-        if project_id is not None:
-            query = query.where(AgentSessionEvent.project_id == project_id)
+        query = query.where(AgentSessionEvent.project_id == project_id)
         found = set(session.scalars(query))
         if len(found) != 1:
             return False
