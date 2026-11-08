@@ -115,7 +115,7 @@ describe("Review", () => {
     setup();
     renderAt("/review");
     const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
-    const waiting = await within(timeline).findByRole("list", { name: "Needs review" });
+    const waiting = await within(timeline).findByRole("list", { name: "Finished work to check" });
     expect(within(waiting).getAllByRole("button")).toHaveLength(2);
     expect(within(waiting).getAllByText("Suggestion")).toHaveLength(2);
     expect(within(waiting).getAllByText(/Trailhead/).length).toBeGreaterThan(0);

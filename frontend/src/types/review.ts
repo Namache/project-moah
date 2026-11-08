@@ -46,6 +46,26 @@ export interface ReviewRound {
   follow_ups: FollowUp[];
   screenshots: ReviewFile[];
   feedback: ReviewFile[];
+  /** For a review drafted from checkpoints: what the agent planned next. */
+  next_steps?: string[];
+  /** For a review drafted from checkpoints: the checkpoints it was picked from, newest first. */
+  notes?: CheckpointNote[];
+  /** True when lines about other tasks were left out of a drafted review. */
+  left_out?: boolean;
+}
+
+/** A checkpoint a drafted review was picked from. */
+export interface CheckpointNote {
+  title: string;
+  created_at: string;
+  agent: string | null;
+  summary: string;
+  completed_work: string;
+  remaining_work: string;
+  problems: string;
+  next_steps: string;
+  /** False when it was filed under another task and only names this one. */
+  filed_here: boolean;
 }
 
 export interface ReviewDetail {

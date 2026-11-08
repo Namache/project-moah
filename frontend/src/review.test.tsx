@@ -19,8 +19,10 @@ function reviewOf(ref: string) {
       current: { ...round, id: "q1", kind: "question", summary: "Should a full camp show **0** or a red Full label?", options: ["Show 0", "Red Full label"], done: [], not_done: [], how_to_check: null, details: "DEC-001 sets capacity, not the look.", screenshots: [] } };
   }
   if (ref === "CAMP-003") {
-    return { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t3", task_ref: "CAMP-003", task_title: "Ration balance", task_status: "review", task_description: null, criteria: [], earlier: [],
-      current: { ...round, id: null, agent: "codex", generated: true, summary: "Halved the ration drain.", done: ["Ration drain is 0.5 a day"], not_done: [], how_to_check: null, details: null, screenshots: [] } };
+    return { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t3", task_ref: "CAMP-003", task_title: "Ration balance", task_status: "review", task_description: "Rations drain too fast on long trips.\n\nHalve the drain.", criteria: [], earlier: [],
+      current: { ...round, id: null, agent: "codex", generated: true, summary: "", done: ["Ration drain is 0.5 a day"], not_done: [], how_to_check: null, details: null, screenshots: [],
+        next_steps: ["Watch one long trip in the log"], left_out: true,
+        notes: [{ title: "Supply batch pushed", created_at: "2026-01-02T09:00:00Z", agent: "codex", summary: "Two supply fixes.", completed_work: "CAMP-003: ration drain is 0.5 a day.\nCAMP-009: water barrels stack.", remaining_work: "CAMP-009 icon is a placeholder.", problems: "", next_steps: "CAMP-003: watch one long trip in the log.", filed_here: false }] } };
   }
   return {
     project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t2", task_ref: "CAMP-002", task_title: "Camp upgrade screen", task_status: "review", task_description: "Let players upgrade camps",
@@ -31,6 +33,9 @@ function reviewOf(ref: string) {
     earlier: [],
   };
 }
+
+const acceptedTents = { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t0", task_ref: "CAMP-000", task_title: "Tents", task_status: "completed", task_description: "Put up the tents", criteria: [], earlier: [],
+  current: { ...round, id: "r0", agent: "codex", status: "accepted", reviewed_at: "2026-01-01T12:00:00Z", summary: "Tents are up.", done: ["Four tents"], not_done: [], how_to_check: null, details: null, screenshots: [] } };
 
 function setup({ question = false } = {}) {
   const state = { waiting: question ? [camp4, upgrade, rations] : [upgrade, rations], reviewed: [tents] as object[] };
@@ -64,6 +69,16 @@ function setup({ question = false } = {}) {
       const detail = reviewOf(followUps[1]);
       return Response.json({ ...detail, current: { ...detail.current, follow_ups: made } });
     }
+    if (url === "/api/projects/p2/tasks/BOOK-001/review") return Response.json({ ...reviewOf("CAMP-002"), project_id: "p2", project_name: "Bookshelf", task_ref: "BOOK-001", task_title: "Shelf labels" });
+    if (url === "/api/projects/p1/tasks/CAMP-000/review/reopen" && method === "POST") {
+      const comment = (JSON.parse(String(options?.body)) as { comment: string }).comment;
+      state.reviewed = state.reviewed.map((i) => (i as { ref: string }).ref === "CAMP-000" ? { ...i, verdict: "rejected", task_status: "in_progress" } : i);
+      return Response.json({ ...acceptedTents, task_status: "in_progress", current: { ...acceptedTents.current, status: "rejected", comment } });
+    }
+    if (url === "/api/projects/p1/tasks/CAMP-000/review") {
+      const now = state.reviewed.find((i) => (i as { ref: string }).ref === "CAMP-000") as { verdict: string };
+      return Response.json(now.verdict === "rejected" ? { ...acceptedTents, task_status: "in_progress", current: { ...acceptedTents.current, status: "rejected", comment: "Tents leak" } } : acceptedTents);
+    }
     if (url.endsWith("/review/fix-prompt?agent=claude")) return Response.json({ agent: "claude", prompt: "Fix CAMP-002", url: "claude://code/new?q=Fix", folder: null });
     const review = url.match(/^\/api\/projects\/p1\/tasks\/(CAMP-\d+)\/review$/);
     if (review) {
@@ -85,17 +100,71 @@ describe("Review screen", () => {
     setup();
     renderAt("/review");
     const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
-    const waiting = await within(timeline).findByRole("list", { name: "Needs review" });
+    const waiting = await within(timeline).findByRole("list", { name: "Finished work to check" });
     const rows = within(waiting).getAllByRole("button");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAttribute("aria-current", "true");
     expect(within(rows[0]).getByText("Claude Code")).toBeInTheDocument();
     expect(within(rows[0]).getByText(/^Done /)).toBeInTheDocument();
     expect(within(rows[1]).getByText("Codex")).toBeInTheDocument();
-    expect(within(rows[1]).getByText("From checkpoint")).toBeInTheDocument();
+    // Rows are tasks: nothing says "checkpoint" in the list.
+    expect(within(timeline).queryByText(/checkpoint/i)).not.toBeInTheDocument();
+  });
+
+  it("folds each group away with its arrow and remembers it", async () => {
+    setup();
+    const user = userEvent.setup();
+    renderAt("/review");
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    await within(timeline).findByRole("list", { name: "Finished work to check" });
+    // Reviewed starts folded, with its count on the heading.
+    const reviewedHead = within(timeline).getByRole("button", { name: /^Reviewed/ });
+    expect(reviewedHead).toHaveAttribute("aria-expanded", "false");
+    expect(reviewedHead).toHaveTextContent("1");
+    expect(within(timeline).queryByRole("list", { name: "Reviewed" })).not.toBeInTheDocument();
+    await user.click(reviewedHead);
     const reviewed = within(timeline).getByRole("list", { name: "Reviewed" });
     expect(within(reviewed).getByText("Accepted")).toBeInTheDocument();
     expect(within(reviewed).getByText(/^Reviewed /)).toBeInTheDocument();
+    await user.click(within(timeline).getByRole("button", { name: /^Finished work to check/ }));
+    expect(within(timeline).queryByRole("list", { name: "Finished work to check" })).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("moah.review.folded") ?? "{}")).toEqual({ questions: false, waiting: true, reviewed: false });
+    localStorage.removeItem("moah.review.folded");
+  });
+
+  it("lets you drag the line between the list and the review", async () => {
+    setup();
+    const user = userEvent.setup();
+    renderAt("/review");
+    const line = await screen.findByRole("separator", { name: "Resize the task list" });
+    const before = Number(line.getAttribute("aria-valuenow"));
+    line.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(Number(line.getAttribute("aria-valuenow"))).toBe(before + 24);
+    expect(localStorage.getItem("moah.review.listWidth")).toBe(String(before + 24));
+    await user.dblClick(line);
+    expect(Number(line.getAttribute("aria-valuenow"))).toBe(380);
+    localStorage.removeItem("moah.review.listWidth");
+  });
+
+  it("keeps its screen reader text inside the panes that scroll", async () => {
+    setup();
+    renderAt("/review");
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    await within(timeline).findByRole("list", { name: "Finished work to check" });
+    await screen.findByText("Open the task");
+    // Screen reader text is positioned absolutely. Unless something inside the scrolling pane is
+    // positioned too, that text escapes the pane and the window scrolls on into empty space.
+    const positioned = (el: Element) => /(^|\s|:)(relative|absolute|fixed|sticky)(\s|$)/.test(el.className);
+    const hidden = Array.from(timeline.parentElement!.querySelectorAll(".sr-only"));
+    expect(hidden.length).toBeGreaterThan(2);
+    for (const text of hidden) {
+      const pane = text.parentElement?.closest(".overflow-y-auto");
+      if (!pane) continue;
+      let holder = text.parentElement;
+      while (holder && !positioned(holder)) holder = holder.parentElement;
+      expect(holder !== null && pane.contains(holder), text.textContent ?? "").toBe(true);
+    }
   });
 
   it("draws the review as colourful Markdown, never as raw HTML", async () => {
@@ -119,23 +188,32 @@ describe("Review screen", () => {
     expect(within(panel).getByRole("checkbox", { name: "Works with a gamepad" })).toBeChecked();
   });
 
-  it("accepts the work with your ticks, makes tasks from what was left, and moves on", async () => {
+  it("accepts the work straight into Done, with your ticks, and moves on", async () => {
     const { calls } = setup();
     const user = userEvent.setup();
     renderAt("/review");
     await screen.findByText("Cost panel");
     await user.click(screen.getByRole("checkbox", { name: "Works with a gamepad" }));
     expect(screen.getByText("1 of 2 criteria ticked")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "When I accept, make tasks from the 2 lines left" })).toBeChecked();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Column for the new tasks" }), "backlog");
-    await user.click(screen.getByRole("button", { name: "Accept" }));
+    // No box that turns leftovers into To do tasks on the way.
+    expect(screen.queryByRole("checkbox", { name: /When I accept/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Accept and move to Done" }));
     expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/CAMP-002/review/decision"))?.body).toEqual({
       verdict: "accept", comment: null,
       criteria: [{ id: "c1", met: true }, { id: "c2", met: false }],
-      follow_ups: ["Gamepad focus", "Works with a gamepad"], follow_up_status: "backlog",
     });
-    expect(await screen.findByText("Ration drain is 0.5 a day")).toBeInTheDocument();
-    expect(screen.getByText("The agent didn't write a review, so this is its last checkpoint.")).toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith("/follow-ups"))).toBe(false);
+    // The next task came without a report: its lines are picked out of the agent's notes, in the same frames.
+    expect(await screen.findByText("Codex wrote no report, so this is picked out of its notes on the task.")).toBeInTheDocument();
+    expect(screen.getByText("Lines about other tasks are left out.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: /^Done/ })).getByText("Ration drain is 0.5 a day")).toBeVisible();
+    expect(within(screen.getByRole("region", { name: /^Not done/ })).getByText("Its notes list nothing left for this task.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: /^What the agent plans next/ })).getByText("Watch one long trip in the log")).toBeInTheDocument();
+    // The whole note, other tasks and all, is folded away underneath; so is what was asked.
+    const notes = screen.getByText("The agent's full note").closest("details")!;
+    expect(notes).not.toHaveAttribute("open");
+    expect(within(notes).getByText("Filed under another task")).not.toBeVisible();
+    expect(screen.getByText("What was asked").closest("details")).not.toHaveAttribute("open");
   });
 
   it("rejects only with a comment, quotes lines into it, and offers to open the agent", async () => {
@@ -146,13 +224,16 @@ describe("Review screen", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn(async () => undefined) }, configurable: true });
     renderAt("/review");
     await screen.findByText("Cost panel");
-    const reject = screen.getByRole("button", { name: "Reject" });
-    expect(reject).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: /Quote “Gamepad focus”/ }));
+    const reject = screen.getByRole("button", { name: "Send back" });
+    // Without a comment it says what is missing, where you type, instead of a grey button.
+    await user.click(reject);
+    expect(screen.getByRole("alert")).toHaveTextContent("Write what should change first, so the agent knows what to fix.");
     const box = screen.getByLabelText("Your comment for the agent");
+    expect(box).toHaveFocus();
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/decision"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: /Quote “Gamepad focus”/ }));
     expect(box).toHaveValue("> Gamepad focus\n");
     await user.type(box, "Still missing");
-    expect(reject).toBeEnabled();
     await user.click(reject);
     await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/CAMP-002/review/decision"))?.body).toEqual({ verdict: "reject", comment: "> Gamepad focus\nStill missing", criteria: [{ id: "c1", met: true }, { id: "c2", met: true }] }));
     // The rejected task stays on screen, with the way to hand the comments over now.
@@ -173,9 +254,39 @@ describe("Review screen", () => {
     const chip = await screen.findByRole("link", { name: /CAMP-010/ });
     expect(chip).toHaveTextContent("To do");
     expect(screen.queryByRole("button", { name: "Make a task from “Gamepad focus”" })).not.toBeInTheDocument();
-    // Accept then offers only what is still left.
-    await user.click(screen.getByRole("checkbox", { name: "Works with a gamepad" }));
-    expect(screen.getByRole("checkbox", { name: "When I accept, make a task from the 1 line left" })).toBeInTheDocument();
+  });
+
+  it("reopens accepted work from Reviewed with a comment", async () => {
+    const { calls } = setup();
+    const user = userEvent.setup();
+    renderAt("/review?item=review:r0");
+    expect(await screen.findByRole("heading", { level: 2, name: "Tents" })).toBeInTheDocument();
+    expect(screen.getByText("You accepted this")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reopen with a comment" }));
+    const box = screen.getByLabelText("What is wrong with CAMP-000?");
+    await user.click(screen.getByRole("button", { name: "Reopen and send back" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Write what is wrong first");
+    await user.type(box, "Tents leak");
+    await user.click(screen.getByRole("button", { name: "Reopen and send back" }));
+    await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/CAMP-000/review/reopen"))?.body).toEqual({ comment: "Tents leak" }));
+    // Now it is sent back: the way to hand the comment to an agent shows.
+    expect(await screen.findByText("Sent back.")).toBeInTheDocument();
+    expect(screen.getByText("You sent this back")).toBeInTheDocument();
+  });
+
+  it("filters the list to one project", async () => {
+    const { state } = setup();
+    const user = userEvent.setup();
+    const other = { ...upgrade, key: "task:t9", ref: "BOOK-001", title: "Shelf labels", project_id: "p2", project_name: "Bookshelf", project_accent: "#4A7" };
+    state.waiting = [...state.waiting, other];
+    renderAt("/review");
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    await within(timeline).findByText("Shelf labels");
+    await user.selectOptions(within(timeline).getByRole("combobox"), "p2");
+    const waiting = within(timeline).getByRole("list", { name: "Finished work to check" });
+    expect(within(waiting).getAllByRole("button")).toHaveLength(1);
+    expect(within(waiting).getByText("Shelf labels")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Shelf labels" })).toBeInTheDocument();
   });
 
   it("puts an agent's question on top and sends your answer back", async () => {
@@ -186,14 +297,15 @@ describe("Review screen", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn(async () => undefined) }, configurable: true });
     renderAt("/review");
     const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
-    const asked = await within(timeline).findByRole("list", { name: "Needs your answer" });
+    const asked = await within(timeline).findByRole("list", { name: "Questions from agents" });
     expect(within(asked).getByRole("button")).toHaveAttribute("aria-current", "true");
-    expect(within(within(timeline).getByRole("list", { name: "Needs review" })).getAllByRole("button")).toHaveLength(2);
+    expect(within(within(timeline).getByRole("list", { name: "Finished work to check" })).getAllByRole("button")).toHaveLength(2);
     expect(await screen.findByRole("heading", { name: "Claude Code needs your answer to go on" })).toBeInTheDocument();
     expect(screen.getByText("0").tagName).toBe("STRONG");
-    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept and move to Done" })).not.toBeInTheDocument();
     const send = screen.getByRole("button", { name: "Send answer" });
-    expect(send).toBeDisabled();
+    await user.click(send);
+    expect(screen.getByRole("alert")).toHaveTextContent("Write your answer first.");
     await user.click(screen.getByRole("button", { name: "Red Full label" }));
     expect(screen.getByLabelText("Your answer for the agent")).toHaveValue("Red Full label");
     await user.click(send);
@@ -208,6 +320,7 @@ describe("Review screen", () => {
     state.reviewed = [{ ...camp4, key: "review:q9", task_status: "in_progress", reviewed_at: "2026-01-03T11:40:00Z", verdict: "answered", moved_to: "chat" }, ...state.reviewed];
     renderAt("/review");
     const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    await userEvent.setup().click(await within(timeline).findByRole("button", { name: /^Reviewed/ }));
     const reviewed = await within(timeline).findByRole("list", { name: "Reviewed" });
     expect(within(reviewed).getByText("Answered in the chat")).toBeInTheDocument();
     expect(within(reviewed).queryByText(/on the board/)).not.toBeInTheDocument();
@@ -221,7 +334,7 @@ describe("Review screen", () => {
     const first = (await within(timeline).findAllByRole("button"))[0];
     first.focus();
     await user.keyboard("j");
-    expect(await screen.findByText("Ration drain is 0.5 a day")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Ration balance" })).toBeInTheDocument();
     expect(within(timeline).getByRole("button", { name: /CAMP-003/ })).toHaveFocus();
     await user.keyboard("k");
     expect(await screen.findByText("Cost panel")).toBeInTheDocument();

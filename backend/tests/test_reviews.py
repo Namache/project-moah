@@ -193,8 +193,9 @@ async def test_a_review_round_trip_accept_after_a_send_back(
         assert accepted.status_code == 200 and accepted.json()["task_status"] == "completed"
         done = (await client.get(f"/api/projects/{pid}/tasks/{task}")).json()
         assert done["completed_at"] and not done["archived_at"]
+        # Reviewed lists tasks, not rounds: one line, with the latest decision.
         reviewed = (await client.get("/api/reviews")).json()["reviewed"]
-        assert [r["verdict"] for r in reviewed] == ["accepted", "rejected"]
+        assert [(r["ref"], r["verdict"]) for r in reviewed] == [(task, "accepted")]
         again = await client.post(
             f"/api/projects/{pid}/tasks/{task}/review/decision", json={"verdict": "accept"}
         )
@@ -244,6 +245,72 @@ async def test_a_task_moved_to_review_without_a_review_shows_its_checkpoint(
             f"/api/projects/{pid}/tasks/{task}/review/decision", json={"verdict": "accept"}
         )
         assert decided.status_code == 200 and decided.json()["current"]["id"]
+
+
+async def test_a_batch_checkpoint_shows_only_the_lines_about_this_task(
+    database_url: str, tmp_path: Path
+) -> None:
+    """Agents often write one note for a batch of tasks, filed under one of them. The review of
+    each task picks out its own lines and leaves the rest of the note folded underneath."""
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+        pid, task = w["pid"], w["task"]
+        sign = (
+            await client.post(
+                f"/api/projects/{pid}/tasks", json={"title": "Camp sign colours", "prefix": "CAMP"}
+            )
+        ).json()["human_id"]
+    async with agent(database_url) as session:
+        for args in (
+            dict(
+                task=task,
+                title="Badge sketched",
+                summary="Badge layout agreed with the capacity decision.",
+                completed_work="Badge component with free places",
+                next_steps="Wire it to the camp list",
+            ),
+            dict(
+                task=sign,
+                title="Camp batch pushed",
+                summary=f"Pushed 2 commits ({task} capacity badge wiring, {sign} sign colours).",
+                completed_work=(
+                    f"{sign}: sign colours follow the theme. Contrast checked in both themes.\n"
+                    f"{task}: badge wired to the camp list. Full camps show 0."
+                ),
+                remaining_work=f"{sign} needs a dark-mode icon. Waiting for the icon set.",
+                next_steps=f"{task}: add a test for a full camp.",
+            ),
+        ):
+            error, _ = await call(session, "brain_create_checkpoint", project="trailhead", **args)
+            assert not error
+        error, _ = await call(
+            session, "brain_update_task", project="trailhead", task=task, status="review"
+        )
+        assert not error
+
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{task}/review"
+        current = (await client.get(url)).json()["current"]
+        assert current["generated"] is True and current["left_out"] is True
+        assert current["done"] == [
+            "Badge component with free places",
+            "Badge wired to the camp list. Full camps show 0.",
+        ]
+        # The sign's leftover is not this task's.
+        assert current["not_done"] == []
+        assert current["next_steps"] == ["Add a test for a full camp."]
+        # The summary of the newest note about this task alone (the batch note's is not).
+        assert current["summary"] == "Badge layout agreed with the capacity decision."
+        assert [n["title"] for n in current["notes"]] == ["Camp batch pushed", "Badge sketched"]
+        assert [n["filed_here"] for n in current["notes"]] == [False, True]
+        assert current["details"] is None
+
+        # Accepted, it still reads the same from Reviewed.
+        await client.post(f"{url}/decision", json={"verdict": "accept"})
+        current = (await client.get(url)).json()["current"]
+        assert current["status"] == "accepted" and current["id"]
+        assert current["done"][1] == "Badge wired to the camp list. Full camps show 0."
+        assert current["next_steps"] == ["Add a test for a full camp."]
 
 
 async def test_suggestions_share_the_timeline_and_a_send_back_settles_them(
@@ -472,9 +539,76 @@ async def test_an_agent_asks_the_person_and_the_answer_reaches_the_next_agent(
     assert "ANSWERED IN REVIEW" not in brief(database_url, pid)
 
 
-async def test_blocked_tasks_wait_in_review_only_when_an_agent_blocked_them(
+async def test_accepted_work_can_be_reopened_with_a_comment(
     database_url: str, tmp_path: Path
 ) -> None:
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    submit_review(database_url, pid, task)
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{task}/review"
+        early = await client.post(url + "/reopen", json={"comment": "Not yet"})
+        assert early.status_code == 409  # nothing accepted to take back yet
+        accepted = await client.post(url + "/decision", json={"verdict": "accept"})
+        assert accepted.json()["task_status"] == "completed"
+        # Accepting made no tasks from the "Not done" line by itself.
+        tasks = (await client.get(f"/api/projects/{pid}/tasks")).json()
+        assert not [t for t in tasks if t["title"] == SUBMIT["not_done"][0]]
+
+        assert (await client.post(url + "/reopen", json={"comment": "  "})).status_code == 422
+        reopened = await client.post(
+            url + "/reopen", json={"comment": "The badge is wrong on a full camp after all."}
+        )
+        assert reopened.status_code == 200
+        body = reopened.json()
+        assert body["task_status"] == "in_progress"
+        assert body["current"]["status"] == "rejected"
+        assert body["current"]["comment"].startswith("The badge is wrong")
+        task_now = (await client.get(f"/api/projects/{pid}/tasks/{task}")).json()
+        assert task_now["status"] == "in_progress" and not task_now["completed_at"]
+        timeline = (await client.get("/api/reviews")).json()
+        assert timeline["waiting"] == []
+        assert [(r["ref"], r["verdict"]) for r in timeline["reviewed"]] == [(task, "rejected")]
+        # Once is enough: it is not accepted any more.
+        again = await client.post(url + "/reopen", json={"comment": "Again"})
+        assert again.status_code == 409
+        prompt = (await client.get(url + "/fix-prompt?agent=claude")).json()
+        assert "The badge is wrong on a full camp" in prompt["prompt"]
+        events = (await client.get(f"/api/projects/{pid}/activity")).json()
+        assert any(e["event_type"] == "REVIEW_REOPENED" for e in events)
+
+    # The next agent reads the comment first, like any send-back.
+    text = brief(database_url, pid)
+    assert "SENT BACK FROM REVIEW" in text and "The badge is wrong" in text
+
+
+async def test_work_accepted_on_the_board_can_be_reopened_too(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    submit_review(database_url, pid, task)
+    async with app_client(database_url) as client:
+        await client.post(
+            f"/api/projects/{pid}/tasks/{task}/move", json={"status": "completed", "index": 0}
+        )
+        [item] = (await client.get("/api/reviews")).json()["reviewed"]
+        assert (item["verdict"], item["moved_to"]) == ("accepted", "completed")
+        reopened = await client.post(
+            f"/api/projects/{pid}/tasks/{task}/review/reopen",
+            json={"comment": "Dragged to Done too early."},
+        )
+        assert reopened.json()["current"]["moved_to"] is None
+        assert reopened.json()["task_status"] == "in_progress"
+
+
+async def test_a_task_that_is_only_blocked_does_not_wait_in_review(
+    database_url: str, tmp_path: Path
+) -> None:
+    """Blocked on a supplier or a date is not a question for the person. Only a question an
+    agent asked waits in Review."""
     async with app_client(database_url) as client:
         w = await world(client, tmp_path)
     pid, task = w["pid"], w["task"]
@@ -484,23 +618,50 @@ async def test_blocked_tasks_wait_in_review_only_when_an_agent_blocked_them(
             "brain_create_checkpoint",
             project=pid,
             task=task,
-            title="Badge needs a colour",
-            summary="Badge works; its colour for full camps is not decided.",
-            problems="Which colour for a full camp?",
+            title="Waiting on the camp owners",
+            summary="Badge works; the owners still have to send their capacity list.",
+            problems="Capacity list not sent yet",
         )
         error, out = await call(
             session, "brain_update_task", task=task, status="blocked", project=pid
         )
     assert not error and "brain_ask_person" in out["next"]
     async with app_client(database_url) as client:
+        timeline = (await client.get("/api/reviews")).json()
+        assert timeline["waiting"] == [] and timeline["reviewed"] == []
+        assert (await client.get("/api/reviews/pending")).json()["total"] == 0
+        missing = await client.get(f"/api/projects/{pid}/tasks/{task}/review")
+        assert missing.status_code == 404
+    async with agent(database_url) as session:
+        await call(session, "brain_ask_person", task=task, question="Green or grey?", project=pid)
+    async with app_client(database_url) as client:
+        [item] = (await client.get("/api/reviews")).json()["waiting"]
+        assert (item["ref"], item["question"], item["generated"]) == (task, True, False)
+
+
+async def test_an_agents_question_settles_on_the_board_or_when_it_moves_on(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    async with agent(database_url) as session:
+        await call(
+            session,
+            "brain_ask_person",
+            task=task,
+            question="Which colour for a full camp?",
+            project=pid,
+        )
+    async with app_client(database_url) as client:
         # The person blocks another task themselves: that one does not wait for them.
         await client.patch(f"/api/projects/{pid}/tasks/{w['other']}", json={"status": "blocked"})
         timeline = (await client.get("/api/reviews")).json()
         [item] = timeline["waiting"]
-        assert (item["ref"], item["question"], item["generated"]) == (task, True, True)
+        assert (item["ref"], item["question"], item["generated"]) == (task, True, False)
         detail = (await client.get(f"/api/projects/{pid}/tasks/{task}/review")).json()
         assert detail["current"]["kind"] == "question"
-        assert "Which colour for a full camp?" in detail["current"]["not_done"]
+        assert detail["current"]["summary"] == "Which colour for a full camp?"
         # Dragged to To do on the board: the question counts as answered there.
         await client.post(
             f"/api/projects/{pid}/tasks/{task}/move", json={"status": "todo", "index": 0}
@@ -514,7 +675,9 @@ async def test_blocked_tasks_wait_in_review_only_when_an_agent_blocked_them(
         await call(session, "brain_update_task", task=task, status="in_progress", project=pid)
     async with app_client(database_url) as client:
         timeline = (await client.get("/api/reviews")).json()
-    assert not [i for i in timeline["waiting"] + timeline["reviewed"] if i["ref"] == task]
+    # Only the board answer from before is listed; the withdrawn question is not.
+    assert [i["verdict"] for i in timeline["reviewed"] if i["ref"] == task] == ["answered"]
+    assert not [i for i in timeline["waiting"] if i["ref"] == task]
     assert "ANSWERED IN REVIEW" not in brief(database_url, pid)
 
 

@@ -13,6 +13,7 @@ from app.schemas.review import (
     ReviewDecision,
     ReviewDetail,
     ReviewFileRead,
+    ReviewReopen,
     ReviewTimeline,
 )
 from app.services.agent_prompts import fix_prompt
@@ -51,6 +52,14 @@ def decide_review(
     project_id: str, ref: str, payload: ReviewDecision, session: DatabaseSession
 ) -> ReviewDetail:
     return ReviewService(session).decide(project_id, ref, payload)
+
+
+@router.post(TASK + "/reopen", response_model=ReviewDetail)
+def reopen_review(
+    project_id: str, ref: str, payload: ReviewReopen, session: DatabaseSession
+) -> ReviewDetail:
+    """Take back an acceptance: the task goes back to In progress with your comment."""
+    return ReviewService(session).reopen(project_id, ref, payload)
 
 
 @router.post(TASK + "/follow-ups", response_model=ReviewDetail)

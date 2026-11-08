@@ -124,7 +124,7 @@ const RUSSIAN = {
   "An agent needs your answer": "Агенту нужен ваш ответ",
   "{count} items wait for your review": "Ждут вашей проверки: {count}",
   "{agent} in {project}: {title}": "{agent} в «{project}»: {title}",
-  "Open Review to accept them, or reject them with comments.": "Откройте «На проверке», чтобы принять или отклонить с комментариями.",
+  "Open Review to accept them, or send them back with comments.": "Откройте «На проверке», чтобы принять или вернуть агенту с комментариями.",
   "Focus": "Фокус",
   "Break": "Перерыв",
   "Paused": "На паузе",
@@ -540,12 +540,12 @@ async function checkReviews(port) {
   if (!Notification.isSupported()) return;
   const many = (count) => say("{count} items wait for your review", { count });
   if (first && pending.total > 0) {
-    notify(pending.total === 1 ? say("Work is ready for your review") : many(pending.total), say("Open Review to accept them, or reject them with comments."));
+    notify(pending.total === 1 ? say("Work is ready for your review") : many(pending.total), say("Open Review to accept them, or send them back with comments."));
   } else if (fresh.length === 1) {
     const [item] = fresh;
     notify(say(item.question ? "An agent needs your answer" : "Work is ready for your review"), say("{agent} in {project}: {title}", { agent: item.agent, project: item.project_name, title: item.title }));
   } else if (fresh.length > 1) {
-    notify(many(fresh.length), say("Open Review to accept them, or reject them with comments."));
+    notify(many(fresh.length), say("Open Review to accept them, or send them back with comments."));
   }
 }
 

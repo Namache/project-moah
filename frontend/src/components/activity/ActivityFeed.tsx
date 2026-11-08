@@ -72,6 +72,13 @@ const eventLabels: Record<string, string> = labels({
   TASK_RELATIONSHIP_ADDED: msg("Task link added"),
   TASK_RELATIONSHIP_REMOVED: msg("Task link removed"),
   FILE_ASSOCIATED: msg("File linked"),
+  REVIEW_SUBMITTED: msg("Handed over for review"),
+  REVIEW_ACCEPTED: msg("Accepted in Review"),
+  REVIEW_REJECTED: msg("Sent back from Review"),
+  REVIEW_REOPENED: msg("Reopened after acceptance"),
+  REVIEW_FOLLOW_UPS: msg("Follow-up tasks made"),
+  QUESTION_ASKED: msg("Question for you"),
+  QUESTION_ANSWERED: msg("Question answered"),
 });
 
 function labelForEvent(type: string): string {
