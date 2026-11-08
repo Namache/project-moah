@@ -121,7 +121,7 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
 
   /** Sounds play in Moah's window, hidden or not, so they use the person's volume and own files. */
   function cue(kind) {
-    if (!settings.enabled || !settings.soundsOn) return;
+    if (!core.shouldCue(kind, settings)) return;
     send(getMainWindow()?.webContents, "pomodoro:cue", kind);
   }
 
@@ -373,7 +373,7 @@ function createPomodoro({ app, getMainWindow, showMainWindow, say, writeLog = ()
   return {
     /** Items waiting in Review from the main process's regular check; `fresh` are the new ones. */
     setPending(total, fresh) {
-      reviews.update(total, settings.enabled ? fresh : []);
+      reviews.update(total, fresh);
     },
     /** The computer woke up: catch up with the clock straight away. */
     wake() {

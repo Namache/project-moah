@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PomodoroBridge, PomodoroSettings, PomodoroState, PomodoroTimer } from "../../api/pomodoro";
 import { applyPomodoroState, resetPomodoroForTests } from "../../hooks/usePomodoro";
 import { LanguageRoot, setLanguage } from "../../lib/i18n";
-import { FocusTimerSettings } from "./FocusTimerSettings";
+import { FocusTimerSettings, SoundSettings } from "./FocusTimerSettings";
 import { FocusTimerWidget } from "./FocusTimerWidget";
 
 const settings: PomodoroSettings = { enabled: true, preset: "25-5", customWork: 30, customBreak: 6, soundsOn: true, volume: 70, miniSize: "small", sounds: { break: null, work: null, review: null } };
@@ -108,7 +108,7 @@ describe("focus timer settings", () => {
     const toggle = await screen.findByRole("checkbox", { name: "Show the focus timer" });
     expect(toggle).not.toBeChecked();
     expect(screen.getByRole("radio", { name: /25 \/ 5/ })).toBeDisabled();
-    expect(screen.getByRole("checkbox", { name: "Play sounds" })).toBeDisabled();
+    expect(screen.queryByRole("checkbox", { name: "Play sounds" })).not.toBeInTheDocument();
     await user.click(toggle);
     expect(bridge.update).toHaveBeenCalledWith({ enabled: true });
   });
@@ -149,10 +149,25 @@ describe("focus timer settings", () => {
     await waitFor(() => expect(within(sizes).getByRole("radio", { name: "Large" })).toBeChecked());
   });
 
+  it("keeps sounds on their own, so they work while the timer is off", async () => {
+    const { container, unmount } = show(<SoundSettings />);
+    expect(container).toBeEmptyDOMElement();
+    unmount();
+    fakeDesktop(stateWith({ settings: { enabled: false } }));
+    show(<SoundSettings />);
+    const toggle = await screen.findByRole("checkbox", { name: "Play sounds" });
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveAccessibleDescription("Works whether the focus timer is on or off.");
+    expect(screen.getByRole("slider", { name: "Volume" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "Play" })[2]).toBeEnabled();
+    expect(screen.getAllByText("Plays while the focus timer is on")).toHaveLength(2);
+  });
+
   it("saves the volume once the slider rests, and turns sounds off", async () => {
     const bridge = fakeDesktop(stateWith());
     const user = userEvent.setup();
-    show(<FocusTimerSettings />);
+    show(<SoundSettings />);
     const slider = await screen.findByRole("slider", { name: "Volume" });
     fireEvent.change(slider, { target: { value: "40" } });
     fireEvent.change(slider, { target: { value: "35" } });
@@ -168,7 +183,7 @@ describe("focus timer settings", () => {
 
   it("names each sound, and offers the default back only for a sound you chose", async () => {
     fakeDesktop(stateWith({ settings: { sounds: { break: { file: "break.mp3", name: "Temple bell.mp3" }, work: null, review: null } } }));
-    show(<FocusTimerSettings />);
+    show(<SoundSettings />);
     expect(await screen.findByText("Temple bell.mp3")).toBeInTheDocument();
     expect(screen.getByText("Default: wooden knock")).toBeInTheDocument();
     expect(screen.getByText("Default: calm drop")).toBeInTheDocument();
@@ -182,7 +197,7 @@ describe("focus timer settings", () => {
     const bridge = fakeDesktop(stateWith());
     bridge.chooseSound.mockResolvedValueOnce({ state: stateWith(), error: "size" } as never);
     const user = userEvent.setup();
-    show(<FocusTimerSettings />);
+    show(<SoundSettings />);
     await user.click(await screen.findByRole("button", { name: "Choose your own sound for New in Review" }));
     expect(bridge.chooseSound).toHaveBeenCalledWith("review", { title: "Choose a sound", filter: "Sounds" });
     const dialog = await screen.findByRole("alertdialog", { name: "This file isn't supported" });
@@ -212,13 +227,15 @@ describe("focus timer settings", () => {
     home.unmount();
 
     act(() => setLanguage("system"));
-    show(<FocusTimerSettings />);
+    show(<><FocusTimerSettings /><SoundSettings /></>);
     await screen.findByRole("radiogroup", { name: "Pomodoro type" });
     expect(await violations()).toEqual([]);
     act(() => setLanguage("ru"));
     expect(await screen.findByRole("radiogroup", { name: "Тип помодоро" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "Фокус, минут" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Выбрать свой звук: «Начало перерыва»" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Звуки" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Проигрывать звуки" })).toHaveAccessibleDescription("Работает и с включённым, и с выключенным таймером фокуса.");
   });
 });
 

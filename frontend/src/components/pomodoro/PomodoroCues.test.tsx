@@ -32,4 +32,14 @@ describe("timer sounds", () => {
     act(() => cue?.("review"));
     expect(playTimerSound).toHaveBeenCalledTimes(1);
   });
+
+  it("plays the Review sound with the focus timer off", async () => {
+    let cue: ((kind: PomodoroSoundKind) => void) | undefined;
+    const bridge = { get: vi.fn(async () => state({ enabled: false })), onState: vi.fn(() => () => {}), onCue: vi.fn((listener: (kind: PomodoroSoundKind) => void) => { cue = listener; return () => {}; }) };
+    (window as { projectBrainDesktop?: unknown }).projectBrainDesktop = { apiToken: "t", pomodoro: bridge };
+    render(<PomodoroCues />);
+    await waitFor(() => expect(cue).toBeDefined());
+    act(() => cue?.("review"));
+    expect(playTimerSound).toHaveBeenCalledWith("review", expect.objectContaining({ enabled: false }));
+  });
 });

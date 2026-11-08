@@ -186,6 +186,15 @@ function createTimer({ plan, onChange = () => {}, onCue = () => {}, now = Date.n
  * Items waiting in Review, as the main process sees them every few seconds. The dot shows while
  * anything waits; the sound plays only for items that are new since the last check.
  */
+/**
+ * Whether a sound plays. Sounds have their own switch: the Review sound plays with the focus timer
+ * on or off, while the break and back-to-work sounds belong to the timer.
+ */
+function shouldCue(kind, settings) {
+  if (!settings || !settings.soundsOn) return false;
+  return kind === "review" || Boolean(settings.enabled);
+}
+
 function createReviewWatch({ onChange = () => {}, onNew = () => {} } = {}) {
   let total = 0;
   return {
@@ -261,4 +270,5 @@ module.exports = {
   linuxDisplay,
   miniSize,
   placeOnScreen,
+  shouldCue,
 };

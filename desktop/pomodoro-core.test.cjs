@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { DEFAULT_SETTINGS, cleanSettings, cornerPosition, createReviewWatch, createTimer, durations, linuxDisplay, miniSize, placeOnScreen } = require("./pomodoro-core.cjs");
+const { DEFAULT_SETTINGS, cleanSettings, cornerPosition, createReviewWatch, createTimer, durations, linuxDisplay, miniSize, placeOnScreen, shouldCue } = require("./pomodoro-core.cjs");
 
 const MIN = 60_000;
 
@@ -210,4 +210,17 @@ test("a saved place is cleaned, and kept across other changes", () => {
   assert.equal(cleanSettings({ miniPosition: { x: 1e9, y: 2 } }).miniPosition, null);
   const saved = cleanSettings({ miniPosition: { x: 40, y: 50 } });
   assert.deepEqual(cleanSettings({ volume: 10 }, saved).miniPosition, { x: 40, y: 50 });
+});
+
+test("sounds are on by default and separate from the timer: Review chimes with the timer off", () => {
+  assert.equal(DEFAULT_SETTINGS.soundsOn, true);
+  assert.equal(DEFAULT_SETTINGS.enabled, false);
+  const timerOff = cleanSettings({});
+  assert.equal(shouldCue("review", timerOff), true);
+  assert.equal(shouldCue("break", timerOff), false);
+  assert.equal(shouldCue("work", timerOff), false);
+  const timerOn = cleanSettings({ enabled: true });
+  assert.deepEqual(["review", "break", "work"].map((kind) => shouldCue(kind, timerOn)), [true, true, true]);
+  const muted = cleanSettings({ enabled: true, soundsOn: false });
+  assert.deepEqual(["review", "break", "work"].map((kind) => shouldCue(kind, muted)), [false, false, false]);
 });
