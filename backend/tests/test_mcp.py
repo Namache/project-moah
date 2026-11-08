@@ -108,7 +108,7 @@ async def seed(client: AsyncClient, tmp_path: Path) -> dict:
 async def test_tools_are_small_documented_and_hide_internals(database_url: str) -> None:
     async with agent(database_url) as session:
         tools = {t.name: t for t in (await session.list_tools()).tools}
-        assert len(tools) == 28 and all(n.startswith("brain_") for n in tools)
+        assert len(tools) == 29 and all(n.startswith("brain_") for n in tools)
         reads = {
             "brain_brief",
             "brain_second_opinion",
@@ -787,3 +787,72 @@ async def test_agents_archive_and_restore_tasks_only_on_request(
         )
         # Nothing became a proposal: the person asked, so it was done.
         assert (await client.get(f"/api/projects/{a}/proposals")).json() == []
+
+
+async def test_agents_archive_and_restore_memory_only_on_request(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        world = await seed(client, tmp_path)
+        a = world["a"]
+        rule = (
+            await client.post(
+                "/api/projects/global/memory",
+                json={"type": "rule", "title": "Use tabs", "content": "Old style rule"},
+            )
+        ).json()["human_id"]
+        note = (
+            await client.post(
+                f"/api/projects/{a}/memory", json={"type": "note", "title": "Try the blue theme"}
+            )
+        ).json()["human_id"]
+        shut = (
+            await client.post(
+                f"/api/projects/{a}/memory",
+                json={"type": "decision", "title": "Keep saves local", "is_locked": True},
+            )
+        ).json()["human_id"]
+    async with agent(database_url) as session:
+        error, text = await call(
+            session, "brain_archive_memories", project="global", memories=[rule], person_asked=""
+        )
+        assert error and "brain_create_proposal" in text
+
+        error, result = await call(
+            session,
+            "brain_archive_memories",
+            project="global",
+            memories=[rule],
+            person_asked="archive the tabs rule, it's outdated",
+        )
+        assert not error and result["archived"][0]["memory"] == rule
+
+        error, result = await call(
+            session,
+            "brain_archive_memories",
+            project="trailhead",
+            memories=[note, shut, "NOTE-999"],
+            person_asked="archive the blue theme note and the saves decision",
+        )
+        assert not error and [r["memory"] for r in result["archived"]] == [note]
+        assert {s["memory"] for s in result["skipped"]} == {shut, "NOTE-999"}
+        assert any("locked" in s["why"] for s in result["skipped"])
+
+        error, back = await call(
+            session,
+            "brain_archive_memories",
+            project="global",
+            memories=[rule],
+            restore=True,
+            person_asked="bring the tabs rule back",
+        )
+        assert not error and back["restored"][0]["memory"] == rule
+
+    async with app_client(database_url) as client:
+        assert (await client.get(f"/api/projects/global/memory/{rule}")).json()["status"] == (
+            "active"
+        )
+        events = (await client.get(f"/api/projects/{a}/activity")).json()
+        archived = [e for e in events if e["event_type"] == "MEMORY_ARCHIVED"]
+        assert len(archived) == 1
+        assert archived[0]["metadata"]["asked_by_person"].startswith("archive the blue theme")

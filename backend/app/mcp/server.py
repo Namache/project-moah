@@ -1111,6 +1111,74 @@ def build_server(
         return result
 
     @tool(WRITE)
+    def brain_archive_memories(
+        session: Session,
+        person_asked: str,
+        memories: list[str],
+        restore: bool = False,
+        project: str | None = None,
+    ) -> dict:
+        """Archive rules, decisions and other memory records, but ONLY when the person asked
+        you to in this conversation: never on your own initiative, never to tidy up. Archived
+        records leave the brief and context packs but keep their history, and can be restored.
+        person_asked: the person's own words asking for it, kept in each record's history.
+        memories: record IDs (RULE-015, DEC-004); project="global" for Global rules. restore:
+        true brings archived records back. Locked records stay the person's: suggest those
+        with brain_create_proposal, like anything the person did not ask for."""
+        asked = person_asked.strip()
+        if len(asked) < 3:
+            raise ValueError(
+                "person_asked must quote the person's request. Archive only when they asked; "
+                "otherwise suggest it with brain_create_proposal."
+            )
+        refs = list(dict.fromkeys(memories))
+        if not refs:
+            raise ValueError("Name the records to archive.")
+        if len(refs) > ARCHIVE_LIMIT:
+            raise ValueError(f"At most {ARCHIVE_LIMIT} records at a time; got {len(refs)}.")
+        found, _ = pick(session, project, write=True)
+        service = MemoryService(session)
+        note = {"asked_by_person": asked[:500], "by_agent_on_request": True}
+        changed: list[dict] = []
+        skipped: list[dict] = []
+        for ref in refs:
+            try:
+                row = service.get(found.id, ref)
+            except HTTPException:
+                skipped.append({"memory": ref, "why": "not found in this project"})
+                continue
+            if row.is_locked:
+                skipped.append(
+                    {"memory": row.human_id, "why": "locked: only the person can change it"}
+                )
+                continue
+            wanted = ("archived", "invalidated") if restore else ("active",)
+            if row.status not in wanted:
+                skipped.append({"memory": row.human_id, "why": f"it is {row.status}"})
+                continue
+            if restore:
+                service.restore(found.id, row.id, actor=agent, note=note)
+            else:
+                service.archive(found.id, row.id, actor=agent, note=note)
+            changed.append({"memory": row.human_id, "type": row.type, "title": row.title})
+        verb = "restored" if restore else "archived"
+        result: dict = {verb: changed, "count": len(changed)}
+        if skipped:
+            result["skipped"] = skipped
+        result["message"] = (
+            f"Nothing {verb}."
+            if not changed
+            else f"Tell the person what you {verb}."
+            + (
+                ""
+                if restore
+                else " They can restore a record from its details in Project Moah, or ask you "
+                "(restore=true)."
+            )
+        )
+        return result
+
+    @tool(WRITE)
     def brain_ask_person(
         session: Session,
         task: str,

@@ -307,18 +307,22 @@ class MemoryService:
         self.session.commit()
         return self.read(project_id, memory.id)
 
-    def archive(self, project_id: str, ref: str, actor: str = HUMAN) -> MemoryRead:
+    def archive(
+        self, project_id: str, ref: str, actor: str = HUMAN, note: dict | None = None
+    ) -> MemoryRead:
         memory = self.get(project_id, ref)
         self._require_unlocked(memory, actor)
         if memory.status != "active":
             raise conflict(f"{memory.human_id} is {memory.status} and cannot be archived")
         now = datetime.now(UTC)
         memory.status, memory.archived_at, memory.updated_at = "archived", now, now
-        self._log_memory(memory, "MEMORY_ARCHIVED", actor)
+        self._log_memory(memory, "MEMORY_ARCHIVED", actor, note)
         self.session.commit()
         return self.read(project_id, memory.id)
 
-    def restore(self, project_id: str, ref: str, actor: str = HUMAN) -> MemoryRead:
+    def restore(
+        self, project_id: str, ref: str, actor: str = HUMAN, note: dict | None = None
+    ) -> MemoryRead:
         memory = self.get(project_id, ref)
         if memory.status not in ("archived", "invalidated"):
             raise conflict(f"{memory.human_id} is {memory.status} and cannot be restored")
@@ -326,7 +330,7 @@ class MemoryService:
         memory.status = "active"
         memory.archived_at = memory.invalidated_at = None
         memory.updated_at = datetime.now(UTC)
-        self._log_memory(memory, "MEMORY_RESTORED", actor)
+        self._log_memory(memory, "MEMORY_RESTORED", actor, note)
         self.session.commit()
         return self.read(project_id, memory.id)
 
