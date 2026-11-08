@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
 import { Button } from "../ui";
 import { useGraphActions, useNodeLinks, useRelationshipTypes } from "../../hooks/useGraph";
-import { relationshipLabel, type GraphNode, type TypedLink } from "../../types/graph";
+import { relationshipGroupLabel, relationshipLabel, type GraphNode, type TypedLink } from "../../types/graph";
 import { labels, msg, t } from "../../lib/i18n";
 
 const strengths = [
@@ -77,7 +77,7 @@ export function TypedLinks({ projectId, node, readonly, onOpen }: { projectId: s
         <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_minmax(0,7rem)_auto]">
           <label className="sr-only" htmlFor={`rel-${node}`}>{t("Relationship")}</label>
           <select id={`rel-${node}`} className="field-input" value={relationship} onChange={(event) => setRelationship(event.target.value)}>
-            {groups.map(([group, names]) => <optgroup key={group} label={group}>{names.map((name) => <option key={name} value={name}>{relationshipLabel(name)}</option>)}</optgroup>)}
+            {groups.map(([group, names]) => <optgroup key={group} label={relationshipGroupLabel(group)}>{names.map((name) => <option key={name} value={name}>{relationshipLabel(name)}</option>)}</optgroup>)}
           </select>
           <label className="sr-only" htmlFor={`target-${node}`}>{t("Linked record")}</label>
           <input id={`target-${node}`} className="field-input" value={target} maxLength={1100} onChange={(event) => setTarget(event.target.value)} placeholder={t("DEC-003, PB-12, file:src/save.gd, shelf:Inventory")} />
