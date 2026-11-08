@@ -1,8 +1,8 @@
 "use strict";
 
 // Interface and text size (Settings > Accessibility). The choice is saved in the settings folder,
-// not in the page's storage: the window's address changes on every start, and the page's
-// storage would start empty each time.
+// not in the page's storage: it must apply before the page loads, and the window's address can
+// still change when the last run's port is taken.
 
 const { readFileSync, writeFileSync } = require("node:fs");
 

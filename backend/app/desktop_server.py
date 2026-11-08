@@ -10,9 +10,40 @@ from threading import Thread
 
 from app.core.resources import resource_path
 
+PORT_ENV = "PROJECT_BRAIN_PORT"
+
+
+def preferred_port() -> int | None:
+    """The port the desktop app used last time, which Electron passes back on the next start."""
+    value = os.getenv(PORT_ENV, "")
+    return int(value) if value.isdigit() and 1024 <= int(value) <= 65535 else None
+
+
+def loopback_listener(preferred: int | None = None) -> socket.socket:
+    """A listening loopback socket, on the preferred port when it is free, else on any free port.
+
+    The window's page storage (theme, language, folded sections and other small choices) belongs
+    to its address, port included, so a new port on every start would forget them all.
+    """
+    for port in (preferred, 0) if preferred else (0,):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            # Lets the port be used again right after the last run closed. Windows needs no such
+            # option, and there it would let another program share the port.
+            if port and os.name != "nt":
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", port))
+            listener.listen(128)
+            return listener
+        except OSError:
+            listener.close()
+            if not port:
+                raise
+    raise OSError("No loopback port is free")
+
 
 async def serve() -> bool:
-    """Start on an available loopback port and announce it after startup succeeds."""
+    """Start on the last run's loopback port, or a free one, and announce it once started."""
     # Imported here, not at the top: the same executable serves agents (--mcp) and their
     # start-up brief, which need neither the web server nor the app's HTTP routes.
     import uvicorn
@@ -52,9 +83,7 @@ async def serve() -> bool:
 
     loop = asyncio.get_running_loop()
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(128)
+    with loopback_listener(preferred_port()) as listener:
         listener.setblocking(False)
         port = listener.getsockname()[1]
         Thread(target=stop_when_stdin_closes, daemon=True).start()

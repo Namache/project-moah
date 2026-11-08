@@ -8,6 +8,7 @@ const { homedir } = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const display = require("./display.cjs");
+const { readServicePort, saveServicePort } = require("./serviceport.cjs");
 const { createErrorLog } = require("./errorlog.cjs");
 const { createPomodoro, relaunchForX11 } = require("./pomodoro.cjs");
 
@@ -191,12 +192,18 @@ function stopBackend() {
   return stopPromise;
 }
 
+function servicePortPath() {
+  return path.join(app.getPath("userData"), "service-port.json");
+}
+
 function startBackend() {
   return new Promise((resolve, reject) => {
     const executable = backendExecutable();
+    // The same port as last time keeps the window's address, and with it the page's saved choices.
+    const lastPort = readServicePort(servicePortPath());
     const child = spawn(executable, [], {
       cwd: path.dirname(executable),
-      env: { ...process.env, PROJECT_BRAIN_DESKTOP_TOKEN: apiToken, PROJECT_BRAIN_DESKTOP_ERROR_LOG: errorLogPath, PYTHONUNBUFFERED: "1" },
+      env: { ...process.env, PROJECT_BRAIN_DESKTOP_TOKEN: apiToken, PROJECT_BRAIN_DESKTOP_ERROR_LOG: errorLogPath, PYTHONUNBUFFERED: "1", ...(lastPort ? { PROJECT_BRAIN_PORT: String(lastPort) } : {}) },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -226,6 +233,10 @@ function startBackend() {
           return;
         }
         ready = true;
+        if (port !== lastPort) {
+          if (lastPort) writeLog(`[service] port ${lastPort} was taken; using ${port}`);
+          if (!saveServicePort(servicePortPath(), port)) writeLog("[service] could not remember the port for the next start");
+        }
         if (!settled) {
           settled = true;
           clearTimeout(timeout);
