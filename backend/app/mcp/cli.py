@@ -53,6 +53,12 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         "wrote); reads the hook's JSON on standard input and prints nothing",
     )
     parser.add_argument(
+        "--session-id",
+        default=None,
+        help="the agent's session id, for installs where the agent's environment does not reach "
+        "this server (a Flatpak started from a container); Connect adds it",
+    )
+    parser.add_argument(
         "--cwd",
         default=None,
         help="working folder used to find the project (--brief: defaults to Claude Code's "
@@ -135,6 +141,10 @@ def main(argv: list[str] | None = None) -> int:
             engine.dispose()
         return 0
     from app.mcp.server import build_server
+    from app.services.agent_sessions import SESSION_ENV
+
+    if args.session_id:  # what Claude Code puts in the environment, when only arguments arrive
+        os.environ[SESSION_ENV] = args.session_id
 
     try:
         # stdout belongs to the protocol; anything human-readable goes to stderr.
