@@ -111,6 +111,21 @@ class ReviewDecision(BaseModel):
         return _clean_items(items)
 
 
+class ReviewReopen(BaseModel):
+    """Taking back an acceptance: what is wrong, for the next agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    comment: str = Field(min_length=1, max_length=20_000)
+
+    @field_validator("comment")
+    @classmethod
+    def comment_has_words(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Say what is wrong, so the agent knows what to fix")
+        return value.strip()
+
+
 class FollowUpCreate(BaseModel):
     """Lines of a review (what was not done, an unmet criterion) to make into tasks."""
 
@@ -126,6 +141,21 @@ class FollowUpCreate(BaseModel):
         if not cleaned:
             raise ValueError("Give at least one line to make into a task")
         return cleaned
+
+
+class CheckpointNote(UtcModel):
+    """A checkpoint a drafted review was picked from, shown whole under the review."""
+
+    title: str
+    created_at: datetime
+    agent: str | None
+    summary: str
+    completed_work: str
+    remaining_work: str
+    problems: str
+    next_steps: str
+    # False when the checkpoint was filed under another task and only names this one.
+    filed_here: bool
 
 
 class FollowUp(BaseModel):
@@ -176,6 +206,11 @@ class ReviewRound(UtcModel):
     follow_ups: list[FollowUp] = Field(default_factory=list)
     screenshots: list[ReviewFileRead] = Field(default_factory=list)
     feedback: list[ReviewFileRead] = Field(default_factory=list)
+    # For a review drafted from checkpoints (generated): what the agent planned next, the
+    # checkpoints it came from, and whether lines about other tasks were left out.
+    next_steps: list[str] = Field(default_factory=list)
+    notes: list[CheckpointNote] = Field(default_factory=list)
+    left_out: bool = False
 
 
 class ReviewCriterion(BaseModel):

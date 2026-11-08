@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { DEFAULT_SETTINGS, cleanSettings, cornerPosition, createReviewWatch, createTimer, durations, linuxDisplay, miniSize } = require("./pomodoro-core.cjs");
+const { DEFAULT_SETTINGS, cleanSettings, cornerPosition, createReviewWatch, createTimer, durations, linuxDisplay, miniSize, placeOnScreen } = require("./pomodoro-core.cjs");
 
 const MIN = 60_000;
 
@@ -43,7 +43,7 @@ function harness(settings = { ...DEFAULT_SETTINGS }) {
 
 test("starts idle with the focus length of the chosen rhythm", () => {
   const h = harness({ ...DEFAULT_SETTINGS, preset: "40-10" });
-  assert.deepEqual(h.timer.snapshot(), { phase: "idle", running: false, endsAt: null, remainingMs: 40 * MIN, totalMs: 40 * MIN });
+  assert.deepEqual(h.timer.snapshot(), { phase: "idle", running: false, waiting: false, endsAt: null, remainingMs: 40 * MIN, totalMs: 40 * MIN });
   assert.equal(h.ticking, false);
 });
 
@@ -54,26 +54,25 @@ test("goes round by itself: focus, break with the chime, focus with the back-to-
   h.advance(25 * MIN - 1);
   assert.deepEqual(h.cues, []);
   h.advance(1);
-  assert.equal(h.timer.snapshot().phase, "break");
-  assert.equal(h.timer.snapshot().remainingMs, 5 * MIN);
+  assert.deepEqual({ phase: h.timer.snapshot().phase, running: h.timer.snapshot().running, waiting: h.timer.snapshot().waiting, left: h.timer.snapshot().remainingMs }, { phase: "break", running: true, waiting: false, left: 5 * MIN });
   assert.deepEqual(h.cues, ["break"]);
   h.advance(5 * MIN);
-  assert.equal(h.timer.snapshot().phase, "focus");
+  assert.deepEqual({ phase: h.timer.snapshot().phase, running: h.timer.snapshot().running }, { phase: "focus", running: true });
   assert.deepEqual(h.cues, ["break", "work"]);
 });
 
-test("pause keeps the time left, and resume carries on from it", () => {
+test("pause works at any moment, in focus and in a break", () => {
   const h = harness();
   h.timer.start();
-  h.advance(10 * MIN);
+  h.advance(1_000);
   h.timer.pause();
-  assert.equal(h.ticking, false);
-  assert.deepEqual({ ...h.timer.snapshot(), endsAt: null }, { phase: "focus", running: false, endsAt: null, remainingMs: 15 * MIN, totalMs: 25 * MIN });
-  h.advance(60 * MIN);
-  assert.equal(h.timer.snapshot().remainingMs, 15 * MIN);
+  assert.equal(h.timer.snapshot().running, false);
+  assert.equal(h.timer.snapshot().waiting, false);
   h.timer.start();
-  h.advance(15 * MIN);
-  assert.equal(h.timer.snapshot().phase, "break");
+  h.advance(25 * MIN - 1_000);
+  h.advance(2 * MIN);
+  h.timer.pause();
+  assert.deepEqual({ phase: h.timer.snapshot().phase, running: h.timer.snapshot().running, left: h.timer.snapshot().remainingMs }, { phase: "break", running: false, left: 3 * MIN });
 });
 
 test("skip moves to the next phase without a sound and keeps a paused timer paused", () => {
@@ -100,7 +99,7 @@ test("stop goes back to the start", () => {
   h.timer.start();
   h.advance(30 * MIN);
   h.timer.stop();
-  assert.deepEqual(h.timer.snapshot(), { phase: "idle", running: false, endsAt: null, remainingMs: 25 * MIN, totalMs: 25 * MIN });
+  assert.deepEqual(h.timer.snapshot(), { phase: "idle", running: false, waiting: false, endsAt: null, remainingMs: 25 * MIN, totalMs: 25 * MIN });
   assert.equal(h.ticking, false);
 });
 
@@ -136,6 +135,7 @@ test("settings from disk are cleaned", () => {
     soundsOn: false,
     volume: 100,
     miniSize: "small",
+    miniPosition: null,
     sounds: { break: null, work: { file: "work.ogg", name: "Bell.ogg" }, review: null },
   });
   assert.deepEqual(cleanSettings(null), { ...DEFAULT_SETTINGS, sounds: { break: null, work: null, review: null } });
@@ -186,4 +186,28 @@ test("knows when Linux runs on Wayland, where the corner timer needs XWayland", 
   assert.equal(linuxDisplay({ platform: "linux", env: { WAYLAND_DISPLAY: "wayland-0" }, ozonePlatform: "" }), "wayland");
   assert.equal(linuxDisplay({ platform: "linux", env: { WAYLAND_DISPLAY: "wayland-0" }, ozonePlatform: "x11" }), "x11");
   assert.equal(linuxDisplay({ platform: "linux", env: { DISPLAY: ":0" }, ozonePlatform: "" }), "x11");
+});
+
+test("a dragged corner timer keeps its place, pulled back inside the screen it is mostly on", () => {
+  const size = { width: 136, height: 64 };
+  const left = { x: 0, y: 0, width: 1920, height: 1040 };
+  const right = { x: 1920, y: 0, width: 2560, height: 1400 };
+  assert.equal(placeOnScreen(null, size, [left]), null);
+  assert.deepEqual(placeOnScreen({ x: 800, y: 300 }, size, [left, right]), { x: 800, y: 300 });
+  assert.deepEqual(placeOnScreen({ x: 3000, y: 1380 }, size, [left, right]), { x: 3000, y: 1336 });
+  assert.deepEqual(placeOnScreen({ x: 1880, y: 500 }, size, [left, right]), { x: 1920, y: 500 });
+  assert.deepEqual(placeOnScreen({ x: -50, y: -20 }, size, [left]), { x: 0, y: 0 });
+  // The see-through edge may hang over the monitor's edge, the oval may not.
+  assert.deepEqual(placeOnScreen({ x: 1900, y: 1000 }, size, [left], 8), { x: 1792, y: 984 });
+  assert.deepEqual(placeOnScreen({ x: -50, y: -20 }, size, [left], 8), { x: -8, y: -8 });
+  // Its monitor was unplugged: back to the corner.
+  assert.equal(placeOnScreen({ x: 3000, y: 300 }, size, [left]), null);
+});
+
+test("a saved place is cleaned, and kept across other changes", () => {
+  assert.deepEqual(cleanSettings({ miniPosition: { x: 12.4, y: 900.6 } }).miniPosition, { x: 12, y: 901 });
+  assert.equal(cleanSettings({ miniPosition: { x: "1", y: 2 } }).miniPosition, null);
+  assert.equal(cleanSettings({ miniPosition: { x: 1e9, y: 2 } }).miniPosition, null);
+  const saved = cleanSettings({ miniPosition: { x: 40, y: 50 } });
+  assert.deepEqual(cleanSettings({ volume: 10 }, saved).miniPosition, { x: 40, y: 50 });
 });

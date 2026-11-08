@@ -81,6 +81,20 @@ describe("focus timer on Home", () => {
     expect(screen.getByText("Paused")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
   });
+
+  it("waits for Start when a part ends, naming what comes next", async () => {
+    const bridge = fakeDesktop(stateWith({ timer: { phase: "break", running: false, waiting: true, remainingMs: 5 * 60_000, totalMs: 5 * 60_000 } }));
+    const user = userEvent.setup();
+    show(<FocusTimerWidget />);
+    expect(await screen.findByText("Break is ready")).toBeInTheDocument();
+    expect(screen.getByRole("timer")).toHaveTextContent("05:00");
+    await user.click(screen.getByRole("button", { name: "Start break" }));
+    expect(bridge.command).toHaveBeenCalledWith("start");
+
+    act(() => applyPomodoroState(stateWith({ timer: { phase: "focus", running: false, waiting: true, remainingMs: 25 * 60_000, totalMs: 25 * 60_000 } })));
+    expect(screen.getByText("Time to focus")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start focus" })).toBeInTheDocument();
+  });
 });
 
 describe("focus timer settings", () => {
@@ -128,7 +142,7 @@ describe("focus timer settings", () => {
     const bridge = fakeDesktop(stateWith());
     const user = userEvent.setup();
     show(<FocusTimerSettings />);
-    const sizes = await screen.findByRole("group", { name: "Corner timer size" });
+    const sizes = await screen.findByRole("group", { name: "Desktop timer size" });
     expect(within(sizes).getByRole("radio", { name: "Small" })).toBeChecked();
     await user.click(within(sizes).getByText("Large"));
     expect(bridge.update).toHaveBeenLastCalledWith({ miniSize: "large" });

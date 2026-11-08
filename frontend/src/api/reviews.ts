@@ -11,6 +11,9 @@ export const reviewsApi = {
   detail: (projectId: string, ref: string, signal?: AbortSignal) => request<ReviewDetail>(task(projectId, ref), { signal }),
   decide: (projectId: string, ref: string, { comment, ...rest }: ReviewDecisionInput) =>
     request<ReviewDetail>(`${task(projectId, ref)}/decision`, json("POST", { ...rest, comment: comment.trim() || null })),
+  /** Takes back an acceptance: the task goes back to In progress, and the comment reaches the next agent. */
+  reopen: (projectId: string, ref: string, comment: string) =>
+    request<ReviewDetail>(`${task(projectId, ref)}/reopen`, json("POST", { comment: comment.trim() })),
   /** Makes tasks from lines of the review: what was not done, or an unmet criterion. */
   followUps: (projectId: string, ref: string, items: string[], status: FollowUpColumn = "todo") =>
     request<ReviewDetail>(`${task(projectId, ref)}/follow-ups`, json("POST", { items, status })),

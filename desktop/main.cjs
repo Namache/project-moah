@@ -8,6 +8,7 @@ const { homedir } = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const display = require("./display.cjs");
+const { readServicePort, saveServicePort } = require("./serviceport.cjs");
 const { createErrorLog } = require("./errorlog.cjs");
 const { createPomodoro, relaunchForX11 } = require("./pomodoro.cjs");
 
@@ -124,12 +125,20 @@ const RUSSIAN = {
   "An agent needs your answer": "Агенту нужен ваш ответ",
   "{count} items wait for your review": "Ждут вашей проверки: {count}",
   "{agent} in {project}: {title}": "{agent} в «{project}»: {title}",
-  "Open Review to accept them, or reject them with comments.": "Откройте «На проверке», чтобы принять или отклонить с комментариями.",
+  "Open Review to accept them, or send them back with comments.": "Откройте «На проверке», чтобы принять или вернуть агенту с комментариями.",
   "Focus": "Фокус",
   "Break": "Перерыв",
   "Paused": "На паузе",
+  "Ready": "Готов",
   "{count} waiting for review": "Ждут проверки: {count}",
   "{time} left": "Осталось {time}",
+  "Start": "Начать",
+  "Resume": "Продолжить",
+  "Pause": "Пауза",
+  "Start focus": "Начать фокус",
+  "Start break": "Начать перерыв",
+  "Break is ready": "Пора на перерыв",
+  "Time to focus": "Пора за работу",
 };
 function say(text, vars = {}) {
   const chosen = app.getLocale().toLowerCase().startsWith("ru") ? RUSSIAN[text] ?? text : text;
@@ -183,12 +192,18 @@ function stopBackend() {
   return stopPromise;
 }
 
+function servicePortPath() {
+  return path.join(app.getPath("userData"), "service-port.json");
+}
+
 function startBackend() {
   return new Promise((resolve, reject) => {
     const executable = backendExecutable();
+    // The same port as last time keeps the window's address, and with it the page's saved choices.
+    const lastPort = readServicePort(servicePortPath());
     const child = spawn(executable, [], {
       cwd: path.dirname(executable),
-      env: { ...process.env, PROJECT_BRAIN_DESKTOP_TOKEN: apiToken, PROJECT_BRAIN_DESKTOP_ERROR_LOG: errorLogPath, PYTHONUNBUFFERED: "1" },
+      env: { ...process.env, PROJECT_BRAIN_DESKTOP_TOKEN: apiToken, PROJECT_BRAIN_DESKTOP_ERROR_LOG: errorLogPath, PYTHONUNBUFFERED: "1", ...(lastPort ? { PROJECT_BRAIN_PORT: String(lastPort) } : {}) },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -218,6 +233,10 @@ function startBackend() {
           return;
         }
         ready = true;
+        if (port !== lastPort) {
+          if (lastPort) writeLog(`[service] port ${lastPort} was taken; using ${port}`);
+          if (!saveServicePort(servicePortPath(), port)) writeLog("[service] could not remember the port for the next start");
+        }
         if (!settled) {
           settled = true;
           clearTimeout(timeout);
@@ -378,7 +397,6 @@ async function openWindow(port) {
     if (details.reason !== "clean-exit") recordError(`The app window stopped (${details.reason}, code ${details.exitCode}).`);
   });
   window.webContents.on("preload-error", (event, preloadPath, error) => recordError(`The window's preload script failed: ${error.message}`, error.stack ?? ""));
-  pomodoro?.attachWindow(window);
   window.webContents.on("will-navigate", stayInApp);
   window.webContents.on("will-redirect", stayInApp);
   // The saved interface size, or Automatic for this screen, from the first paint on.
@@ -417,6 +435,9 @@ async function openWindow(port) {
     event.preventDefault();
     window.hide();
   });
+  // The desktop timer is a window too, so "all windows closed" never comes while it shows:
+  // Moah's own window really closing (not hiding to the tray) ends the app.
+  window.on("closed", () => app.quit());
   // Windows is shutting down or signing out: a hidden window must not hold that up.
   window.on("session-end", () => {
     quitting = true;
@@ -530,12 +551,12 @@ async function checkReviews(port) {
   if (!Notification.isSupported()) return;
   const many = (count) => say("{count} items wait for your review", { count });
   if (first && pending.total > 0) {
-    notify(pending.total === 1 ? say("Work is ready for your review") : many(pending.total), say("Open Review to accept them, or reject them with comments."));
+    notify(pending.total === 1 ? say("Work is ready for your review") : many(pending.total), say("Open Review to accept them, or send them back with comments."));
   } else if (fresh.length === 1) {
     const [item] = fresh;
     notify(say(item.question ? "An agent needs your answer" : "Work is ready for your review"), say("{agent} in {project}: {title}", { agent: item.agent, project: item.project_name, title: item.title }));
   } else if (fresh.length > 1) {
-    notify(many(fresh.length), say("Open Review to accept them, or reject them with comments."));
+    notify(many(fresh.length), say("Open Review to accept them, or send them back with comments."));
   }
 }
 

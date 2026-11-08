@@ -174,3 +174,18 @@ async def test_git_never_inherits_the_services_input(
     report = (await client.get("/api/system/diagnostics")).json()
     assert report["git"]["version"] == "git version 2.47.0"
     assert seen == [subprocess.DEVNULL, subprocess.DEVNULL]
+
+
+def test_diagnostics_counts_the_tools_inside_the_flatpak_too(monkeypatch) -> None:
+    """Diagnostics counts the MCP tools on a server built without a database. Inside the
+    Flatpak, brain_submit_review's screenshot folder used to ask that missing database."""
+    from app.services.system import mcp_tool_count
+
+    outside = mcp_tool_count()
+    real_exists = Path.exists
+
+    def exists(self, *args, **kwargs):
+        return str(self) == "/.flatpak-info" or real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    assert mcp_tool_count() == outside > 20

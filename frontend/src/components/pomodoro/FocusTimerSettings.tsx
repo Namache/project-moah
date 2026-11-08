@@ -150,7 +150,7 @@ export function FocusTimerSettings() {
             )}
           </div>
 
-          <Choice name="pomodoro-mini-size" legend={t("Corner timer size")} value={s.miniSize} onChange={(miniSize) => save({ miniSize })} choices={miniSizes.map((c) => ({ ...c, label: t(c.label) }))} />
+          <Choice name="pomodoro-mini-size" legend={t("Desktop timer size")} value={s.miniSize} onChange={(miniSize) => save({ miniSize })} choices={miniSizes.map((c) => ({ ...c, label: t(c.label) }))} />
 
           <div className="space-y-3">
             <label className="flex items-start gap-3 text-sm text-ink">
