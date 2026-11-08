@@ -302,6 +302,34 @@ def possible_duplicates(
     return {"possible_duplicates": same, "duplicates_hint": DUPLICATE_HINT} if same else {}
 
 
+NEAR_MISS = "all words but one"
+
+
+def near_misses(
+    search: SearchService, query: str, found: list[dict], options: dict[str, Any], room: int
+) -> list[dict]:
+    """Records with every meaningful word of the query but one, best first, that ``found``
+    does not hold yet. Only for three words or more: of two, one word is too loose a match."""
+    from app.services.search import STOPWORDS, TERM_PATTERN
+
+    terms = list(
+        dict.fromkeys(t for t in TERM_PATTERN.findall(query) if t.casefold() not in STOPWORDS)
+    )
+    if len(terms) < 3 or room <= 0:
+        return []
+    seen = {(h["entity_type"], h["entity_id"]) for h in found}
+    extra: list[dict] = []
+    for index in range(len(terms)):
+        rest = " ".join(terms[:index] + terms[index + 1 :])
+        for hit in search.search(rest, **{**options, "limit": room})["items"]:
+            key = (hit["entity_type"], hit["entity_id"])
+            if key not in seen:
+                seen.add(key)
+                extra.append(hit)
+    extra.sort(key=lambda h: -h["score"])
+    return extra[:room]
+
+
 def _message(error: Exception) -> str:
     if isinstance(error, HTTPException):
         text = str(error.detail)
@@ -902,10 +930,21 @@ def build_server(
         keys = ["entity_type", "human_id", "title", "snippet"]
         keys += [] if loose else ["status"]
         keys += ["project_name"] if scope == "all" else []
+        rows = [{k: h[k] for k in keys} for h in result["items"]]
+        total = result["total"]
+        if not loose and 0 < total < ANY_WORD_LIMIT:
+            # One weak record with every word (a checkpoint quoting the query) must not hide
+            # the decision that has all but one of them: "offline gold cap" finds "Offline gold
+            # started" and "Offline gains: at most 8 hours" ("offline", "gold" in its text).
+            extra = near_misses(search, query, result["items"], options, ANY_WORD_LIMIT - total)
+            rows += [
+                {**{k: h[k] for k in keys if k != "status"}, "match": NEAR_MISS} for h in extra
+            ]
+            total += len(extra)
         return {
             **({"matched": ANY_WORD_NOTE} if loose else {}),
-            "total": result["total"],
-            "results": [{k: h[k] for k in keys} for h in result["items"]],
+            "total": total,
+            "results": rows,
         }
 
     @tool(READ)

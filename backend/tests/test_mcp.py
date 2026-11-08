@@ -213,6 +213,44 @@ async def test_after_the_brief_calls_without_a_project_use_the_briefed_one(
     assert [n["title"] for n in notes] == ["Tents hold two"]
 
 
+async def test_one_weak_match_does_not_hide_the_record_that_answers(
+    database_url: str, tmp_path: Path
+) -> None:
+    """A checkpoint quoting every word of "offline gold cap" used to be the only result, and the
+    decision that answers it was never shown, because loose matches ran only for no result."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        for body in (
+            {
+                "type": "decision",
+                "title": "Offline gains: at most 8 hours",
+                "content": "Offline gold is paid at half rate.",
+            },
+            {"type": "fact", "title": "Gold is a float", "content": "Shown rounded down."},
+        ):
+            assert (await client.post(f"/api/projects/{a}/memory", json=body)).status_code == 201
+        await client.post(
+            f"/api/projects/{a}/checkpoints",
+            json={
+                "title": "Offline gold started",
+                "summary": "The cap comes next.",
+                "agent": "claude",
+            },
+        )
+    async with agent(database_url) as session:
+        error, found = await call(
+            session, "brain_search", query="offline gold cap", project="trailhead"
+        )
+        titles = [r["title"] for r in found["results"]]
+        assert not error and titles[0] == "Offline gold started", found
+        assert "Offline gains: at most 8 hours" in titles and "Gold is a float" not in titles
+        near = found["results"][titles.index("Offline gains: at most 8 hours")]
+        assert near["match"] == "all words but one" and found["total"] == len(titles)
+        # Two words: one of them is too loose, so nothing is added.
+        error, found = await call(session, "brain_search", query="gold float", project="trailhead")
+        assert not error and [r["title"] for r in found["results"]] == ["Gold is a float"]
+
+
 async def test_reads_stay_in_the_chosen_project(database_url: str, tmp_path: Path) -> None:
     async with app_client(database_url) as client:
         world = await seed(client, tmp_path)
