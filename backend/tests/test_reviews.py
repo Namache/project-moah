@@ -205,6 +205,8 @@ async def test_a_review_round_trip_accept_after_a_send_back(
 async def test_a_task_moved_to_review_without_a_review_shows_its_checkpoint(
     database_url: str, tmp_path: Path
 ) -> None:
+    """Agents can't move a task to review without a report, but a person can drag it there on
+    the board, and tasks moved before the rule have none either: they show the checkpoint."""
     async with app_client(database_url) as client:
         w = await world(client, tmp_path)
     pid, task = w["pid"], w["task"]
@@ -221,18 +223,12 @@ async def test_a_task_moved_to_review_without_a_review_shows_its_checkpoint(
             problems="Colours are off in dark mode",
         )
         assert not error
-        # An old-style "complete this task" proposal moves the task to review instead.
-        error, out = await call(
-            session,
-            "brain_create_proposal",
-            project="trailhead",
-            proposal_type="complete_task",
-            target=task,
-            reason="Done",
-        )
-        assert not error and out["status"] == "review" and "brain_submit_review" in out["message"]
 
     async with app_client(database_url) as client:
+        moved = await client.post(
+            f"/api/projects/{pid}/tasks/{task}/move", json={"status": "review", "index": 0}
+        )
+        assert moved.status_code == 200, moved.text
         [item] = (await client.get("/api/reviews")).json()["waiting"]
         assert item["generated"] is True and item["agent"] == "claude"
         assert item["summary"] == "Badge added to camp cards."
@@ -283,12 +279,12 @@ async def test_a_batch_checkpoint_shows_only_the_lines_about_this_task(
         ):
             error, _ = await call(session, "brain_create_checkpoint", project="trailhead", **args)
             assert not error
-        error, _ = await call(
-            session, "brain_update_task", project="trailhead", task=task, status="review"
-        )
-        assert not error
 
     async with app_client(database_url) as client:
+        # Moved to Review on the board, as tasks without a report get there now.
+        await client.post(
+            f"/api/projects/{pid}/tasks/{task}/move", json={"status": "review", "index": 0}
+        )
         url = f"/api/projects/{pid}/tasks/{task}/review"
         current = (await client.get(url)).json()["current"]
         assert current["generated"] is True and current["left_out"] is True
@@ -311,6 +307,58 @@ async def test_a_batch_checkpoint_shows_only_the_lines_about_this_task(
         assert current["status"] == "accepted" and current["id"]
         assert current["done"][1] == "Badge wired to the camp list. Full camps show 0."
         assert current["next_steps"] == ["Add a test for a full camp."]
+
+
+async def test_agents_hand_finished_work_over_only_with_a_report(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    async with agent(database_url) as session:
+        for status in ("review", "completed"):
+            error, out = await call(
+                session,
+                "brain_update_task",
+                project="trailhead",
+                task=task,
+                status=status,
+                next_action="Check the badge",
+            )
+            assert error and f"{task} was not moved to review, and nothing changed" in out
+            assert f'brain_submit_review(task="{task}"' in out
+        error, out = await call(
+            session,
+            "brain_create_proposal",
+            project="trailhead",
+            proposal_type="complete_task",
+            target=task,
+            reason="Done",
+        )
+        assert error and "brain_submit_review" in out
+        error, out = await call(session, "brain_get_task", project="trailhead", task=task)
+        assert not error and out["status"] == "in_progress"
+        assert out["next_action"] != "Check the badge"
+
+    async with app_client(database_url) as client:
+        assert (await client.get("/api/reviews")).json()["waiting"] == []
+        # Dragged to Review by the person, it waits there without a report ...
+        await client.post(
+            f"/api/projects/{pid}/tasks/{task}/move", json={"status": "review", "index": 0}
+        )
+    async with agent(database_url) as session:
+        error, out = await call(
+            session, "brain_update_task", project="trailhead", task=task, status="review"
+        )
+        assert error and f"{task} waits in review without your report" in out
+
+    # ... and once the agent's report waits, setting the status again is harmless.
+    submit_review(database_url, pid, task)
+    async with agent(database_url) as session:
+        error, out = await call(
+            session, "brain_update_task", project="trailhead", task=task, status="completed"
+        )
+        assert not error and out["status"] == "review"
 
 
 async def test_suggestions_share_the_timeline_and_a_send_back_settles_them(
