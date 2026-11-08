@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LoaderCircle, Mic, Square } from "lucide-react";
 import { useDictationAvailable } from "./useDictationAvailable";
-import { dictationApi } from "../../api/dictation";
-import { insertDictation, startRecording } from "../../lib/recorder";
+import { dictationApi, serverText } from "../../api/dictation";
+import { insertDictation } from "../../lib/recorder";
+import { microphoneProblem, openMicrophone } from "../../lib/dictationInput";
 import { LiveDictation } from "../../lib/liveDictation";
 import { readDictationLanguage } from "../../lib/dictationLanguage";
 import { fieldName, isDictatable, setFieldValue, type TextField } from "../../lib/dictationTarget";
@@ -108,7 +109,7 @@ export function DictationDock({ inline = false }: { inline?: boolean }) {
     target.current = { field, value, start: field.selectionStart ?? value.length, end: field.selectionEnd ?? value.length };
     setPhase("starting");
     try {
-      const recording = await startRecording(() => void stop());
+      const recording = await openMicrophone(() => void stop());
       // With Automatic, the language heard first is kept for the rest of this dictation: detecting it again each time is slower.
       let language = readDictationLanguage();
       live.current = new LiveDictation(
@@ -126,10 +127,7 @@ export function DictationDock({ inline = false }: { inline?: boolean }) {
     } catch (reason) {
       target.current = null;
       setPhase("idle");
-      const name = reason instanceof DOMException ? reason.name : "";
-      setMessage(name === "NotAllowedError" || name === "SecurityError"
-        ? t("Microphone access was refused. Allow it in your system settings, then try again.")
-        : name === "NotFoundError" ? t("No microphone was found.") : t("The microphone could not be started."));
+      setMessage(microphoneProblem(reason));
     }
   }
 
@@ -153,7 +151,7 @@ export function DictationDock({ inline = false }: { inline?: boolean }) {
       dictated.field.setSelectionRange(result.cursor, result.cursor);
     } catch (reason) {
       release();
-      setMessage(reason instanceof Error ? reason.message : t("Please try again."));
+      setMessage(reason instanceof Error ? serverText(reason.message) : t("Please try again."));
     } finally {
       target.current = null;
       setPhase("idle");

@@ -89,6 +89,16 @@ describe("settings", () => {
     const report = diagnosticReport(diag);
     expect(report).toContain("Migration: 0007_proposals");
     expect(report).toContain("Records: projects 2, tasks 5, pending proposals 1");
+    expect(report).not.toContain("Dictation");
+  });
+
+  it("puts how dictation did into the report and the card, with times and never words", async () => {
+    const dictation = { available: true, reason: null, engine: { loaded: true, load_seconds: 0.4, last_seconds: 1.2, last_audio_seconds: 3.4, last_finished: "2026-11-07T08:00:00+00:00", last_error: "The speech engine is still busy with an earlier recording. Wait a moment, or restart Project Moah if this keeps happening.", last_error_at: "2026-11-07T08:10:00+00:00", busy_since: null, threads: 7 } };
+    expect(diagnosticReport({ ...diag, dictation })).toContain("Dictation: ready, engine loaded in 0.4 s, 7 threads, last text 1.2 s for 3.4 s of audio at 2026-11-07T08:00:00+00:00, last error at 2026-11-07T08:10:00+00:00: The speech engine is still busy");
+    expect(diagnosticReport({ ...diag, dictation: { available: false, reason: "The speech model is not part of this build." } })).toContain("Dictation: off (The speech model is not part of this build.)");
+    vi.stubGlobal("fetch", vi.fn(async (u: RequestInfo | URL) => String(u) === "/api/system/diagnostics" ? Response.json({ ...diag, dictation }) : respond(String(u))));
+    renderAt();
+    expect(await screen.findByText(/^Works\. Last problem: The speech engine is still busy/)).toBeInTheDocument();
   });
 
   it("creates a backup with the app's credentials and says what it made", async () => {

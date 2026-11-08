@@ -1,5 +1,6 @@
 import { t } from "../lib/i18n";
 import { ApiError, authHeaders, json, request } from "./client";
+import type { DictationStatus } from "./dictation";
 
 export interface Diagnostics {
   app_version: string;
@@ -14,6 +15,8 @@ export interface Diagnostics {
   builds?: { installed: string; last_day: Record<string, number>; old_build_last_day: number };
   /** How many entries the local error log holds: counts and a time, never the messages. */
   errors?: { total: number; last_day: number; last: string | null };
+  /** Whether dictation works here and how the speech engine did lately: times, never words. */
+  dictation?: DictationStatus;
 }
 
 /** Where an error happened: the local service, an agent's MCP server, the desktop app, or the app window. */

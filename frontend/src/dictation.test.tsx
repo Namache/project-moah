@@ -1,17 +1,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DictationDock } from "./components/dictation/DictationDock";
-import { downsample, insertDictation, isQuiet, SampleStore, wavBytes } from "./lib/recorder";
+import { DictationSettings } from "./components/dictation/DictationSettings";
+import { dictationApi } from "./api/dictation";
+import { downsample, insertDictation, isQuiet, level, SampleStore, startRecording, wavBytes } from "./lib/recorder";
 import { LiveDictation } from "./lib/liveDictation";
 
-const recorder = vi.hoisted(() => ({ stop: vi.fn(), cancel: vi.fn(), fail: null as DOMException | null, samples: 0 }));
+const recorder = vi.hoisted(() => ({ stop: vi.fn(), cancel: vi.fn(), fail: null as DOMException | null, failWithDevice: null as DOMException | null, samples: 0 }));
 vi.mock("./lib/recorder", async (original) => ({
   ...(await original<typeof import("./lib/recorder")>()),
-  startRecording: vi.fn(async () => {
+  startRecording: vi.fn(async (_onLimit?: () => void, options?: { constraints?: MediaTrackConstraints }) => {
     if (recorder.fail) throw recorder.fail;
+    if (recorder.failWithDevice && options?.constraints?.deviceId) throw recorder.failWithDevice;
     return { rate: 16_000, length: () => recorder.samples, clip: () => new Blob(["wav"], { type: "audio/wav" }), quietBefore: () => false, stop: recorder.stop, cancel: recorder.cancel };
   }),
 }));
@@ -29,13 +32,16 @@ function Form({ title = "", details = "" }: { title?: string; details?: string }
   );
 }
 
-function setup({ available = true, text = "The save migration needs a test.", live = [] as string[] } = {}) {
+const ENGINE = { loaded: true, load_seconds: 0.4, last_seconds: 1.2, last_audio_seconds: 3.4, last_finished: "2026-11-07T08:00:00+00:00", last_error: null as string | null, last_error_at: null as string | null, busy_since: null, threads: 7 };
+const mic = (deviceId: string, label: string) => ({ kind: "audioinput", deviceId, label, groupId: "g" }) as MediaDeviceInfo;
+
+function setup({ available = true, text = "The save migration needs a test.", live = [] as string[], devices = [] as MediaDeviceInfo[], engine = ENGINE } = {}) {
   const calls: { url: string; method: string }[] = [];
-  vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: vi.fn() } });
+  vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: vi.fn(), enumerateDevices: vi.fn(async () => devices), addEventListener: vi.fn(), removeEventListener: vi.fn() } });
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
     const url = String(input), method = options?.method ?? "GET";
     calls.push({ url, method });
-    if (url === "/api/dictation/status") return Response.json({ available, reason: available ? null : "The speech model is not part of this build." });
+    if (url === "/api/dictation/status") return Response.json({ available, reason: available ? null : "The speech model is not part of this build.", engine });
     if (url.startsWith("/api/dictation/transcribe")) return Response.json({ text: live.shift() ?? text, language: "en" });
     return Response.json([]);
   }));
@@ -44,7 +50,7 @@ function setup({ available = true, text = "The save migration needs a test.", li
 }
 
 const renderApp = (props?: { title?: string; details?: string }) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><Form {...props} /><DictationDock /></QueryClientProvider>);
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); recorder.fail = null; vi.clearAllMocks(); localStorage.clear(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); recorder.fail = null; recorder.failWithDevice = null; vi.clearAllMocks(); localStorage.clear(); });
 
 describe("dictation", () => {
   it("writes into the field that was clicked, live while speaking, then puts in the final text at the cursor", async () => {
@@ -120,6 +126,138 @@ describe("dictation", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Stop dictating into Details" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("No speech was heard.");
     expect(screen.getByLabelText("Details")).toHaveValue("Keep me");
+  });
+});
+
+describe("dictation input", () => {
+  const constraintsOf = (call: number) => (vi.mocked(startRecording).mock.calls[call][1] as { constraints: MediaTrackConstraints }).constraints;
+
+  it("records from the microphone and sound settings chosen in Settings, found again by name", async () => {
+    setup({ devices: [mic("new-id", "USB headset"), mic("other", "Webcam")] });
+    localStorage.setItem("moah.dictationInput", JSON.stringify({ deviceId: "old-id", label: "USB headset", noiseSuppression: false, echoCancellation: true, autoGainControl: false }));
+    renderApp();
+    await userEvent.click(screen.getByLabelText("Details"));
+    await userEvent.click(await screen.findByRole("button", { name: "Dictate into Details" }));
+    await screen.findByRole("button", { name: "Stop dictating into Details" });
+    expect(constraintsOf(0)).toEqual({ channelCount: 1, noiseSuppression: false, echoCancellation: true, autoGainControl: false, deviceId: { exact: "new-id" } });
+  });
+
+  it("falls back to the default microphone when the chosen one will not open", async () => {
+    setup({ devices: [mic("usb", "USB headset")] });
+    localStorage.setItem("moah.dictationInput", JSON.stringify({ deviceId: "usb", label: "USB headset" }));
+    recorder.failWithDevice = new DOMException("in use", "NotReadableError");
+    renderApp();
+    await userEvent.click(screen.getByLabelText("Details"));
+    await userEvent.click(await screen.findByRole("button", { name: "Dictate into Details" }));
+    await screen.findByRole("button", { name: "Stop dictating into Details" });
+    expect(vi.mocked(startRecording)).toHaveBeenCalledTimes(2);
+    expect(constraintsOf(1).deviceId).toBeUndefined();
+  });
+
+  it("says what to do when the microphone is busy", async () => {
+    setup();
+    recorder.fail = new DOMException("in use", "NotReadableError");
+    renderApp();
+    await userEvent.click(screen.getByLabelText("Details"));
+    await userEvent.click(await screen.findByRole("button", { name: "Dictate into Details" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The microphone is in use by another app");
+  });
+
+  it("ends a reply that never comes with a clear message instead of waiting forever", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, options?: RequestInit) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    })));
+    const live = dictationApi.transcribe(new Blob(["wav"]), "auto", true);
+    const final = dictationApi.transcribe(new Blob([new Uint8Array(44 + 32_000 * 10)]), "auto", false);
+    const outcomes = [live.catch((error: Error) => error.message), final.catch((error: Error) => error.message)];
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await outcomes[0]).toContain("The speech engine took too long to answer.");
+    // The final text gets longer: 45 seconds plus two per second of speech.
+    let settled = false;
+    void outcomes[1].then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(44_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(21_000);
+    expect(await outcomes[1]).toContain("The speech engine took too long to answer.");
+  });
+
+  it("measures loudness on a scale where quiet speech still moves the bar", () => {
+    expect(level(new Float32Array(100))).toBe(0);
+    expect(level(new Float32Array(100).fill(1))).toBe(1);
+    expect(level(new Float32Array(100).fill(0.03))).toBeGreaterThan(0.4);
+  });
+});
+
+describe("dictation settings", () => {
+  const renderSettings = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><DictationSettings /></QueryClientProvider>);
+
+  it("picks a microphone and its sound clean-up, and remembers them", async () => {
+    setup({ devices: [mic("usb", "USB headset"), mic("cam", "")] });
+    renderSettings();
+    const picker = await screen.findByLabelText("Microphone");
+    expect(await screen.findByRole("option", { name: "USB headset" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Microphone 2" })).toBeInTheDocument();
+    await userEvent.selectOptions(picker, "usb");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Reduce background noise/ }));
+    expect(JSON.parse(localStorage.getItem("moah.dictationInput")!)).toEqual({ deviceId: "usb", label: "USB headset", noiseSuppression: false, echoCancellation: true, autoGainControl: true });
+    // Back to the defaults: nothing is kept.
+    await userEvent.selectOptions(picker, "");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Reduce background noise/ }));
+    expect(localStorage.getItem("moah.dictationInput")).toBeNull();
+  });
+
+  it("says when the chosen microphone is not connected", async () => {
+    setup({ devices: [mic("cam", "Webcam")] });
+    localStorage.setItem("moah.dictationInput", JSON.stringify({ deviceId: "usb", label: "USB headset" }));
+    renderSettings();
+    expect(await screen.findByText("USB headset is not connected, so the default microphone is used.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Microphone")).toHaveValue("");
+  });
+
+  it("tests the microphone with a live level bar and says it works", async () => {
+    const calls = setup();
+    renderSettings();
+    await userEvent.click(await screen.findByRole("button", { name: "Test the microphone" }));
+    expect(await screen.findByText("Say something. The bar moves while sound comes in.")).toBeInTheDocument();
+    const { onLevel } = vi.mocked(startRecording).mock.calls[0][1] as { onLevel: (value: number) => void };
+    act(() => onLevel(0.6));
+    expect(screen.getByRole("meter", { name: "Microphone level" })).toHaveAttribute("aria-valuenow", "60");
+    act(() => onLevel(0.1));
+    expect(screen.getByRole("meter", { name: "Microphone level" })).toHaveAttribute("aria-valuenow", "10");
+    await userEvent.click(screen.getByRole("button", { name: "Stop the microphone test" }));
+    expect(await screen.findByText("The microphone works.")).toBeInTheDocument();
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+    expect(recorder.cancel).toHaveBeenCalled();
+    // Nothing was sent to the speech engine: the test only listens.
+    expect(calls.some((call) => call.url.startsWith("/api/dictation/transcribe"))).toBe(false);
+  });
+
+  it("says when almost no sound comes in, and when the microphone will not start", async () => {
+    setup();
+    renderSettings();
+    await userEvent.click(await screen.findByRole("button", { name: "Test the microphone" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Stop the microphone test" }));
+    expect(await screen.findByText(/Almost no sound came in/)).toBeInTheDocument();
+    recorder.fail = new DOMException("denied", "NotAllowedError");
+    await userEvent.click(screen.getByRole("button", { name: "Test the microphone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Microphone access was refused.");
+  });
+
+  it("restarts a running test with a newly chosen microphone", async () => {
+    setup({ devices: [mic("usb", "USB headset")] });
+    renderSettings();
+    await userEvent.click(await screen.findByRole("button", { name: "Test the microphone" }));
+    await screen.findByRole("button", { name: "Stop the microphone test" });
+    await userEvent.selectOptions(screen.getByLabelText("Microphone"), "usb");
+    await waitFor(() => expect(vi.mocked(startRecording)).toHaveBeenCalledTimes(2));
+    expect((vi.mocked(startRecording).mock.calls[1][1] as { constraints: MediaTrackConstraints }).constraints.deviceId).toEqual({ exact: "usb" });
+  });
+
+  it("says why dictation is off", async () => {
+    setup({ available: false });
+    renderSettings();
+    expect(await screen.findByText("Dictation is off: The speech model is not part of this build.")).toBeInTheDocument();
   });
 });
 

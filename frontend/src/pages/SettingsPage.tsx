@@ -1,8 +1,8 @@
 import { AgentSettingsCard } from "../components/AgentSettingsCard";
 import { TaskSettingsCard } from "../components/TaskSettingsCard";
 import { FocusTimerSettings } from "../components/pomodoro/FocusTimerSettings";
-import { useDictationAvailable } from "../components/dictation/useDictationAvailable";
-import { dictationLanguages, useDictationLanguage } from "../lib/dictationLanguage";
+import { DictationSettings } from "../components/dictation/DictationSettings";
+import { serverText } from "../api/dictation";
 import { Choice } from "../components/Choice";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Check, ChevronRight, Copy, Download, Trash2 } from "lucide-react";
@@ -28,7 +28,18 @@ export function diagnosticReport(d: Diagnostics): string {
     `Records: ${Object.entries(d.counts).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(", ")}`,
     ...(d.builds ? [`Build: ${d.builds.installed}, packs from older builds in the last day: ${d.builds.old_build_last_day}`] : []),
     ...(d.errors ? [`Errors logged: ${d.errors.total}, in the last day: ${d.errors.last_day}${d.errors.last ? `, last at ${d.errors.last}` : ""}`] : []),
+    ...(d.dictation ? [dictationLine(d.dictation)] : []),
   ].join("\n");
+}
+
+function dictationLine({ available, reason, engine }: NonNullable<Diagnostics["dictation"]>): string {
+  if (!available) return `Dictation: off (${reason ?? "unknown reason"})`;
+  if (!engine) return "Dictation: ready";
+  const parts = [engine.loaded ? `engine loaded in ${engine.load_seconds ?? "?"} s` : "engine not loaded", `${engine.threads} threads`];
+  if (engine.last_seconds !== null && engine.last_audio_seconds !== null) parts.push(`last text ${engine.last_seconds} s for ${engine.last_audio_seconds} s of audio at ${engine.last_finished ?? "?"}`);
+  if (engine.busy_since) parts.push(`busy since ${engine.busy_since}`);
+  if (engine.last_error) parts.push(`last error at ${engine.last_error_at ?? "?"}: ${engine.last_error}`);
+  return `Dictation: ready, ${parts.join(", ")}`;
 }
 
 const SOURCE_NAMES: Record<ErrorSource, string> = { service: "local service", mcp: "MCP server", desktop: "desktop app", window: "app window" };
@@ -158,6 +169,7 @@ function Diagnostics() {
             <dt className="text-ink-muted">{t("Database")}</dt><dd>{healthy ? t("Healthy") : t("Needs attention: {integrity}, {count} link problems", { integrity: d.database.integrity, count: d.database.foreign_key_problems })} <span className="text-ink-subtle">({t("schema {name}", { name: d.database.migration ?? "?" })})</span></dd>
             <dt className="text-ink-muted">{t("Search")}</dt><dd>{d.database.search_index_ready ? t("Ready") : t("Unavailable")}</dd>
             <dt className="text-ink-muted">Git</dt><dd>{d.git.available ? d.git.version : t("Not available to Project Moah, so repository details are hidden")}</dd>
+            {d.dictation && <><dt className="text-ink-muted">{t("Dictation")}</dt><dd>{d.dictation.available ? (d.dictation.engine?.last_error ? t("Works. Last problem: {problem}", { problem: serverText(d.dictation.engine.last_error) }) : t("Works")) : t("Dictation is off: {reason}", { reason: serverText(d.dictation.reason ?? "") })}</dd></>}
             <dt className="text-ink-muted">{t("MCP server")}</dt><dd>{tp(d.mcp.tools, "{count} tool, started by your agent when needed", "{count} tools, started by your agent when needed")}</dd>
             {d.builds && <><dt className="text-ink-muted">{t("Build")}</dt><dd>{d.builds.installed}</dd></>}
             <dt className="text-ink-muted">{t("Contents")}</dt><dd>{Object.entries(d.counts).map(([k, v]) => countLabel(k, v)).join(", ")}</dd>
@@ -190,8 +202,6 @@ export function SettingsPage() {
   const backup = useMutation({ mutationFn: () => systemApi.downloadBackup() });
   const [theme, setTheme] = useTheme();
   const [language, setLanguage] = useLanguageChoice();
-  const dictation = useDictationAvailable();
-  const [dictationLanguage, setDictationLanguage] = useDictationLanguage();
   const d = diagnostics.data;
 
   return (
@@ -202,8 +212,11 @@ export function SettingsPage() {
         <div className="space-y-5">
           <Choice name="theme" legend={t("Theme")} value={theme} onChange={setTheme} choices={themeChoices.map((c) => ({ ...c, label: t(c.label) }))} />
           <SelectField id="app-language" label={t("Language")} value={language} onChange={(value) => setLanguage(value as typeof language)} choices={languageChoices.map((c) => ({ value: c.value, label: c.value === "system" ? t(c.label) : c.label }))} />
-          {dictation && <SelectField id="dictation-language" label={t("Dictation language")} help={t("Click any text field, then press the microphone in the corner or Ctrl+Shift+Space, and speak. Automatic works for any language but takes about a second longer.")} value={dictationLanguage} onChange={setDictationLanguage} choices={[{ value: "auto", label: t("Automatic") }, ...dictationLanguages.map((o) => ({ value: o.value, label: o.label }))]} />}
         </div>
+      </Card>
+
+      <Card id="settings-dictation" title={t("Dictation")}>
+        <DictationSettings />
       </Card>
 
       <AccessibilityCard />
