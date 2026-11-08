@@ -503,7 +503,6 @@ export const ru: Record<string, Translation> = {
   "how AI context works": "как работает контекст для ИИ",
   "What an agent gets when it asks Project Moah for context on a task, on top of its start-up brief. Never your whole project history. Estimates are approximate.": "Что агент получает, когда просит у Project Moah контекст по задаче, сверх стартовой вводной. Никогда не вся история проекта. Оценки приблизительные.",
   "Task": "Задача",
-  "No task (project overview)": "Без задачи (обзор проекта)",
   "Detail": "Подробность",
   "Size limit": "Ограничение размера",
   "size limit": "ограничение размера",
@@ -1896,4 +1895,8 @@ export const ru: Record<string, Translation> = {
   "Yesterday": "Вчера",
   "Unknown date": "Дата неизвестна",
   "Shelf": "Полка",
+  "Current focus ({id})": "Текущий фокус ({id})",
+  "Automatic (the agent's pick)": "Автоматически (выбор агента)",
+  "Context for {task}, picked automatically": "Контекст для {task}, выбрано автоматически",
+  "No task was chosen, so Moah picked the unfinished task an agent would continue. Choose a task above to see another.": "Задача не выбрана, поэтому Moah взял незаконченную задачу, которую продолжил бы агент. Выберите задачу выше, чтобы посмотреть другую.",
 };
