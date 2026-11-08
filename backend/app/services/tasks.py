@@ -276,7 +276,10 @@ class TaskService:
         self._commit("A task with this ID already exists in this project")
         return self.detail(project_id, task.id)
 
-    def update(self, project_id: str, task_ref: str, payload: TaskUpdate) -> TaskDetail:
+    def update(
+        self, project_id: str, task_ref: str, payload: TaskUpdate, note: dict | None = None
+    ) -> TaskDetail:
+        """note: extra facts for the activity log, such as the person's words an agent acted on."""
         task = self.get(project_id, task_ref)
         changes = payload.model_dump(exclude_unset=True)
         changed_fields = sorted(changes)
@@ -305,6 +308,7 @@ class TaskService:
                 "changed_fields": changed_fields,
                 "previous_status": previous_status,
                 "status": task.status,
+                **(note or {}),
             },
         )
         self._commit("The task could not be saved")
