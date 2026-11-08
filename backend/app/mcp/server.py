@@ -430,7 +430,16 @@ def build_server(
         return [*(TextContent(type="text", text=text) for text in notices.values()), *result]
 
     def pick(session: Session, project: str | None, cwd: str | None = None, *, write: bool = False):
-        found, how = resolve_project(session, project, cwd, default_project)
+        try:
+            found, how = resolve_project(session, project, cwd, default_project)
+        except ProjectChoiceError:
+            # A server shared by several folders (a desktop app) runs in none of them: the
+            # project this session's brief matched is the one the agent is working in, so a
+            # call that names neither a project nor a folder goes there, as the brief says.
+            remembered = briefed.get("project")
+            if (project or "").strip() or cwd is not None or remembered is None:
+                raise
+            found, how = resolve_project(session, remembered, None)[0], "this session's brief"
         if write and found.status == "archived":
             raise ValueError(f"{found.name} is archived. Ask a person to restore it first.")
         return found, how

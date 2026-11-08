@@ -178,6 +178,41 @@ async def test_project_detection_never_guesses(database_url: str, tmp_path: Path
         assert not error and text["project"]["found_by"] == "server setting"
 
 
+async def test_after_the_brief_calls_without_a_project_use_the_briefed_one(
+    database_url: str, tmp_path: Path
+) -> None:
+    """A desktop app runs one server for every folder, in none of them. The brief matched the
+    agent's folder and tells it to call brain_context_pack(task=...): that call, and the writes
+    after it, must reach the same project instead of failing to find one."""
+    async with app_client(database_url) as client:
+        world = await seed(client, tmp_path)
+    async with agent(database_url) as session:
+        error, text = await call(session, "brain_get_task", task="CAMP-001")
+        assert error and "Specify project explicitly" in text  # no brief yet: never a guess
+        error, text = await call(session, "brain_brief", cwd=str(world["root_a"] / "src"))
+        assert not error and "PROJECT: Trailhead" in text
+        error, text = await call(session, "brain_context_pack", task="CAMP-001")
+        assert not error and "CAMP-001" in text, text
+        error, made = await call(
+            session, "brain_create_memory", type="note", title="Tents hold two"
+        )
+        assert not error and made["created"].startswith("NOTE-")
+        # A folder or project the agent names still decides, and a folder no project owns
+        # still says so instead of falling back to the brief.
+        error, text = await call(session, "brain_project_state", project="starling")
+        assert not error and text["project"]["name"] == "Starling"
+        error, text = await call(session, "brain_project_state", cwd=str(tmp_path))
+        assert error and "Specify project explicitly" in text
+        # A brief that matched no project leaves nothing to fall back to.
+        error, _ = await call(session, "brain_brief", cwd=str(tmp_path))
+        assert not error
+        error, text = await call(session, "brain_get_task", task="CAMP-001")
+        assert error and "Specify project explicitly" in text
+    async with app_client(database_url) as client:
+        notes = (await client.get(f"/api/projects/{world['a']}/memory?type=note")).json()
+    assert [n["title"] for n in notes] == ["Tents hold two"]
+
+
 async def test_reads_stay_in_the_chosen_project(database_url: str, tmp_path: Path) -> None:
     async with app_client(database_url) as client:
         world = await seed(client, tmp_path)
