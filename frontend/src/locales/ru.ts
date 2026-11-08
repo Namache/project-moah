@@ -1895,4 +1895,5 @@ export const ru: Record<string, Translation> = {
   "Time": "Время",
   "Yesterday": "Вчера",
   "Unknown date": "Дата неизвестна",
+  "Shelf": "Полка",
 };

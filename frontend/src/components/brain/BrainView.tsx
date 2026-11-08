@@ -8,6 +8,9 @@ import { buildBrainLayout } from "./layout";
 import { useBrainStore } from "./store";
 import { KIND_COLORS } from "./colors";
 import type { BrainActivation, BrainGraph, BrainShelf, NodeKind, WorkspaceBrain } from "../../types/graph";
+import { memoryTypes } from "../../types/memory";
+import { GLOBAL_ID } from "../../lib/routes";
+import { statusLabels, type TaskStatus } from "../../types/task";
 import { labels, msg, t } from "../../lib/i18n";
 
 // The 3D scene and its libraries load only when someone opens the Brain page.
@@ -20,6 +23,16 @@ function hasWebGL(): boolean {
   } catch {
     return false;
   }
+}
+
+const kindNames: Record<string, string> = labels({ task: msg("Task"), memory: msg("Memory"), file: msg("File"), milestone: msg("Milestone"), checkpoint: msg("Checkpoint"), shelf: msg("Shelf") });
+const otherStatuses: Record<string, string> = labels({ active: msg("Active"), archived: msg("Archived"), superseded: msg("Superseded"), invalidated: msg("Invalidated"), planned: msg("Planned"), completed: msg("Completed") });
+
+/** "Idle Camp · Decision · Active" in the interface language, instead of the raw stored words. */
+function nodeKindText(node: { kind: string; subtype: string | null; status: string | null }): string {
+  const type = node.kind === "memory" && node.subtype ? memoryTypes.find((m) => m.value === node.subtype)?.label ?? node.subtype : kindNames[node.kind] ?? node.kind;
+  const status = !node.status || node.status === "active" ? null : node.kind === "task" ? statusLabels[node.status as TaskStatus] ?? node.status : otherStatuses[node.status] ?? node.status.replace(/_/g, " ");
+  return status ? `${type} · ${status}` : type;
 }
 
 const KINDS: { kind: NodeKind; label: string }[] = [
@@ -59,7 +72,8 @@ export function BrainView({ webgl = hasWebGL() }: { webgl?: boolean }) {
   const data = useMemo(() => (brain.data ? workspaceGraph(brain.data) : undefined), [brain.data]);
   const layout = useMemo(() => (data ? buildBrainLayout(data) : null), [data]);
   const byKey = useMemo(() => new Map((brain.data?.nodes ?? []).map((n) => [n.key, n])), [brain.data]);
-  const projects = brain.data?.projects ?? [];
+  // The Global scope arrives named in English; show it in the interface language like the sidebar does.
+  const projects = (brain.data?.projects ?? []).map((p) => (p.id === GLOBAL_ID ? { ...p, name: t("Global rules") } : p));
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   const openTasks = (tasks.data ?? []).filter((t) => t.status !== "completed" && t.status !== "archived" && projectNames.has(t.project_id));
 
@@ -108,7 +122,7 @@ export function BrainView({ webgl = hasWebGL() }: { webgl?: boolean }) {
       {shelfChips.length > 0 && <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label={t("Shelf regions")}>{shelfChips.map((s) => chip(s.id, s.name))}</ul>}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="relative h-[36rem] overflow-hidden rounded-xl bg-[#03060d]" aria-label={t("Brain view: {items} items in {projects} projects and {links} links. Drag to turn, scroll to zoom, click a point to inspect it.", { items: brain.data?.nodes.length ?? 0, projects: projects.length, links: brain.data?.links.length ?? 0 })} role="img">
+        <div className="relative h-[clamp(22rem,calc(100vh-17rem),36rem)] overflow-hidden rounded-xl bg-[#03060d]" aria-label={t("Brain view: {items} items in {projects} projects and {links} links. Drag to turn, scroll to zoom, click a point to inspect it.", { items: brain.data?.nodes.length ?? 0, projects: projects.length, links: brain.data?.links.length ?? 0 })} role="img">
           {!webgl ? <Fallback />
             : data && layout ? <Suspense fallback={<Loading />}><BrainScene data={data} layout={layout} activation={lit} /></Suspense>
             : <Loading />}
@@ -157,8 +171,8 @@ function Inspector({ node, brain, lit, byKey, shelfNames, projectNames, onOpen }
   const score = lit?.nodes[node.key];
   const path = lit?.paths.find((p) => p[p.length - 1] === node.key);
   return (
-    <aside aria-label={t("Inspector")} className="max-h-[36rem] overflow-y-auto rounded-xl border border-line bg-surface p-4 shadow-card">
-      <p className="text-xs uppercase tracking-wide text-ink-subtle">{projectNames.get(node.project_id)} · {node.subtype ?? node.kind}{node.status ? ` · ${node.status}` : ""}</p>
+    <aside aria-label={t("Inspector")} className="max-h-[clamp(22rem,calc(100vh-17rem),36rem)] overflow-y-auto rounded-xl border border-line bg-surface p-4 shadow-card">
+      <p className="text-xs text-ink-subtle">{projectNames.get(node.project_id)} · {nodeKindText(node)}</p>
       <h3 className="mt-1 text-sm font-semibold text-ink"><span className="text-forest">{node.label}</span>{node.title !== node.label && <> {node.title}</>}</h3>
       {node.shelves.length > 0 && <p className="mt-2 text-xs text-ink-muted">{t("On {shelves}", { shelves: node.shelves.map((id) => shelfNames.get(id) ?? id).join(", ") })}</p>}
       {lit && <p className="mt-2 text-xs text-ink-muted">

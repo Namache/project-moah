@@ -56,7 +56,7 @@ it("lights up a task from any project and explains why a record was reached", as
   await userEvent.type(screen.getByLabelText("Find an item"), "RULE-002");
   expect(await screen.findByText(/In the context pack \(score 0.60\)/)).toBeInTheDocument();
   expect(screen.getByText("Came by: INV-001 → RULE-002")).toBeInTheDocument();
-  expect(screen.getByText(/Trailhead · rule/)).toBeInTheDocument();
+  expect(screen.getByText(/Trailhead · Rule/)).toBeInTheDocument();
 });
 
 it("explains when 3D graphics are unavailable", async () => {
