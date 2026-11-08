@@ -61,7 +61,7 @@ export function UsageBreakdown({ report, caption, projects }: { report: UsageRep
 
   return (
     <section aria-label={t("Usage breakdown")}>
-      <div role="tablist" aria-label={t("Breakdown")} className="flex gap-1 border-b border-line">
+      <div role="tablist" aria-label={t("Breakdown")} className="flex gap-1 overflow-x-auto border-b border-line">
         {TABS.map((item) => <button key={item.value} id={`${id}-${item.value}`} role="tab" type="button" aria-selected={tab === item.value} aria-controls={`${id}-panel`} tabIndex={tab === item.value ? 0 : -1} onClick={() => setTab(item.value)} onKeyDown={(e) => moveTab(e, item.value)} className={`section-tab ${tab === item.value ? "section-tab-active" : ""}`}>{item.label}</button>)}
       </div>
       <p className="mt-3 text-xs text-ink-subtle">{caption}</p>

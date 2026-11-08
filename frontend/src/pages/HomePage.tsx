@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Onboarding, ONBOARDING_KEY } from "../components/onboarding/Onboarding";
 import { EmptyState, ErrorState, ProgressBar, ProjectAvatar, ProjectTile, Widget, buttonBase, buttonClasses, formatDate, toneClasses } from "../components/ui";
-import { CompactActivityItem } from "../components/activity/ActivityFeed";
+import { CompactActivityItem, groupActivity } from "../components/activity/ActivityFeed";
 import { FocusTimerWidget } from "../components/pomodoro/FocusTimerWidget";
 import { useWorkspaceRecent } from "../hooks/useActivity";
 import { taskStatusStyle } from "../lib/tones";
@@ -79,7 +79,7 @@ function ProjectTileLink({ project, overview, pending }: { project: Project; ove
           {pending > 0 && <span className="absolute -right-1.5 -top-1.5 min-w-6 rounded-full border-2 border-surface bg-primary px-1.5 text-center text-xs font-semibold leading-5 text-white" aria-label={t("{count} waiting for review", { count: pending })}>{pending}</span>}
         </span>
         <span className="mt-2.5 block truncate text-center text-sm font-semibold text-ink">{project.name}</span>
-        <span className="mt-0.5 block truncate text-center text-xs text-ink-subtle">
+        <span className="mt-0.5 line-clamp-2 text-center text-xs text-ink-subtle">
           {checkpoint?.id ? t("Saved {when}", { when: since(checkpoint.created_at) }) : milestone ? milestone.name : t("No milestone")}
         </span>
         {percent !== null && <span className="mx-auto mt-2 block w-3/4"><ProgressBar value={percent} label={t("{project}: {share} of {milestone} done", { project: project.name, share: `${percent}%`, milestone: milestone!.name })} /></span>}
@@ -144,7 +144,7 @@ export function HomePage() {
                 </Widget>
                 <Widget title={t("Recent activity")} icon={ActivityIcon} to="/activity" linkLabel={t("All activity")}>
                   {recent.isSuccess && recent.data.length === 0 && <p className="text-sm text-ink-subtle">{t("Nothing yet.")}</p>}
-                  {recent.isSuccess && recent.data.length > 0 && <ol className="-mt-2">{recent.data.slice(0, 4).map((event) => <CompactActivityItem key={event.id} event={event} />)}</ol>}
+                  {recent.isSuccess && recent.data.length > 0 && <ol className="-mt-2">{groupActivity(recent.data).slice(0, 4).map(({ event, more }) => <CompactActivityItem key={event.id} event={event} more={more} />)}</ol>}
                 </Widget>
               </div>
             </div>

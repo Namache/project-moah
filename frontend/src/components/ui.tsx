@@ -90,7 +90,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
       {options.map(({ value: v, label: text, icon: Icon, count }) => (
         <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)} className={`filter-tab inline-flex flex-none items-center gap-1.5 ${value === v ? "filter-tab-active" : ""}`}>
           {Icon && <Icon size={15} aria-hidden="true" />}{text}{count !== undefined && " "}
-          {count !== undefined && <span className={`text-xs tabular-nums ${value === v ? "text-ink-muted" : "text-ink-subtle"}`}>{count}</span>}
+          {count !== undefined && <span className="text-xs tabular-nums text-ink-muted">{count}</span>}
         </button>
       ))}
     </div>
@@ -194,8 +194,19 @@ export function ProgressBar({ value, tone = "success", label }: { value: number;
 }
 
 /** A project's own colour; projects without a valid one use the app accent. */
-export function projectAccent(project: Pick<Project, "accent">): string {
-  return /^#[0-9a-fA-F]{6}$/.test(project.accent ?? "") ? project.accent! : "#35766d";
+/** Colours for projects that have none of their own; mid-tones that carry a white icon in both themes. */
+const projectPalette = ["#35766d", "#3f6fb5", "#7a5bc4", "#b5536b", "#a8701c", "#4f8a3c", "#4b6478", "#a8603a"];
+
+/**
+ * A project's colour: its own accent, or one picked from the palette by its name, so projects made by
+ * Sync from agents (which have no accent) still look different from each other instead of all the same green.
+ */
+export function projectAccent(project: Pick<Project, "accent"> & { name?: string | null }): string {
+  if (/^#[0-9a-fA-F]{6}$/.test(project.accent ?? "")) return project.accent!;
+  const name = project.name ?? "";
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
+  return name ? projectPalette[hash % projectPalette.length] : projectPalette[0];
 }
 
 /** A big coloured square for a project: its colour as the fill and its icon in the middle. */

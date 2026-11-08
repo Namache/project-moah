@@ -1,13 +1,13 @@
-import { Activity, ChevronRight } from "lucide-react";
+import { Activity, BookOpen, ChevronRight, Flag, FolderKanban, GitCommitHorizontal, Library, ListTodo, type LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button, EmptyState, ErrorState } from "../ui";
 import type { ActivityActor, ActivityEntityType, ActivityEvent, ActivityFilter, ActivityFilters } from "../../types/activity";
-import { checkpointPath, memoryPath, projectPath, taskPath } from "../../lib/routes";
-import { labels, locale, msg, t } from "../../lib/i18n";
+import { GLOBAL_ID, checkpointPath, memoryPath, projectPath, taskPath } from "../../lib/routes";
+import { labels, locale, msg, t, tp } from "../../lib/i18n";
 
 const filterOptions: { value: ActivityFilter; label: string }[] = [
   labels({ value: "all", label: msg("All") }, ["label"]),
-  labels({ value: "human", label: msg("Human") }, ["label"]),
+  labels({ value: "human", label: msg("You") }, ["label"]),
   labels({ value: "claude", label: "Claude" }, ["label"]),
   labels({ value: "codex", label: "Codex" }, ["label"]),
   labels({ value: "tasks", label: msg("Tasks") }, ["label"]),
@@ -101,7 +101,7 @@ function eventDetails(event: ActivityEvent): { reference: string | null; title: 
   return { reference, title, summary: summary === title ? null : summary };
 }
 
-const actorNames: Record<string, string> = labels({ human: msg("Human"), system: msg("System"), claude: "Claude", codex: "Codex" });
+const actorNames: Record<string, string> = labels({ human: msg("You"), system: msg("System"), claude: "Claude", codex: "Codex" });
 
 function actorLabel(type: ActivityActor, name: string | null): string {
   const actor = actorNames[type] ?? type.charAt(0).toUpperCase() + type.slice(1);
@@ -135,11 +135,61 @@ function timestamp(value: string): string {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function timeOfDay(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale(), { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+/** "Today", "Yesterday", then a date (with the year only when it isn't this year). */
+function dayLabel(date: Date): string {
+  if (Number.isNaN(date.getTime())) return t("Unknown date");
+  const today = new Date();
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((start(today) - start(date)) / 86_400_000);
+  if (days === 0) return t("Today");
+  if (days === 1) return t("Yesterday");
+  return new Intl.DateTimeFormat(locale(), { weekday: "long", month: "long", day: "numeric", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" }).format(date);
+}
+
 export function filtersForActivity(value: ActivityFilter): ActivityFilters {
   if (value === "human" || value === "claude" || value === "codex") return { actorTypes: [value] };
   if (value === "tasks" || value === "memory" || value === "git") return { entityTypes: [value === "tasks" ? "task" : value] };
   return {};
 }
+
+/** Events that come in bursts (automatic shelf filing) and read better as one row per burst. */
+const BURSTY = new Set(["SHELF_MEMBER_ADDED", "SHELF_MEMBER_REMOVED"]);
+
+/** One shown row: an event, plus the same kind of events right after it that it stands for. */
+export interface ActivityEntry { event: ActivityEvent; more: ActivityEvent[] }
+
+/**
+ * Folds a run of the same bursty event (same kind, who, project and day) into one row, so twenty
+ * "Added to a shelf" lines from automatic filing don't bury the work around them.
+ */
+export function groupActivity(events: ActivityEvent[]): ActivityEntry[] {
+  const out: ActivityEntry[] = [];
+  const day = (value: string) => new Date(value).toDateString();
+  for (const event of events) {
+    const last = out[out.length - 1]?.event;
+    if (last && BURSTY.has(event.event_type) && last.event_type === event.event_type && last.actor_type === event.actor_type
+      && last.actor_name === event.actor_name && last.project_id === event.project_id && day(last.timestamp) === day(event.timestamp)) {
+      out[out.length - 1].more.push(event);
+    } else out.push({ event, more: [] });
+  }
+  return out;
+}
+
+/** "Testing, Saves and 9 more": the distinct titles of a folded run. */
+function runTitles(entry: ActivityEntry): string | null {
+  const titles = [...new Set([entry.event, ...entry.more].map((e) => eventDetails(e).title).filter((title): title is string => Boolean(title)))];
+  if (!titles.length) return null;
+  const shown = titles.slice(0, 3).join(", ");
+  return titles.length > 3 ? tp(titles.length - 3, "{shown} and {count} more", "{shown} and {count} more", { shown }) : shown;
+}
+
+/** The Global scope is stored as "Global"; show it in the interface language. */
+const projectLabel = (event: ActivityEvent) => (event.project_id === GLOBAL_ID ? t("Global") : event.project_name);
 
 export function ActivityFilterBar({ value, onChange }: { value: ActivityFilter; onChange: (value: ActivityFilter) => void }) {
   return <div role="group" aria-label={t("Activity filter")} className="segmented mb-5">
@@ -148,11 +198,13 @@ export function ActivityFilterBar({ value, onChange }: { value: ActivityFilter; 
 }
 
 /** One or two lines per event: the record it touched (linked when it still exists), then what happened, who, and when. */
-export function CompactActivityItem({ event }: { event: ActivityEvent }) {
+export function CompactActivityItem({ event, more = [] }: { event: ActivityEvent; more?: ActivityEvent[] }) {
   const details = eventDetails(event);
-  const link = entityLink(event);
-  const label = labelForEvent(event.event_type);
-  const subject = details.reference || details.title
+  const folded = more.length > 0;
+  const link = folded ? null : entityLink(event);
+  const label = folded ? t("{label} ({count})", { label: labelForEvent(event.event_type), count: more.length + 1 }) : labelForEvent(event.event_type);
+  const titles = folded ? runTitles({ event, more }) : null;
+  const subject = titles ? <>{titles}</> : details.reference || details.title
     ? <>{details.reference && <span className="mr-1.5 font-semibold">{details.reference}</span>}{details.title}</>
     : null;
   return <li className="border-t border-line py-2.5 first:border-t-0">
@@ -169,22 +221,49 @@ export function CompactActivityItem({ event }: { event: ActivityEvent }) {
   </li>;
 }
 
-function ActivityItem({ event, workspace }: { event: ActivityEvent; workspace: boolean }) {
+const entityIcons: Record<ActivityEntityType, LucideIcon> = { project: FolderKanban, task: ListTodo, memory: BookOpen, checkpoint: Flag, git: GitCommitHorizontal };
+
+/** One row of the timeline: an icon for what it touched, what happened, the item, then who, where and when. */
+function ActivityItem({ event, more, workspace }: { event: ActivityEvent; more: ActivityEvent[]; workspace: boolean }) {
   const details = eventDetails(event);
-  const link = entityLink(event);
-  return <li className="rounded-xl border border-line bg-surface px-4 py-4 shadow-card sm:px-5">
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
-      <span className="rounded-full bg-sage-pale px-2.5 py-1 font-semibold text-forest">{actorLabel(event.actor_type, event.actor_name)}</span>
-      <time dateTime={event.timestamp}>{timestamp(event.timestamp)}</time>
-    </div>
-    <h3 className="mt-2 text-sm font-semibold text-ink">{labelForEvent(event.event_type)}</h3>
-    {(details.reference || details.title) && <p className="mt-1 min-w-0 break-words text-sm text-ink-muted">{details.reference && <span className="mr-2 font-semibold text-forest">{details.reference}</span>}{details.title}</p>}
-    {details.summary && <p className="mt-1 line-clamp-2 whitespace-pre-line text-sm text-ink-muted">{details.summary}</p>}
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-semibold">
-      {workspace && <Link to={projectPath(event.project_id)} className="text-ink-muted underline-offset-2 hover:text-forest hover:underline focus-visible:outline-2 focus-visible:outline-forest">{event.project_name}</Link>}
-      {link && <Link to={link.to} className="inline-flex items-center gap-0.5 text-forest underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-forest">{link.label}<ChevronRight size={13} aria-hidden="true" /></Link>}
+  const folded = more.length > 0;
+  const link = folded ? null : entityLink(event);
+  const titles = folded ? runTitles({ event, more }) : null;
+  const Icon = event.event_type.startsWith("SHELF_") ? Library : (event.entity_type && entityIcons[event.entity_type]) || Activity;
+  const subject = titles ? <span className="text-ink">{titles}</span> : details.reference || details.title
+    ? <>{details.reference && <span className="mr-1.5 font-semibold text-forest">{details.reference}</span>}<span className="text-ink">{details.title}</span></>
+    : null;
+  return <li className="flex gap-3 border-t border-line px-4 py-3 first:border-t-0 sm:px-5">
+    <span className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full bg-neutral-soft text-ink-muted" aria-hidden="true"><Icon size={14} /></span>
+    <div className="min-w-0 flex-1">
+      <p className="text-sm">
+        <span className="font-semibold text-ink">{labelForEvent(event.event_type)}</span>
+        {folded && <>{" "}<span className="rounded-full bg-neutral-soft px-1.5 text-xs font-semibold tabular-nums text-ink-muted" title={tp(more.length + 1, "{count} time", "{count} times")}>×{more.length + 1}</span></>}
+        {subject && <>{" "}<span className="text-ink-subtle" aria-hidden="true">·</span>{" "}
+          {link ? <Link to={link.to} title={link.label} className="break-words underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-forest">{subject}</Link> : <span className="break-words">{subject}</span>}</>}
+        {!subject && link && <>{" "}<Link to={link.to} className="inline-flex items-center gap-0.5 text-xs font-semibold text-forest underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-forest">{link.label}<ChevronRight size={13} aria-hidden="true" /></Link></>}
+      </p>
+      {details.summary && <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-sm text-ink-muted">{details.summary}</p>}
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-muted">
+        <span>{actorLabel(event.actor_type, event.actor_name)}</span>
+        {workspace && <><span aria-hidden="true">·</span><Link to={projectPath(event.project_id)} className="underline-offset-2 hover:text-forest hover:underline focus-visible:outline-2 focus-visible:outline-forest">{projectLabel(event)}</Link></>}
+        <span aria-hidden="true">·</span><time dateTime={event.timestamp} title={timestamp(event.timestamp)}>{folded && timeOfDay(more[more.length - 1].timestamp) !== timeOfDay(event.timestamp) ? `${timeOfDay(more[more.length - 1].timestamp)}–${timeOfDay(event.timestamp)}` : timeOfDay(event.timestamp)}</time>
+      </p>
     </div>
   </li>;
+}
+
+/** Events grouped by the local day they happened, newest day first (the feed is already newest first). */
+function byDay(events: ActivityEvent[]): { key: string; label: string; entries: ActivityEntry[] }[] {
+  const groups: { key: string; label: string; entries: ActivityEntry[] }[] = [];
+  for (const entry of groupActivity(events)) {
+    const date = new Date(entry.event.timestamp);
+    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    const last = groups[groups.length - 1];
+    if (last?.key === key) last.entries.push(entry);
+    else groups.push({ key, label: dayLabel(date), entries: [entry] });
+  }
+  return groups;
 }
 
 export function ActivityResults({ events, filter, workspace, isPending, error, hasNextPage, isFetchingNextPage, onRetry, onLoadMore }: {
@@ -202,7 +281,12 @@ export function ActivityResults({ events, filter, workspace, isPending, error, h
   if (error && events.length === 0) return <ErrorState title={t("Activity could not be loaded")} message={error} onRetry={onRetry} />;
   return <div>
     {events.length === 0 ? <EmptyState icon={<Activity size={26} />} title={filter === "all" ? t("No activity yet") : t("No matching activity")}>{filter === "all" ? t("Changes to tasks, memory, and checkpoints will appear here as they are recorded.") : workspace ? t("Try another filter to see more of your workspace's history.") : t("Try another filter to see more of this project's history.")}</EmptyState>
-      : <ol aria-label={workspace ? t("Workspace activity") : t("Project activity")} className="space-y-3">{events.map((event) => <ActivityItem key={event.id} event={event} workspace={workspace} />)}</ol>}
+      : <div className="space-y-6">
+        {byDay(events).map((day) => <section key={day.key} aria-label={day.label}>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-muted">{day.label}</h2>
+          <ol className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">{day.entries.map(({ event, more }) => <ActivityItem key={event.id} event={event} more={more} workspace={workspace} />)}</ol>
+        </section>)}
+      </div>}
     {error && events.length > 0 && <p role="alert" className="mt-4 text-sm text-danger-ink">{t("More activity could not be loaded.")} <button type="button" className="font-semibold underline" onClick={onLoadMore}>{t("Try again")}</button></p>}
     {hasNextPage && !error && <div className="mt-6 text-center"><Button onClick={onLoadMore} disabled={isFetchingNextPage}>{isFetchingNextPage ? t("Loading more…") : t("Load more activity")}</Button></div>}
   </div>;

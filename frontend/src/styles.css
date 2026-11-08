@@ -72,6 +72,13 @@
 }
 
 :root {
+  /* The chevron on every dropdown, drawn in ink-muted for each theme (a data: image, allowed by the app's CSP). */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%235b6661' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  /* Focus halo around fields: the accent at low strength, so it follows the theme. */
+  --focus-halo: color-mix(in oklab, var(--color-forest) 22%, transparent);
+}
+
+:root {
   font-family: var(--font-sans);
   color: var(--color-ink);
   background: var(--color-canvas);
@@ -136,6 +143,7 @@ body { font-size: var(--text-base); }
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.25);
   --shadow-card-hover: 0 4px 16px rgb(0 0 0 / 0.3);
   --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23abb0ac' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 /* In the base layer so text-size utilities on buttons and fields (e.g. text-sm in Button) still apply. */
@@ -143,6 +151,10 @@ body { font-size: var(--text-base); }
   button, input, select, textarea { font: inherit; }
   button { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
+  /* Checkboxes, radios and sliders take the app's accent instead of the system blue. */
+  input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--color-primary); }
+  input[type="checkbox"], input[type="radio"] { cursor: pointer; }
+  input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; }
 }
 
 .skip-link {
@@ -198,7 +210,21 @@ body { font-size: var(--text-base); }
   }
   .field-input:hover { border-color: var(--color-line-hover); }
   .field-input::placeholder { color: var(--color-ink-subtle); }
-  .field-input:focus { border-color: var(--color-forest); box-shadow: 0 0 0 3px rgb(31 107 87 / 0.14); }
+  .field-input:focus { border-color: var(--color-forest); box-shadow: 0 0 0 3px var(--focus-halo); }
+  .field-input:disabled { opacity: 0.6; }
+  /* Dropdowns: the same chevron, height and padding in every theme and on every system, instead of the native arrow. */
+  select.field-input {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: var(--select-chevron);
+    background-repeat: no-repeat;
+    background-position: right 0.625rem center;
+    background-size: 1rem;
+    padding-right: 2.25rem;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  select.field-input option { background: var(--color-surface); color: var(--color-ink); }
 }
 
 .filter-tab { min-height: 2rem; border-radius: 0.4375rem; padding: 0.3125rem 0.75rem; color: var(--color-ink-muted); font-size: var(--text-sm); font-weight: 500; }
@@ -212,7 +238,7 @@ body { font-size: var(--text-base); }
 
 .inline-field { display: block; width: 100%; resize: vertical; border: 1px solid transparent; border-radius: 0.5rem; background: transparent; padding: 0.4rem 0.55rem; margin-left: -0.55rem; color: var(--color-ink); font-size: var(--text-sm); line-height: 1.5; outline: none; }
 .inline-field:hover { border-color: var(--color-line); }
-.inline-field:focus { border-color: var(--color-forest); background: var(--color-surface); box-shadow: 0 0 0 3px rgb(31 107 87 / 0.14); }
+.inline-field:focus { border-color: var(--color-forest); background: var(--color-surface); box-shadow: 0 0 0 3px var(--focus-halo); }
 .inline-field::placeholder { color: var(--color-ink-subtle); }
 .panel-right { height: 100vh; }
 

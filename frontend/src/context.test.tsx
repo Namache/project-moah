@@ -43,4 +43,21 @@ describe("AI context inspector", () => {
     await user.click(screen.getByRole("button", { name: "Preview context" }));
     expect(screen.getByLabelText("Context preview")).toHaveTextContent("PACK minimal");
   });
+  it("says when the pack's task was picked automatically, so the picker and the result never disagree", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/projects?")) return Response.json([project]);
+      if (url === "/api/projects/p1") return Response.json(project);
+      if (url.startsWith("/api/projects/p1/context")) return Response.json(pack("balanced", { task: "CAMP-001", warnings: ["No task was given; it is the task in progress, so it was used. Pass task= for another."] }));
+      return Response.json([]);
+    }));
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/projects/p1/context"]}><App /></MemoryRouter></QueryClientProvider>);
+
+    expect(await screen.findByRole("heading", { name: /Context for CAMP-001, picked automatically/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Automatic (the agent's pick)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /No task/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Help: about this pack" }));
+    expect(screen.getByText(/Moah picked the unfinished task an agent would continue/)).toBeInTheDocument();
+  });
 });

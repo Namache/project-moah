@@ -63,7 +63,7 @@ function Column({ status, label, tasks, onOpen, onMove, onAdd, selectedId, readO
   const { tone, icon: Icon } = taskStatusStyle[status];
   return (
     <section aria-label={tp(tasks.length, "{column}, {count} task", "{column}, {count} tasks", { column: label })} className="flex min-w-0 flex-col rounded-xl bg-neutral-soft/60 p-2">
-      <h2 className={`flex items-center gap-1.5 px-1.5 pb-1.5 pt-1 text-sm font-semibold ${toneClasses[tone].text}`}><Icon size={15} aria-hidden="true" /><span className="truncate">{label}</span><span className="text-xs font-medium tabular-nums text-ink-subtle">{tasks.length}</span></h2>
+      <h2 className={`flex items-start gap-1.5 px-1.5 pb-1.5 pt-1 text-sm font-semibold leading-5 ${toneClasses[tone].text}`}><Icon size={15} aria-hidden="true" className="mt-0.5 flex-none" />{/* Long labels (Russian "К выполнению") wrap instead of being cut off. */}<span className="min-w-0 hyphens-auto [overflow-wrap:anywhere]">{label}{" "}<span className="whitespace-nowrap text-xs font-medium tabular-nums text-ink-subtle">{tasks.length}</span></span></h2>
       {onAdd && !readOnly && <button type="button" onClick={() => onAdd(status)} className="mb-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-ink-subtle hover:bg-hover hover:text-forest focus-visible:outline-2 focus-visible:outline-forest"><Plus size={14} aria-hidden="true" />{t("Add task")}<span className="sr-only"> {t("to {column}", { column: label })}</span></button>}
       <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
         <ul ref={setNodeRef} className={`min-h-24 flex-1 space-y-2 rounded-lg p-0.5 transition-colors ${isOver ? "bg-sage-pale" : ""}`}>
@@ -137,8 +137,8 @@ export function TaskBoard({ tasks, selectedId, onOpen, onMove, onAdd, readOnly =
     <DndContext accessibility={{ announcements, screenReaderInstructions: { draggable: t(DRAG_HINT) } }} sensors={readOnly ? [] : sensors} collisionDetection={closestCorners} onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))} onDragCancel={() => setActiveId(null)} onDragEnd={handleEnd}>
       {!readOnly && <p className="sr-only">{t("Drag cards to move them, or use the more button on a card. With a keyboard, focus a card and press Space, then the arrow keys.")}</p>}
       <div className="relative">
-        {/* Six columns share the width down to a 148px minimum; below that the board scrolls, with fades marking the hidden side. */}
-        <div ref={scroll.ref} onScroll={scroll.update} className="board-scroll grid auto-cols-[minmax(148px,1fr)] grid-flow-col gap-2 overflow-x-auto pb-2" role="group" aria-label={t("Task board")}>
+        {/* Six columns share the width down to a 160px minimum (room for Russian labels); below that the board scrolls, with fades marking the hidden side. */}
+        <div ref={scroll.ref} onScroll={scroll.update} className="board-scroll relative grid auto-cols-[minmax(160px,1fr)] grid-flow-col gap-2 overflow-x-auto pb-2" role="group" aria-label={t("Task board")}>
           {columns.map((c) => <Column key={c.status} status={c.status} label={c.label} tasks={c.tasks} onOpen={onOpen} onMove={onMove} onAdd={onAdd} selectedId={selectedId} readOnly={readOnly} />)}
         </div>
         {scroll.edges.left && <div className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-start bg-gradient-to-r from-canvas to-transparent pt-1.5">

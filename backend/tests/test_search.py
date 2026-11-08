@@ -274,3 +274,37 @@ def test_migration_adds_pending_flag_to_existing_memories(tmp_path: Path) -> Non
     assert "is_resolved" not in columns
     assert db.execute("SELECT title FROM memories").fetchone() == ("Old bug",)
     db.close()
+
+
+def test_snippets_drop_the_tags_the_index_appends() -> None:
+    from app.services.search import without_trailing_tags
+
+    tags = ["saves", "offline"]
+    text_with_tags = "Start counting from now. saves offline"
+    assert without_trailing_tags(text_with_tags, tags) == "Start counting from now."
+    assert without_trailing_tags("...from now. offline saves...", tags) == "...from now."
+    # A sentence that merely ends with a tag's word is the record's own text and stays.
+    assert without_trailing_tags("Keep all old saves", tags) == "Keep all old saves"
+    assert without_trailing_tags("Nothing to strip.", []) == "Nothing to strip."
+    assert without_trailing_tags("saves offline", tags) == ""
+
+
+async def test_search_snippet_ends_with_the_text_not_the_tags(client: AsyncClient) -> None:
+    a = await make(client, "Trailhead")
+    await client.post(
+        f"/api/projects/{a}/memory",
+        json={
+            "type": "decision",
+            "title": "Offline gold",
+            "content": "Pay half rate while away.",
+            "tags": ["economy", "offline"],
+        },
+    )
+    [hit] = await hits(client, a, "gold")
+    assert hit["snippet"] == "Pay half rate while away."
+    await client.post(
+        f"/api/projects/{a}/checkpoints",
+        json={"title": "Gold paid", "summary": "Offline gold works.", "agent": "Claude Code"},
+    )
+    checkpoint = await hits(client, a, "gold", entity_type="checkpoint")
+    assert checkpoint[0]["snippet"] == "Offline gold works."

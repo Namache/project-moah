@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { FolderOpen, X } from "lucide-react";
 import type { Project, ProjectInput, ProjectStatus } from "../types/project";
 import { useCreateProject, useUpdateProject } from "../hooks/useProjects";
-import { Button } from "./ui";
+import { Button, projectAccent } from "./ui";
 import { useModalDialog } from "../hooks/useModalDialog";
 import { t } from "../lib/i18n";
 import { useInstall } from "../lib/install";
@@ -20,7 +20,7 @@ export function ProjectDialog({ project, onClose, onSaved }: ProjectDialogProps)
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
   const [icon, setIcon] = useState(project?.icon ?? "📁");
-  const [accent, setAccent] = useState(project?.accent ?? "#35766d");
+  const [accent, setAccent] = useState(project ? projectAccent(project) : "#35766d");
   const [rootPath, setRootPath] = useState(project?.root_path ?? "");
   const install = useInstall();
   const [status, setStatus] = useState<ProjectStatus>(project?.status ?? "active");

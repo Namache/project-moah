@@ -14,7 +14,7 @@ export function FocusCard({ projectId, task }: { projectId: string; task: TaskSu
   return (
     <section className="rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6" aria-labelledby="focus-title">
       <div className="flex min-h-9 items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-forest"><Target size={15} aria-hidden="true" />{t("Current focus")}</p>
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-muted"><Target size={14} className="text-forest" aria-hidden="true" />{t("Current focus")}</p>
         {task && <Button variant="quiet" size="sm" onClick={() => focus.mutate(null)} disabled={focus.isPending} title={t("Stop pointing agents at this task")}>{t("Clear focus")}</Button>}
       </div>
       {task ? (

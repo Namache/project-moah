@@ -31,7 +31,8 @@ it("shows project events with actor, timestamp, entity link, and applies actor f
   expect(await screen.findByText("Task created")).toBeInTheDocument();
   expect(screen.getByText("Claude Code · Claude")).toBeInTheDocument();
   expect(screen.getByText("CAMP-001")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open task" })).toHaveAttribute("href", "/projects/p1/tasks?task=task-1");
+  expect(screen.getByRole("link", { name: "CAMP-001 Build camp" })).toHaveAttribute("href", "/projects/p1/tasks?task=task-1");
+  expect(screen.getByRole("heading", { level: 2, name: /October 10/ })).toBeInTheDocument();
   expect(document.querySelector("time")).toHaveAttribute("datetime", event.timestamp);
 
   await user.click(screen.getByRole("button", { name: "Claude" }));
@@ -53,7 +54,7 @@ it("shows project identity and loads later workspace events", async () => {
   expect(await screen.findByRole("button", { name: "Load more activity" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Load more activity" }));
   expect(await screen.findByRole("link", { name: "Starling" })).toHaveAttribute("href", "/projects/p2");
-  expect(screen.getByRole("link", { name: "Open checkpoint" })).toHaveAttribute("href", "/projects/p2?checkpoint=checkpoint-1");
+  expect(screen.getByRole("link", { name: "Phase 4 complete" })).toHaveAttribute("href", "/projects/p2?checkpoint=checkpoint-1");
   expect(fetchMock).toHaveBeenCalledWith("/api/activity?limit=50&offset=50", expect.any(Object));
 });
 
@@ -83,4 +84,20 @@ it("keeps deleted task history without linking to a missing record", async () =>
   expect(await screen.findByText("Task deleted")).toBeInTheDocument();
   expect(screen.getByText("CAMP-001")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Open task" })).not.toBeInTheDocument();
+});
+
+it("folds a burst of shelf filing into one row, without hiding the work around it", async () => {
+  const filed = (index: number, shelf: string): ActivityEvent => ({
+    ...event, id: `shelf-${index}`, event_type: "SHELF_MEMBER_ADDED", actor_type: "human", actor_name: null,
+    entity_type: null, entity_id: `s${index}`, task_id: null, metadata: { title: shelf },
+    timestamp: `2026-10-10T11:${String(50 - index).padStart(2, "0")}:00Z`,
+  });
+  const events = [event, filed(1, "Saves"), filed(2, "Economy"), filed(3, "Saves"), filed(4, "Testing"), filed(5, "Offline")];
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(events)));
+  renderFeed(<ProjectActivity projectId="p1" />);
+
+  expect(await screen.findByText("Task created")).toBeInTheDocument();
+  expect(screen.getAllByText("Added to a shelf")).toHaveLength(1);
+  expect(screen.getByText("×5")).toBeInTheDocument();
+  expect(screen.getByText("Saves, Economy, Testing and 1 more")).toBeInTheDocument();
 });

@@ -1,3 +1,4 @@
+import { labels, msg } from "../lib/i18n";
 export type NodeKind = "task" | "memory" | "file" | "checkpoint" | "milestone" | "shelf";
 export type LinkStatus = "active" | "weak" | "candidate" | "disputed" | "superseded" | "archived" | "rejected";
 
@@ -169,8 +170,86 @@ export interface BrainActivation {
   shelves: Record<string, number>;
 }
 
-/** Reads a relationship name as words: depends_on -> depends on. */
-export const relationshipLabel = (name: string) => name.replace(/_/g, " ");
+/** Each relationship the Link System knows, read as words in the interface language (backend app/models/graph.py). */
+const relationshipWords: Record<string, string> = labels({
+  affected_by: msg("affected by"),
+  affects: msg("affects"),
+  applies_to: msg("applies to"),
+  belongs_to: msg("belongs to"),
+  blocked_by: msg("blocked by"),
+  blocks: msg("blocks"),
+  caused_by: msg("caused by"),
+  causes: msg("causes"),
+  constrained_by: msg("constrained by"),
+  constrains: msg("constrains"),
+  contains: msg("contains"),
+  contradicts: msg("contradicts"),
+  convention_followed_by: msg("convention followed by"),
+  corrected_by: msg("corrected by"),
+  corrects: msg("corrects"),
+  created: msg("created"),
+  created_by: msg("created by"),
+  dependency_of: msg("dependency of"),
+  depends_on: msg("depends on"),
+  exception_to: msg("exception to"),
+  excluded_from: msg("excluded from"),
+  excludes: msg("excludes"),
+  explained_by: msg("explained by"),
+  explains: msg("explains"),
+  extended_by: msg("extended by"),
+  extends: msg("extends"),
+  followed_by: msg("followed by"),
+  follows_convention: msg("follows convention"),
+  governed_by: msg("governed by"),
+  has_exception: msg("has exception"),
+  has_member: msg("has member"),
+  implemented_by: msg("implemented by"),
+  implements: msg("implements"),
+  independent_of: msg("independent of"),
+  inspired: msg("inspired"),
+  inspired_by: msg("inspired by"),
+  learned_from: msg("learned from"),
+  modified: msg("modified"),
+  modified_by: msg("modified by"),
+  must_not_be_depended_on_by: msg("must not be depended on by"),
+  must_not_depend_on: msg("must not depend on"),
+  not_applicable_to: msg("not applicable to"),
+  not_governed_by: msg("not governed by"),
+  owned_by: msg("owned by"),
+  owns: msg("owns"),
+  part_of: msg("part of"),
+  preceded_by: msg("preceded by"),
+  referenced_by: msg("referenced by"),
+  references: msg("references"),
+  refined_by: msg("refined by"),
+  refines: msg("refines"),
+  reinforced_by: msg("reinforced by"),
+  reinforces: msg("reinforces"),
+  relates_to: msg("relates to"),
+  resolved_by: msg("resolved by"),
+  resolves: msg("resolves"),
+  style_used_by: msg("style used by"),
+  superseded_by: msg("superseded by"),
+  supersedes: msg("supersedes"),
+  supported_by: msg("supported by"),
+  supports: msg("supports"),
+  taught: msg("taught"),
+  tested_by: msg("tested by"),
+  tests: msg("tests"),
+  used_by: msg("used by"),
+  uses: msg("uses"),
+  uses_style_of: msg("uses style of"),
+  violated_by: msg("violated by"),
+  violates: msg("violates"),
+});
+
+/** Reads a relationship name as words: depends_on -> "depends on" (Russian: "зависит от"); unknown names fall back to spaced words. */
+export const relationshipLabel = (name: string) => relationshipWords[name] ?? name.replace(/_/g, " ");
+
+const relationshipGroups: Record<string, string> = labels({ design: msg("Design"), development: msg("Development"), knowledge: msg("Knowledge"), learning: msg("Learning"), negative: msg("Negative"), structural: msg("Structure"), temporal: msg("Time") });
+
+/** The heading of a relationship group in the link picker. */
+export const relationshipGroupLabel = (group: string) => relationshipGroups[group] ?? group;
 
 /** Link System Phase 3: graph health, clusters and shelf suggestions. */
 export interface ShelfDensity {

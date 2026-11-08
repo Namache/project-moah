@@ -63,7 +63,7 @@ function CheckpointsSection({ projectId, taskId, archived, compact }: { projectI
     {feedQuery.isPending && <p role="status" className="mt-5 text-sm text-ink-muted">{t("Loading checkpoint history…")}</p>}
     {feedQuery.isError && <div className="mt-5"><ErrorState title={t("Checkpoint history could not be loaded")} message={feedQuery.error.message} onRetry={() => void feedQuery.refetch()} /></div>}
     {feedQuery.isSuccess && history.length > 0 && <div className="mt-6">
-      <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-muted">{t("Earlier checkpoints")}</h3>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">{t("Earlier checkpoints")}</h3>
       <div className="space-y-2">{history.map((checkpoint) => <CheckpointCard key={checkpoint.id} checkpoint={checkpoint} latest={false} projectId={projectId} onOpen={select} />)}</div>
     </div>}
     {feedQuery.hasNextPage && <Button className="mt-4" onClick={() => void feedQuery.fetchNextPage()} disabled={feedQuery.isFetchingNextPage}>{feedQuery.isFetchingNextPage ? t("Loading…") : t("Load more checkpoints")}</Button>}

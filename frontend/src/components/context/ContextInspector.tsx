@@ -33,6 +33,9 @@ function packNote(text: string): string {
   const focus = /^No task was given, so the current focus (\S+) was used\.$/.exec(text);
   if (focus) return t("No task was given, so the current focus {id} was used.", { id: focus[1] });
   if (text === "No task was given and no current focus is set; this is a project overview.") return t("No task was given and no current focus is set; this is a project overview.");
+  // An agent asking with no task gets the unfinished task its brief showed; the backend explains why in English.
+  const inferred = /^No task was given; .*, so it was used\. Pass task= for another\.$/.test(text);
+  if (inferred) return t("No task was chosen, so Moah picked the unfinished task an agent would continue. Choose a task above to see another.");
   return text;
 }
 
@@ -73,7 +76,8 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
         <div>
           <label htmlFor="ctx-task" className="field-label">{t("Task")}</label>
           <select id="ctx-task" className="field-input" value={task} onChange={(e) => setTask(e.target.value)}>
-            <option value="">{focusRef ? `Current focus (${focusRef})` : t("No task (project overview)")}</option>
+            {/* With nothing chosen the pack is what an agent gets for a bare "Continue": the focus, else the unfinished task it would pick. */}
+            <option value="">{focusRef ? t("Current focus ({id})", { id: focusRef }) : t("Automatic (the agent's pick)")}</option>
             {openTasks.map((t) => <option key={t.id} value={t.human_id}>{t.human_id} {t.title}</option>)}
           </select>
         </div>
@@ -107,7 +111,7 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
             <div className="rounded-xl border border-line bg-surface p-6 shadow-card">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <h2 id="ctx-result" className="text-base font-semibold tracking-tight">{data.task ? t("Context for {task}", { task: data.task }) : t("Project overview")} {packNotes.length > 0 && <HelpTip label={t("about this pack")}>{packNotes.join(" ")}</HelpTip>}</h2>
+                  <h2 id="ctx-result" className="text-base font-semibold tracking-tight">{data.task ? (task || focusRef ? t("Context for {task}", { task: data.task }) : t("Context for {task}, picked automatically", { task: data.task })) : t("Project overview")} {packNotes.length > 0 && <HelpTip label={t("about this pack")}>{packNotes.join(" ")}</HelpTip>}</h2>
                   <p className="mt-1 text-sm text-ink-muted">{tx("Context pack <b>about {size} tokens</b>, limit about {limit}.", { b: (text) => <strong className="text-ink">{text}</strong>, size: data.estimated_tokens, limit: data.budget })}</p>
                   {data.brief_tokens != null && <p className="mt-0.5 flex items-center gap-2 text-sm text-ink-muted"><span>{tx("Start-up brief <b>about {size} tokens</b>", { b: (text) => <strong className="text-ink">{text}</strong>, size: data.brief_tokens })}</span><HelpTip label={t("start-up brief")}>{t("Sent once at the start of every agent session: your Global rules, this project's rules and its unfinished task. It gets smaller when you archive or delete rules.")}</HelpTip></p>}
                 </div>
@@ -119,8 +123,8 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
               <h3 className="mt-6 text-sm font-semibold text-ink">{t("Included")}</h3>
               <ul className="mt-2 space-y-1.5">
                 {data.sections.map((s) => (
-                  <li key={s.key} className="grid grid-cols-[minmax(0,9rem)_1fr_4rem] items-center gap-3 text-sm">
-                    <span className="truncate text-ink-muted" title={sectionLabels[s.key] ?? s.title}>{sectionLabels[s.key] ?? s.title}</span>
+                  <li key={s.key} className="grid grid-cols-[minmax(0,11rem)_1fr_4rem] items-center gap-3 text-sm">
+                    <span className="leading-tight text-ink-muted" title={sectionLabels[s.key] ?? s.title}>{sectionLabels[s.key] ?? s.title}</span>
                     <span className="h-2 overflow-hidden rounded-full bg-neutral-soft" aria-hidden="true"><span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(4, (s.tokens / maxTokens) * 100)}%` }} /></span>
                     <span className="text-right text-xs font-medium text-ink-muted">~{s.tokens}</span>
                   </li>

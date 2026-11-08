@@ -29,7 +29,7 @@ function usual(item: ReviewItem): string | null {
 }
 
 function Row({ item, selected, showProject, onSelect }: { item: ReviewItem; selected: boolean; showProject: boolean; onSelect: () => void }) {
-  const accent = projectAccent({ accent: item.project_accent });
+  const accent = projectAccent({ accent: item.project_accent, name: item.project_name });
   const project = { name: item.project_name, icon: item.project_icon, accent: item.project_accent };
   const reviewed = item.reviewed_at !== null;
   // Work that reached Review without the agent's own report: its page is pieced together from notes.
