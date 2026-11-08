@@ -36,6 +36,28 @@ STOPWORDS = frozenset(
 )
 
 
+def without_trailing_tags(snippet: str, tags: Iterable[str]) -> str:
+    """Drop the tag names the search index appends to a record's text, so a snippet reads like
+    the record ("...counting from now.") instead of ending in its tags ("...from now. saves offline").
+    Only a run of tags at the very end goes, and only after a sentence ends or where a cut-off
+    snippet's "..." stands, so a sentence that merely ends with a tag's word is kept."""
+    names = {word for name in tags for word in name.casefold().split()}
+    if not names or not snippet:
+        return snippet
+    cut = snippet.endswith("...")
+    words = (snippet[:-3] if cut else snippet).rstrip().split(" ")
+    end = len(words)
+    while end > 0 and words[end - 1].casefold() in names:
+        end -= 1
+    if end == len(words):
+        return snippet
+    before = " ".join(words[:end]).rstrip()
+    if before and not before.endswith((".", "!", "?", ":", ";", ")", "...")):
+        return snippet
+    # Nothing but tags (a task with no description): no snippet beats repeating the tags.
+    return before
+
+
 def match_expression(query: str, *, any_word: bool = False) -> str | None:
     """Turn free text into a safe FTS5 query: every word required, last word a prefix.
 
@@ -147,9 +169,10 @@ class SearchService:
         total = self.session.execute(text(f"SELECT count(*) {from_sql}"), params).scalar_one()
 
         params["exact"] = query.strip().upper()
-        rows = self.session.execute(
-            text(
-                f"""
+        rows = (
+            self.session.execute(
+                text(
+                    f"""
                 SELECT search_index.entity_type, search_index.entity_id, search_index.project_id, p.name AS project_name,
                        search_index.human_id, search_index.title, search_index.sub_type, search_index.status, search_index.updated_at,
                        snippet(search_index, 2, '', '', '...', {SNIPPET_TOKENS}) AS snip,
@@ -163,9 +186,13 @@ class SearchService:
                          search_index.updated_at DESC, search_index.entity_id ASC
                 LIMIT :limit OFFSET :offset
                 """
-            ),
-            params,
-        ).mappings()
+                ),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+        tags = self._tags_of(rows)
         items = [
             {
                 "entity_type": row["entity_type"],
@@ -174,7 +201,10 @@ class SearchService:
                 "project_name": row["project_name"],
                 "human_id": row["human_id"] or None,
                 "title": row["title"],
-                "snippet": " ".join((row["snip"] or row["lead"] or "").split()),
+                "snippet": without_trailing_tags(
+                    " ".join((row["snip"] or row["lead"] or "").split()),
+                    tags.get((row["entity_type"], row["entity_id"]), ()),
+                ),
                 "status": row["status"],
                 "memory_type": row["sub_type"] if row["entity_type"] == "memory" else None,
                 "score": round(-float(row["rank"]), 4),
@@ -183,6 +213,41 @@ class SearchService:
             for row in rows
         ]
         return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    def _tags_of(self, rows: Iterable) -> dict[tuple[str, str], tuple[str, ...]]:
+        """The tag names of task and memory results, and the agent name of checkpoints: the index
+        appends them to the text, and they are kept out of the snippets."""
+        wanted = {"task": set(), "memory": set(), "checkpoint": set()}
+        for row in rows:
+            if row["entity_type"] in wanted:
+                wanted[row["entity_type"]].add(row["entity_id"])
+        found: dict[tuple[str, str], list[str]] = {}
+        for kind, join_table, column in (
+            ("task", "task_tags", "task_id"),
+            ("memory", "memory_tags", "memory_id"),
+        ):
+            ids = sorted(wanted[kind])
+            if not ids:
+                continue
+            marks = ", ".join(f":id{index}" for index in range(len(ids)))
+            for owner, name in self.session.execute(
+                text(
+                    f"SELECT j.{column}, g.name FROM {join_table} j JOIN tags g ON g.id = j.tag_id WHERE j.{column} IN ({marks})"
+                ),
+                {f"id{index}": value for index, value in enumerate(ids)},
+            ):
+                found.setdefault((kind, owner), []).append(name)
+        if wanted["checkpoint"]:
+            ids = sorted(wanted["checkpoint"])
+            marks = ", ".join(f":id{index}" for index in range(len(ids)))
+            for owner, agent in self.session.execute(
+                text(
+                    f"SELECT id, agent FROM checkpoints WHERE agent IS NOT NULL AND agent != '' AND id IN ({marks})"
+                ),
+                {f"id{index}": value for index, value in enumerate(ids)},
+            ):
+                found.setdefault(("checkpoint", owner), []).append(agent)
+        return {key: tuple(names) for key, names in found.items()}
 
     @staticmethod
     def _bind(values: list[str], prefix: str, params: dict[str, object]) -> str:
