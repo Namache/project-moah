@@ -1899,4 +1899,8 @@ export const ru: Record<string, Translation> = {
   "Automatic (the agent's pick)": "Автоматически (выбор агента)",
   "Context for {task}, picked automatically": "Контекст для {task}, выбрано автоматически",
   "No task was chosen, so Moah picked the unfinished task an agent would continue. Choose a task above to see another.": "Задача не выбрана, поэтому Moah взял незаконченную задачу, которую продолжил бы агент. Выберите задачу выше, чтобы посмотреть другую.",
+  "Global": "Общее",
+  "{shown} and {count} more": ["{shown} и ещё {count}", "{shown} и ещё {count}", "{shown} и ещё {count}"],
+  "{label} ({count})": "{label} ({count})",
+  "{count} times": ["{count} раз", "{count} раза", "{count} раз"],
 };

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Onboarding, ONBOARDING_KEY } from "../components/onboarding/Onboarding";
 import { EmptyState, ErrorState, ProgressBar, ProjectAvatar, ProjectTile, Widget, buttonBase, buttonClasses, formatDate, toneClasses } from "../components/ui";
-import { CompactActivityItem } from "../components/activity/ActivityFeed";
+import { CompactActivityItem, groupActivity } from "../components/activity/ActivityFeed";
 import { FocusTimerWidget } from "../components/pomodoro/FocusTimerWidget";
 import { useWorkspaceRecent } from "../hooks/useActivity";
 import { taskStatusStyle } from "../lib/tones";
@@ -144,7 +144,7 @@ export function HomePage() {
                 </Widget>
                 <Widget title={t("Recent activity")} icon={ActivityIcon} to="/activity" linkLabel={t("All activity")}>
                   {recent.isSuccess && recent.data.length === 0 && <p className="text-sm text-ink-subtle">{t("Nothing yet.")}</p>}
-                  {recent.isSuccess && recent.data.length > 0 && <ol className="-mt-2">{recent.data.slice(0, 4).map((event) => <CompactActivityItem key={event.id} event={event} />)}</ol>}
+                  {recent.isSuccess && recent.data.length > 0 && <ol className="-mt-2">{groupActivity(recent.data).slice(0, 4).map(({ event, more }) => <CompactActivityItem key={event.id} event={event} more={more} />)}</ol>}
                 </Widget>
               </div>
             </div>

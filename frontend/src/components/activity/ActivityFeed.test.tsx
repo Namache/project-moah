@@ -85,3 +85,19 @@ it("keeps deleted task history without linking to a missing record", async () =>
   expect(screen.getByText("CAMP-001")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Open task" })).not.toBeInTheDocument();
 });
+
+it("folds a burst of shelf filing into one row, without hiding the work around it", async () => {
+  const filed = (index: number, shelf: string): ActivityEvent => ({
+    ...event, id: `shelf-${index}`, event_type: "SHELF_MEMBER_ADDED", actor_type: "human", actor_name: null,
+    entity_type: null, entity_id: `s${index}`, task_id: null, metadata: { title: shelf },
+    timestamp: `2026-10-10T11:${String(50 - index).padStart(2, "0")}:00Z`,
+  });
+  const events = [event, filed(1, "Saves"), filed(2, "Economy"), filed(3, "Saves"), filed(4, "Testing"), filed(5, "Offline")];
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(events)));
+  renderFeed(<ProjectActivity projectId="p1" />);
+
+  expect(await screen.findByText("Task created")).toBeInTheDocument();
+  expect(screen.getAllByText("Added to a shelf")).toHaveLength(1);
+  expect(screen.getByText("×5")).toBeInTheDocument();
+  expect(screen.getByText("Saves, Economy, Testing and 1 more")).toBeInTheDocument();
+});
