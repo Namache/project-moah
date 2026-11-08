@@ -123,6 +123,11 @@ const RUSSIAN = {
   "The local service stopped during startup ({reason}).": "Локальная служба остановилась при запуске ({reason}).",
   "Details were saved to {path}": "Подробности сохранены в {path}",
   "Open Project Moah": "Открыть Project Moah",
+  "Open Review": "Открыть «На проверке»",
+  "Open Review ({count} waiting)": "Открыть «На проверке» (ждут: {count})",
+  "Project Moah: {count} waiting for review": "Project Moah: ждут проверки: {count}",
+  "Project Moah is still running": "Project Moah продолжает работать",
+  "Agents can keep using it. Open it again or quit it from its icon in the system tray.": "Агенты могут и дальше им пользоваться. Откройте его снова или закройте через значок в системном трее.",
   "Quit": "Выйти",
   "Work is ready for your review": "Работа ждёт вашей проверки",
   "An agent needs your answer": "Агенту нужен ваш ответ",
@@ -437,6 +442,7 @@ async function openWindow(port) {
     if (quitting || !hidesToTray) return;
     event.preventDefault();
     window.hide();
+    explainTrayOnce();
   });
   // The desktop timer is a window too, so "all windows closed" never comes while it shows:
   // Moah's own window really closing (not hiding to the tray) ends the app.
@@ -488,6 +494,40 @@ async function restartForUpdate() {
   app.exit(0);
 }
 
+/** The first time the X button hides the window, say where Moah went: otherwise it looks closed, or stuck open. */
+function explainTrayOnce() {
+  const marker = path.join(app.getPath("userData"), "tray-hint-shown");
+  if (existsSync(marker)) return;
+  try {
+    writeFileSync(marker, new Date().toISOString());
+  } catch (error) {
+    writeLog(`[tray] ${error.message}`);
+    return; // never repeat it on every close because the marker can't be saved
+  }
+  if (!Notification.isSupported()) return;
+  const note = new Notification({ title: say("Project Moah is still running"), body: say("Agents can keep using it. Open it again or quit it from its icon in the system tray."), icon: path.join(__dirname, "assets", "icon.png") });
+  note.on("click", showWindow);
+  note.show();
+}
+
+/** The tray menu, with a shortcut to Review that says how much waits there. */
+function trayMenu(waiting) {
+  return Menu.buildFromTemplate([
+    { label: say("Open Project Moah"), click: showWindow },
+    { label: waiting > 0 ? say("Open Review ({count} waiting)", { count: waiting }) : say("Open Review"), click: openReview },
+    { type: "separator" },
+    { label: say("Quit"), click: () => app.quit() },
+  ]);
+}
+
+let trayWaiting = 0;
+function updateTray(waiting) {
+  if (!tray || waiting === trayWaiting) return;
+  trayWaiting = waiting;
+  tray.setToolTip(waiting > 0 ? say("Project Moah: {count} waiting for review", { count: waiting }) : "Project Moah");
+  tray.setContextMenu(trayMenu(waiting));
+}
+
 /** Linux desktops without a tray (plain GNOME) accept a tray icon and never show it. */
 function linuxTrayIsShown() {
   try {
@@ -517,11 +557,7 @@ function createTray() {
     return;
   }
   tray.setToolTip("Project Moah");
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: say("Open Project Moah"), click: showWindow },
-    { type: "separator" },
-    { label: say("Quit"), click: () => app.quit() },
-  ]));
+  tray.setContextMenu(trayMenu(0));
   tray.on("click", showWindow);
   // For scripts/check-desktop-window.cjs, which checks every build has its tray icon.
   global.projectMoahTray = !image.isEmpty();
@@ -582,6 +618,7 @@ async function checkReviews(port) {
   }
   // The focus timer's corner shows how much waits in Review; Moah chimes once per new arrival, timer on or off.
   pomodoro?.setPending(pending.total, fresh);
+  updateTray(pending.total ?? 0);
   if (!Notification.isSupported()) return;
   const many = (count) => say("{count} items wait for your review", { count });
   if (first && pending.total > 0) {
