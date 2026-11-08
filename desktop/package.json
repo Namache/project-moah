@@ -23,6 +23,7 @@
     "appId": "io.github.projectbrain.ProjectBrain",
     "productName": "Project Moah",
     "asar": true,
+    "electronDist": "node_modules/electron/dist",
     "publish": null,
     "directories": {
       "output": "dist"
