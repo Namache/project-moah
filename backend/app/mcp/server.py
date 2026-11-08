@@ -1754,20 +1754,28 @@ def build_server(
             }
         own = service.list(found.id)
         shelves, members = service.shared(found.id)
+        # In path order, so each shelf comes right after the one it sits on and the list reads
+        # as the tree it is.
         return {
-            "shared_tree": [
-                {"shelf": service.path(s), "records": len(members.get(s.id, ())), "keywords": k}
-                for s in shelves
-                for k in [[w for w in s.keywords.split(",") if w]]
-            ],
-            "project_shelves": [
-                {
-                    "shelf": service.path(service.get(found.id, s.id)),
-                    "keywords": s.keywords,
-                    "records": s.member_count,
-                }
-                for s in own
-            ],
+            "shared_tree": sorted(
+                (
+                    {"shelf": service.path(s), "records": len(members.get(s.id, ())), "keywords": k}
+                    for s in shelves
+                    for k in [[w for w in s.keywords.split(",") if w]]
+                ),
+                key=lambda row: [part.casefold() for part in row["shelf"].split(" > ")],
+            ),
+            "project_shelves": sorted(
+                (
+                    {
+                        "shelf": service.path(service.get(found.id, s.id)),
+                        "keywords": s.keywords,
+                        "records": s.member_count,
+                    }
+                    for s in own
+                ),
+                key=lambda row: [part.casefold() for part in row["shelf"].split(" > ")],
+            ),
         }
 
     @tool(WRITE)

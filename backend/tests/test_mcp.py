@@ -664,6 +664,11 @@ async def test_projects_file_records_on_one_shared_tree(database_url: str) -> No
         assert [m.split(" ", 1)[1] for m in theirs["members"]] == ["Dragon fights"]
         _, tree = await call(session, "brain_shelves", project=a)
         assert {"shelf": path, "records": 1, "keywords": ["boss", "fight"]} in tree["shared_tree"]
+        # The tree reads top down: every shelf after the one it sits on, siblings A to Z.
+        paths = [row["shelf"] for row in tree["shared_tree"]]
+        assert len(paths) > 3 and paths == sorted(
+            paths, key=lambda p: [part.casefold() for part in p.split(" > ")]
+        )
 
         # Work that names the domain wakes the shared shelf, and its records come along.
         failed, text = await call(
