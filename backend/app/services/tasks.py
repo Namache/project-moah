@@ -727,7 +727,8 @@ class TaskService:
         the work; moving it to any other column sends it back without a comment. An agent taking
         the task back withdraws its report instead: it hands the task over again when done.
         Leaving Blocked settles an agent's waiting question the same way: moved by the person it
-        counts as answered on the board, moved by an agent it is withdrawn."""
+        counts as answered on the board, moved by an agent it is withdrawn (or, for a wait
+        opened from the agent's note, answered in the chat)."""
         from app.models.proposal import Proposal
         from app.models.review import TaskReview
         from app.services.activity import current_actor
@@ -744,6 +745,11 @@ class TaskService:
         ):
             if review.status != "pending":
                 continue  # decided in Review a moment ago, not saved yet
+            if not by_person and question and review.checkpoint_id:
+                # A wait Moah opened from the agent's note: the agent going on means the person
+                # answered in the chat.
+                review.status, review.reviewed_at, review.moved_to = "answered", now, "chat"
+                continue
             if not by_person:
                 review.status = "replaced"
                 continue

@@ -246,9 +246,10 @@ async def test_writes_respect_locks_and_attribute_the_agent(
                 status="completed",
                 reason="All done",
             )
-            # A finished task reaches the person only with a report, and the agent is told how.
-            assert error and "CAMP-001 was not moved to review" in out
-            assert 'brain_submit_review(task="CAMP-001"' in out
+            # A finished task waits for the person in review, and the agent is asked for its
+            # own report.
+            assert not error and out["applied"] is True and out["status"] == "review"
+            assert 'brain_submit_review(task="CAMP-001"' in out["next"]
             error, out = await call(
                 session,
                 "brain_create_checkpoint",
@@ -282,7 +283,7 @@ async def test_writes_respect_locks_and_attribute_the_agent(
         ] == "6"  # lock held
         assert (await client.get(f"/api/projects/{pid}/tasks/CAMP-001")).json()[
             "status"
-        ] == "in_progress"  # not completed, and not in review without a report
+        ] == "review"  # not completed
         memory = (await client.get(f"/api/projects/{pid}/memory/IDEA-001")).json()
         assert (memory["source_type"], memory["source_reference"], memory["is_locked"]) == (
             "agent",

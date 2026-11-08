@@ -52,6 +52,8 @@ export interface ReviewRound {
   notes?: CheckpointNote[];
   /** True when lines about other tasks were left out of a drafted review. */
   left_out?: boolean;
+  /** A question Moah opened from the agent's checkpoint that waited for you. */
+  from_note?: boolean;
 }
 
 /** A checkpoint a drafted review was picked from. */
@@ -115,9 +117,12 @@ export interface PendingReviews {
   newest: { key: string; kind: "task" | "suggestion"; project_name: string; agent: string; title: string; question: boolean }[];
 }
 
-/** What you decide on a review: accept or reject finished work, or answer an agent's question. */
+/**
+ * What you decide on a review: accept or reject finished work, or answer an agent's question.
+ * approve answers "go on as planned" without words, for a wait Moah opened from an agent's note.
+ */
 export interface ReviewDecisionInput {
-  verdict: "accept" | "reject" | "answer";
+  verdict: "accept" | "reject" | "answer" | "approve";
   comment: string;
   /** Which acceptance criteria are met, as you ticked them. */
   criteria?: { id: string; met: boolean }[];

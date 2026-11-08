@@ -8,7 +8,7 @@ from app.schemas.common import UtcModel
 ReviewStatus = Literal["pending", "accepted", "rejected", "answered", "replaced"]
 ReviewKind = Literal["work", "question"]
 ReviewFileKind = Literal["screenshot", "feedback"]
-Verdict = Literal["accept", "reject", "answer"]
+Verdict = Literal["accept", "reject", "answer", "approve"]
 FollowUpColumn = Literal["todo", "backlog"]
 
 SUMMARY_LIMIT = 2000
@@ -93,7 +93,8 @@ class CriterionTick(BaseModel):
 
 
 class ReviewDecision(BaseModel):
-    """accept or reject finished work, or answer an agent's question. With accept, criteria
+    """accept or reject finished work, or answer an agent's question (approve: answer "go on"
+    without words, for a question a checkpoint opened). With accept, criteria
     records which acceptance criteria are met and follow_ups become new tasks; with reject, only
     the criteria marked not met are recorded."""
 
@@ -211,6 +212,8 @@ class ReviewRound(UtcModel):
     next_steps: list[str] = Field(default_factory=list)
     notes: list[CheckpointNote] = Field(default_factory=list)
     left_out: bool = False
+    # A question Moah opened from the agent's checkpoint that waited for the person.
+    from_note: bool = False
 
 
 class ReviewCriterion(BaseModel):

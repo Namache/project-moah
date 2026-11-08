@@ -1776,4 +1776,12 @@ export const ru: Record<string, Translation> = {
   "Follow-up tasks made": "Созданы задачи-продолжения",
   "Question for you": "Вопрос к вам",
   "Question answered": "Вопрос отвечен",
+  "Still waiting for you": "Всё ещё ждёт вас",
+  "{agent} is waiting for you": "{agent} ждёт вас",
+  "From the agent's note": "Из заметки агента",
+  "Approved. {task} is back in progress.": "Одобрено. {task} снова «В работе».",
+  "It was finished work: the task moves to Done. You can still reopen it from Reviewed.": "Это была законченная работа: задача переходит в «Готово». Её всё ещё можно открыть снова из «Проверено».",
+  "The agent goes on as it planned, with your words if you wrote any; the task goes back to In progress": "Агент продолжает, как планировал, с вашими словами, если вы их написали; задача возвращается в «В работе»",
+  "Approve and continue": "Одобрить и продолжить",
+  "The agent waits in its chat too. Answering there is fine: when the agent goes on, this closes by itself.": "Агент ждёт и в своём чате. Можно ответить там: когда агент продолжит, это закроется само.",
 };

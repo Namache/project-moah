@@ -13,7 +13,12 @@ const camp4 = { ...row, key: "task:t4", ref: "CAMP-004", title: "Full camp label
 const tents = { ...row, key: "review:r0", ref: "CAMP-000", title: "Tents", summary: "Tents", agent: "codex", done_at: "2026-01-01T09:00:00Z", reviewed_at: "2026-01-01T12:00:00Z", verdict: "accepted", screenshots: 0 };
 
 const round = { id: "r1", round: 1, agent: "claude", kind: "work", status: "pending", options: [], follow_ups: [] as object[], moved_to: null, generated: false, created_at: "2026-01-03T10:00:00Z", reviewed_at: null, comment: null, feedback: [], earlier: [] };
+const camp5 = { ...camp4, key: "task:t5", ref: "CAMP-005", title: "Camp sign", summary: "Sign mockup ready for review", done_at: "2026-01-03T11:35:00Z" };
 function reviewOf(ref: string) {
+  if (ref === "CAMP-005") {
+    return { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t5", task_ref: "CAMP-005", task_title: "Camp sign", task_status: "blocked", task_description: null, criteria: [], earlier: [],
+      current: { ...round, id: "w1", kind: "question", from_note: true, summary: "Sign mockup ready for review", options: [], done: [], not_done: [], how_to_check: null, details: "Two sign shapes.", screenshots: [] } };
+  }
   if (ref === "CAMP-004") {
     return { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t4", task_ref: "CAMP-004", task_title: "Full camp label", task_status: "blocked", task_description: null, criteria: [], earlier: [],
       current: { ...round, id: "q1", kind: "question", summary: "Should a full camp show **0** or a red Full label?", options: ["Show 0", "Red Full label"], done: [], not_done: [], how_to_check: null, details: "DEC-001 sets capacity, not the look.", screenshots: [] } };
@@ -37,8 +42,8 @@ function reviewOf(ref: string) {
 const acceptedTents = { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t0", task_ref: "CAMP-000", task_title: "Tents", task_status: "completed", task_description: "Put up the tents", criteria: [], earlier: [],
   current: { ...round, id: "r0", agent: "codex", status: "accepted", reviewed_at: "2026-01-01T12:00:00Z", summary: "Tents are up.", done: ["Four tents"], not_done: [], how_to_check: null, details: null, screenshots: [] } };
 
-function setup({ question = false } = {}) {
-  const state = { waiting: question ? [camp4, upgrade, rations] : [upgrade, rations], reviewed: [tents] as object[] };
+function setup({ question = false, wait = false } = {}) {
+  const state = { waiting: wait ? [camp5, upgrade] : question ? [camp4, upgrade, rations] : [upgrade, rations], reviewed: [tents] as object[] };
   const made: object[] = [];
   const calls: { url: string; method: string; body?: unknown }[] = [];
   URL.createObjectURL = vi.fn(() => "blob:shot");
@@ -54,7 +59,7 @@ function setup({ question = false } = {}) {
     const decision = url.match(/^\/api\/projects\/p1\/tasks\/(CAMP-\d+)\/review\/decision$/);
     if (decision && method === "POST") {
       const verdict = (JSON.parse(String(options?.body)) as { verdict: string }).verdict;
-      const status = { accept: "accepted", reject: "rejected", answer: "answered" }[verdict]!;
+      const status = { accept: "accepted", reject: "rejected", answer: "answered", approve: "answered" }[verdict]!;
       const done = state.waiting.find((i) => i.ref === decision[1])!;
       state.waiting = state.waiting.filter((i) => i !== done);
       const key = verdict === "accept" ? `review:a-${done.ref}` : verdict === "answer" ? "review:q1" : "review:r1";
@@ -313,6 +318,20 @@ describe("Review screen", () => {
     expect(await screen.findByText("Answered.")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Open in Claude Code with my answer" }));
     await waitFor(() => expect(openAgent).toHaveBeenCalled());
+  });
+
+  it("lets you approve a wait from an agent's note without words", async () => {
+    const { calls } = setup({ wait: true });
+    const user = userEvent.setup();
+    renderAt("/review");
+    expect(await screen.findByRole("heading", { name: "Claude Code is waiting for you" })).toBeInTheDocument();
+    expect(screen.getByText("From the agent's note")).toBeInTheDocument();
+    expect(screen.getByText(/Answering there is fine/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept and move to Done" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send answer" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve and continue" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/CAMP-005/review/decision"))?.body).toEqual({ verdict: "approve", comment: null }));
   });
 
   it("shows a question you answered in the agent's own chat as answered there", async () => {

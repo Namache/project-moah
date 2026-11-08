@@ -10,8 +10,13 @@ Moving the task out of review on the board settles its report too (see TaskServi
 An agent that cannot go on without the person asks a question: the task moves to Blocked and the
 question waits in Review (first, since work is stuck on it) until the person answers. The answer
 goes back like a send-back. A task that is only blocked, with no question asked, does not wait in
-Review: it waits for something else. A line the person picks (what was not done, an unmet
-criterion) can become a follow-up task; accepting never makes one by itself.
+Review: it waits for something else. An agent's checkpoint that says it waits for the person
+(services/review_waits.py) opens such a question by itself, since agents seldom ask through
+Moah: its later notes update that one question instead of opening more, and a note that moves on
+settles it as answered in the chat (the person answered there). The person can also approve it
+and let the agent go on, or accept the work as done.
+A line the person picks (what was not done, an unmet criterion) can become a follow-up task;
+accepting never makes one by itself.
 Accepted work can be reopened from Reviewed with a comment: the task goes back to In progress and
 the comment reaches the next agent like a send-back.
 """
@@ -76,6 +81,8 @@ NEWEST_PENDING = 5
 SUMMARY_LINE = 240
 NOTES_LIMIT = 6  # checkpoints a drafted review is picked from, newest first
 NEXT_STEPS = "**Next steps**\n\n"  # how a drafted review stores the agent's next steps
+# The answer "Approve and continue" sends: the agent goes on as it planned.
+APPROVED = "Approved. Go on as planned."
 
 
 @dataclass
@@ -83,6 +90,23 @@ class Screenshot:
     data: bytes
     filename: str
     caption: str | None = None
+
+
+def _wait_context(checkpoint) -> str | None:
+    """A waiting checkpoint's own words, as the question's context in Review."""
+    parts = [
+        (None, checkpoint.summary),
+        ("Done so far", checkpoint.completed_work),
+        ("Left to do", checkpoint.remaining_work),
+        ("Problems", checkpoint.problems),
+        ("Next steps", checkpoint.next_steps),
+    ]
+    text = "\n\n".join(
+        f"**{label}**\n\n{body.strip()}" if label else body.strip()
+        for label, body in parts
+        if body and body.strip()
+    )
+    return text or None
 
 
 def _one_line(text: str, limit: int = SUMMARY_LINE) -> str:
@@ -140,6 +164,7 @@ class ReviewService:
             if len(shot.data) > MAX_REVIEW_FILE_BYTES:
                 raise invalid(f"{shot.filename} is over {MAX_REVIEW_FILE_BYTES // 2**20} MB")
             checked.append((shot, *file_type(shot.data, images_only=True)))
+        self.moved_on(task, move=False)
         self._replace_pending(task)
         review = TaskReview(
             project_id=project_id,
@@ -222,6 +247,71 @@ class ReviewService:
                 TaskReview.generated.is_(False),
             )
         )
+
+    def wait_from_checkpoint(self, task: Task, checkpoint, agent: str) -> TaskReview | None:
+        """The checkpoint waits for the person: open a question for its task in Review, or
+        bring the one an earlier note opened up to date (one waiting question per task, not one
+        per note). Nothing opens for a task already waiting in Review, for one the agent asked
+        about itself, or for a closed one. checkpoint: the stored note (or its read model)."""
+        if task.status in CLOSED or task.status == WAITING_STATUS:
+            return None
+        pending = self._pending(task.id)
+        if pending is not None and pending.checkpoint_id is None:
+            return None  # the agent's own question or report already waits
+        question, context = _one_line(checkpoint.title, TITLE_LIMIT), _wait_context(checkpoint)
+        if pending is not None:
+            pending.summary, pending.details = question, context
+            pending.checkpoint_id, pending.agent = checkpoint.id, agent
+            pending.created_at = utc_now()
+            self._log(task, "WAIT_UPDATED", pending, checkpoint=checkpoint.id)
+            self.session.commit()
+            return pending
+        review = TaskReview(
+            project_id=task.project_id,
+            task_id=task.id,
+            round=self._next_round(task.id),
+            agent=agent,
+            kind="question",
+            status="pending",
+            summary=question,
+            done=[],
+            not_done=[],
+            how_to_check=None,
+            details=context,
+            options=None,
+            generated=False,
+            checkpoint_id=checkpoint.id,
+        )
+        self.session.add(review)
+        self.session.flush()
+        self._log(task, "QUESTION_ASKED", review, checkpoint=checkpoint.id)
+        if task.status != QUESTION_STATUS:
+            self.tasks.update(task.project_id, task.id, TaskUpdate(status=QUESTION_STATUS))
+        else:
+            self.session.commit()
+        return review
+
+    def waiting_note(self, task_id: str) -> TaskReview | None:
+        """The question a checkpoint opened for the task, still waiting for the person."""
+        pending = self._pending(task_id, "question")
+        return pending if pending is not None and pending.checkpoint_id else None
+
+    def moved_on(self, task: Task, *, move: bool = True) -> TaskReview | None:
+        """The agent went on with a task whose checkpoint waited for the person: they answered
+        in the chat. Settle that question so it does not wait in Review for nothing, and (with
+        move) take the task out of Blocked again."""
+        review = self.waiting_note(task.id)
+        if review is None:
+            return None
+        review.status, review.reviewed_at = "answered", utc_now()
+        review.moved_to = ANSWERED_IN_CHAT
+        self._log(task, "QUESTION_ANSWERED", review, answered_in=ANSWERED_IN_CHAT)
+        if move and task.status == QUESTION_STATUS:
+            self.session.flush()
+            self.tasks.update(task.project_id, task.id, TaskUpdate(status="in_progress"))
+        else:
+            self.session.commit()
+        return review
 
     # ---- reading -----------------------------------------------------------------------
 
@@ -462,6 +552,17 @@ class ReviewService:
     ) -> ReviewDetail:
         """``answered_in`` is ANSWERED_IN_CHAT for a reply the person wrote in the agent's chat."""
         task, waits = self._waiting(project_id, task_ref)
+        if decision.verdict == "approve":
+            # Go on, as planned: an answer that needs no words.
+            said = (decision.comment or "").strip()
+            changes = {"verdict": "answer", "comment": said or APPROVED}
+            decision = decision.model_copy(update=changes)
+        # A checkpoint's wait can be finished work too: then the person accepts it as done.
+        note_accepted = (
+            decision.verdict == "accept" and waits == "question" and self.waiting_note(task.id)
+        )
+        if note_accepted:
+            waits = "work"
         answering = decision.verdict == "answer"
         if answering != (waits == "question"):
             raise conflict(
@@ -874,6 +975,7 @@ class ReviewService:
                 for n in notes
             ],
             left_out=picked.left_out if picked else False,
+            from_note=review.checkpoint_id is not None,
         )
 
     def _completion_suggestions(self, task: Task) -> list[Proposal]:

@@ -56,6 +56,7 @@ from app.services.memory import MemoryService
 from app.services.projects import ProjectService
 from app.services.proposals import ProposalService, actor_for
 from app.services.retrieval import RetrievalService
+from app.services.review_waits import waits_on_person
 from app.services.reviews import ANSWERED_IN_CHAT, ReviewService, Screenshot
 from app.services.search import SearchService
 from app.services.settings import get_agent_settings
@@ -90,24 +91,23 @@ DUPLICATE_HINT = (
     "instead of keeping two records."
 )
 
-# Finished work reaches the person only with a report: a status alone leaves them a task with
-# nothing to check, so moving a task to review any other way is refused.
-REVIEW_REFUSED = (
-    '{lead} Hand it over with brain_submit_review(task="{task}", summary, done, not_done, '
-    "how_to_check, screenshots): it moves the task to review itself. The person reviews "
-    "finished work in Project Moah's Review screen, and a chat reply never reaches it. Writing "
-    "it needs no permission. Finished several tasks? Submit one review for each."
+# A task Moah starts for work an agent did without one, once that work waits for the person.
+STARTED_BY_MOAH = (
+    "Started by Project Moah: an agent worked without a task and stopped to wait for you. "
+    "Rename it, merge it into the task it belongs to, or archive it if it was nothing."
 )
+STARTED_TAG = "started-by-moah"
+TASK_TITLE_LIMIT = 200
 
-
-def review_refused(task: Task) -> str:
-    """Why a task did not go to review: a report has to come with it."""
-    lead = (
-        f"{task.human_id} waits in review without your report, and nothing changed."
-        if task.status == "review"
-        else f"{task.human_id} was not moved to review, and nothing changed."
-    )
-    return REVIEW_REFUSED.format(lead=lead, task=task.human_id)
+# Finished work always reaches the person: a task moved to review without the agent's report
+# gets one Moah drafts from its checkpoints, and the agent is asked for a better one. (Refusing
+# the move kept finished work out of Review, since agents seldom write the report.)
+REVIEW_DRAFTED = (
+    "{task} waits in the person's Review screen with a report Moah drafted from your "
+    'checkpoints. Write a better one now with brain_submit_review(task="{task}", summary, done, '
+    "not_done, how_to_check, screenshots): it replaces the draft. Writing it needs no "
+    "permission. Finished several tasks? Submit one review for each."
+)
 
 
 ASK_HINT = (
@@ -983,10 +983,12 @@ def build_server(
         reason: str = "",
         links: list[str] | None = None,
     ) -> dict:
-        """Update a task's working fields. A finished task goes to the person with
-        brain_submit_review, which moves it to review: status review or completed is refused
-        while no review of yours waits for the task. Archiving becomes a proposal. Setting status in_progress makes it this session's task. links adds
-        typed links, each written "relationship target" ("blocked_by PROJ-4")."""
+        """Update a task's working fields. A finished task goes to the person's review: hand it
+        over with brain_submit_review, which writes your report and moves it to review (status
+        completed or review alone moves it there with a report Moah drafts from your
+        checkpoints). Archiving becomes a proposal. Setting status in_progress makes it this
+        session's task. links adds typed links, each written "relationship target"
+        ("blocked_by PROJ-4")."""
         found, _ = pick(session, project, write=True)
         changes = {
             k: v
@@ -1001,16 +1003,15 @@ def build_server(
         }
         if not changes and not links:
             raise ValueError("Give at least one field to change.")
+        drafted = False
         if status in ("completed", "review"):
-            # People decide when work is complete: a finished task waits in review, and only
-            # with a report, which brain_submit_review writes and moves the task with.
+            # People decide when work is complete: a finished task waits in review.
             current = TaskService(session).get(found.id, task)
             if current.status in ("completed", "archived"):
                 raise ValueError(
                     f"{current.human_id} is already {current.status}. Nothing changed."
                 )
-            if ReviewService(session).submitted_review(current.id) is None:
-                raise ValueError(review_refused(current))
+            drafted = ReviewService(session).submitted_review(current.id) is None
             changes["status"] = status = "review"
         TaskUpdate.model_validate(changes)
         proposals = ProposalService(session)
@@ -1046,6 +1047,8 @@ def build_server(
             "status": updated.status,
             **link_written(session, found.id, f"task:{updated.id}", actor=agent, links=links or []),
         }
+        if drafted:
+            result["next"] = REVIEW_DRAFTED.format(task=updated.human_id)
         if status == "blocked" and ReviewService(session).asked_question(updated.id) is None:
             result["next"] = ASK_HINT.format(task=updated.human_id)
         return result
@@ -1295,12 +1298,16 @@ def build_server(
         task: str | None = None,
         project: str | None = None,
         git_commit: str | None = None,
+        waiting_for_person: bool | None = None,
     ) -> dict:
         """Record where work stands so the next session can resume: after task work, before
         your final reply. task defaults to this session's task, else to the brief's unfinished
         task if the checkpoint names it or its records. Records it names (DEC-004, BUG-2, a file
         with notes) are linked to its task. Records your packs held that summary,
-        completed_work or next_steps name count as useful feedback."""
+        completed_work or next_steps name count as useful feedback. waiting_for_person: true
+        when you stop for the person's OK, pick or answer (a plan, a mockup, a commit): the
+        title then waits in their Review screen as your question, and your next checkpoint
+        settles it."""
         found, _ = pick(session, project, write=True)
         guessed = None
         if task is None and (current := working.current(session, found.id)) is not None:
@@ -1311,6 +1318,21 @@ def build_server(
             texts = [title, summary, completed_work, remaining_work, problems, next_steps]
             guessed = checkpoint_task(session, found, texts)
             task = guessed.id if guessed is not None else None
+        waits = waits_on_person(title, waiting_for_person)
+        started = None
+        if waits and task is None and found.id != GLOBAL_PROJECT_ID:
+            # Work that waits for the person needs a task to wait in Review with. The session
+            # keeps it, so its later notes land on it too: one task per session, not per note.
+            started = TaskService(session).create(
+                found.id,
+                TaskCreate(
+                    title=" ".join(title.split())[:TASK_TITLE_LIMIT] or "Work waiting for you",
+                    description=STARTED_BY_MOAH,
+                    status="in_progress",
+                    tags=[STARTED_TAG],
+                ),
+            )
+            task = started.id
         cp = CheckpointService(session).create(
             found.id,
             CheckpointCreate(
@@ -1329,6 +1351,10 @@ def build_server(
         )
         if cp.task_id:
             working.set(found.id, cp.task_id)
+        reviews, row = ReviewService(session), session.get(Task, cp.task_id) if cp.task_id else None
+        waiting = reviews.wait_from_checkpoint(row, cp, agent) if waits and row else None
+        if row is not None and not waits:
+            reviews.moved_on(row)
         anchor = cp.task.human_id if cp.task else "this checkpoint"
         result = {
             "created": cp.id,
@@ -1339,6 +1365,16 @@ def build_server(
                 for label in discover_checkpoint_quietly(session, found.id, cp.id, agent)
             ],
         }
+        if started is not None:
+            result["task_started"] = (
+                f"No task was set, so Moah started {started.human_id} for this work. Pass "
+                "task= next time if it belongs to another one."
+            )
+        if waiting is not None:
+            result["review"] = (
+                f"{cp.task.human_id} waits for the person in their Review screen. Stop and ask "
+                "them; when you go on, your next checkpoint settles it."
+            )
         if guessed is not None:
             result["task_note"] = (
                 f"{guessed.human_id} is the unfinished task in your brief and this checkpoint "
@@ -1725,8 +1761,15 @@ def build_server(
         the person with brain_submit_review instead."""
         found, _ = pick(session, project, write=True)
         if proposal_type == "complete_task" and target:
-            current = TaskService(session).get(found.id, target)
-            raise ValueError(review_refused(current))
+            moved = TaskService(session).update(found.id, target, TaskUpdate(status="review"))
+            reported = ReviewService(session).submitted_review(moved.id) is not None
+            return {
+                "applied": False,
+                "status": moved.status,
+                "message": f"{moved.human_id} waits in the person's Review screen."
+                if reported
+                else REVIEW_DRAFTED.format(task=moved.human_id),
+            }
         p = ProposalService(session).create(
             found.id,
             ProposalCreate(
