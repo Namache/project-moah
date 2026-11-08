@@ -41,7 +41,7 @@ export function HelpPage() {
             const Icon = categoryIcons[category] ?? BookOpen;
             return group.length ? (
               <section key={category} aria-labelledby={`cat-${category}`}>
-                <h2 id={`cat-${category}`} className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-[0.14em] text-ink-subtle"><Icon size={16} aria-hidden="true" />{t(category)}</h2>
+                <h2 id={`cat-${category}`} className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-muted"><Icon size={14} className="text-forest" aria-hidden="true" />{t(category)}</h2>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{group.map((a) => <Card key={a.slug} article={a} />)}</div>
               </section>
             ) : null;
@@ -62,7 +62,7 @@ export function HelpArticlePage() {
   return (
     <article className="max-w-3xl">
       <Link to="/help" className="inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-ink-muted hover:text-forest focus-visible:outline-2 focus-visible:outline-forest"><ArrowLeft size={16} aria-hidden="true" />{t("All help")}</Link>
-      <p className="mt-6 text-xs font-bold uppercase tracking-[0.16em] text-forest">{t(article.category)}</p>
+      <p className="mt-6 text-xs font-semibold uppercase tracking-wider text-forest">{t(article.category)}</p>
       <h1 className="mt-1 text-3xl font-semibold tracking-tight text-ink">{article.title}</h1>
       <Markdown source={article.body} />
       {related.length > 0 && <aside aria-label={t("Related articles")} className="mt-10 border-t border-line pt-6"><h2 className="text-sm font-semibold text-ink">{t("Related")}</h2><ul className="mt-2 space-y-1">{related.map((a) => <li key={a.slug}><Link to={`/help/${a.slug}`} className="text-sm font-medium text-forest underline">{a.title}</Link></li>)}</ul></aside>}

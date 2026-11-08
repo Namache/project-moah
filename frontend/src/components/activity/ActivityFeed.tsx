@@ -244,7 +244,7 @@ export function ActivityResults({ events, filter, workspace, isPending, error, h
     {events.length === 0 ? <EmptyState icon={<Activity size={26} />} title={filter === "all" ? t("No activity yet") : t("No matching activity")}>{filter === "all" ? t("Changes to tasks, memory, and checkpoints will appear here as they are recorded.") : workspace ? t("Try another filter to see more of your workspace's history.") : t("Try another filter to see more of this project's history.")}</EmptyState>
       : <div className="space-y-6">
         {byDay(events).map((day) => <section key={day.key} aria-label={day.label}>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">{day.label}</h2>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-muted">{day.label}</h2>
           <ol className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">{day.events.map((event) => <ActivityItem key={event.id} event={event} workspace={workspace} />)}</ol>
         </section>)}
       </div>}
