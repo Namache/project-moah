@@ -83,7 +83,8 @@ export function MemoryPage({ projectId, archived }: { projectId: string; archive
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl label={t("Memory categories")} value={category} onChange={setCategory} className="min-w-0"
           options={[{ value: "all" as const, label: t("All"), count: showCounts ? activeCount : undefined }, ...memoryTypes.map((item) => ({ value: item.value, label: item.plural, icon: memoryTypeStyle[item.value].icon, count: showCounts ? counts.data?.by_type[item.value] ?? 0 : undefined }))]} />
-        {!archived && <Button variant="primary" onClick={() => setParam("new", "1")}><Plus size={16} aria-hidden="true" />{t("New memory")}</Button>}
+        {/* ml-auto keeps the button on the right when long (Russian) category names push it onto its own row. */}
+        {!archived && <Button variant="primary" className="ml-auto" onClick={() => setParam("new", "1")}><Plus size={16} aria-hidden="true" />{t("New memory")}</Button>}
       </div>
 
       {taskRef && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-info/40 bg-info-soft px-4 py-2 text-sm text-info-ink"><span>{tx("Showing memory linked to <b>{task}</b>.", { b: (text) => <strong>{text}</strong>, task: taskRef })}</span><button type="button" className="font-semibold underline focus-visible:outline-2 focus-visible:outline-info-ink" onClick={() => setParam("task", null)}>{t("Show all memory")}</button></div>}

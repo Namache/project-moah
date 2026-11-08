@@ -79,7 +79,7 @@ function ProjectTileLink({ project, overview, pending }: { project: Project; ove
           {pending > 0 && <span className="absolute -right-1.5 -top-1.5 min-w-6 rounded-full border-2 border-surface bg-primary px-1.5 text-center text-xs font-semibold leading-5 text-white" aria-label={t("{count} waiting for review", { count: pending })}>{pending}</span>}
         </span>
         <span className="mt-2.5 block truncate text-center text-sm font-semibold text-ink">{project.name}</span>
-        <span className="mt-0.5 block truncate text-center text-xs text-ink-subtle">
+        <span className="mt-0.5 line-clamp-2 text-center text-xs text-ink-subtle">
           {checkpoint?.id ? t("Saved {when}", { when: since(checkpoint.created_at) }) : milestone ? milestone.name : t("No milestone")}
         </span>
         {percent !== null && <span className="mx-auto mt-2 block w-3/4"><ProgressBar value={percent} label={t("{project}: {share} of {milestone} done", { project: project.name, share: `${percent}%`, milestone: milestone!.name })} /></span>}

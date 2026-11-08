@@ -119,8 +119,8 @@ export function ContextInspector({ projectId, focusTaskId }: { projectId: string
               <h3 className="mt-6 text-sm font-semibold text-ink">{t("Included")}</h3>
               <ul className="mt-2 space-y-1.5">
                 {data.sections.map((s) => (
-                  <li key={s.key} className="grid grid-cols-[minmax(0,9rem)_1fr_4rem] items-center gap-3 text-sm">
-                    <span className="truncate text-ink-muted" title={sectionLabels[s.key] ?? s.title}>{sectionLabels[s.key] ?? s.title}</span>
+                  <li key={s.key} className="grid grid-cols-[minmax(0,11rem)_1fr_4rem] items-center gap-3 text-sm">
+                    <span className="leading-tight text-ink-muted" title={sectionLabels[s.key] ?? s.title}>{sectionLabels[s.key] ?? s.title}</span>
                     <span className="h-2 overflow-hidden rounded-full bg-neutral-soft" aria-hidden="true"><span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(4, (s.tokens / maxTokens) * 100)}%` }} /></span>
                     <span className="text-right text-xs font-medium text-ink-muted">~{s.tokens}</span>
                   </li>

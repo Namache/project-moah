@@ -1391,7 +1391,7 @@ export const ru: Record<string, Translation> = {
   "Known issue state": "Состояние известных проблем",
   "Memory search and filters": "Поиск и фильтры записей",
   "Search memory": "Искать в записях",
-  "Search titles, content, or IDs": "Поиск по названиям, тексту или номерам",
+  "Search titles, content, or IDs": "Название, текст или номер",
   "Sort memory": "Сортировка записей",
   "Filters": "Фильтры",
   "{count} active": "включено: {count}",
