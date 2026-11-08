@@ -50,8 +50,13 @@ async def serve() -> bool:
 
     from app.core import error_log
     from app.main import create_app
+    from app.services.agent_connect import refresh_connections
 
     error_log.install("service")
+    # After an update, agents connected before keep working without Connect. A throwaway
+    # database (the package checks) means nobody's agents are involved.
+    if not os.getenv("PROJECT_BRAIN_DB_PATH"):
+        Thread(target=refresh_connections, name="agent-refresh", daemon=True).start()
 
     token = os.getenv("PROJECT_BRAIN_DESKTOP_TOKEN")
     if not token:

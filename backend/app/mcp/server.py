@@ -323,18 +323,34 @@ def _unexpected(error: Exception) -> bool:
     return not isinstance(error, ValidationError | ProjectChoiceError | ValueError | ToolError)
 
 
+CLAUDE_CODE = "claude-code"  # the name Claude Code gives MCP servers it starts
+
+
 def build_server(
     session_factory: sessionmaker[Session],
     *,
     agent: str = "agent",
     default_project: str | None = None,
+    connection_notice: str | None = None,
 ) -> MCPServer:
+    """The MCP server. connection_notice, from services/agent_connect.py, goes with the first
+    answer to Claude Code: how the agent refreshes a connection an older version set up."""
     if agent.strip().casefold() == HUMAN:
         raise ValueError("--agent cannot be 'human': agents are never recorded as a person.")
     server = MCPServer("project-moah", instructions=INSTRUCTIONS)
     actor = actor_for(agent)
     working = SessionTask()
     watch = UpdateWatch()
+    untold = {"moah_connection": connection_notice} if connection_notice else {}
+    client: dict[str, str] = {}  # the program on the other end, once it has said its name
+
+    async def remember_client(ctx: Any, call_next: Any) -> Any:
+        params = getattr(ctx.session, "client_params", None)
+        if "name" not in client and params is not None and params.client_info is not None:
+            client["name"] = params.client_info.name
+        return await call_next(ctx)
+
+    server.middleware.append(remember_client)
     sessions = SessionTracker(agent.strip().casefold())
     packs = SessionPacks()
     # Which project this session's brief covered, once brain_brief was called. Until then the
@@ -358,7 +374,7 @@ def build_server(
                         with acting_as(actor, agent):
                             result = fn(session, *args, **kwargs)
                         sessions.record_tasks(session, working.tasks())
-                        return with_restart_notice(result, session)
+                        return with_notices(result, session)
                     except Exception as error:  # noqa: BLE001 - turned into a plain message
                         session.rollback()
                         if _unexpected(error):
@@ -376,9 +392,10 @@ def build_server(
 
         return decorate
 
-    def with_restart_notice(result: Any, session: Session) -> Any:
-        """Once per session, add 'restart me' to the first answer after a newer build appears."""
-        if watch.told or not isinstance(result, str | dict | list):
+    def with_notices(result: Any, session: Session) -> Any:
+        """Once per session each: 'restart me' on the first answer after a newer build appears,
+        and 'refresh my connection' on the first answer of all."""
+        if (watch.told and not untold) or not isinstance(result, str | dict | list):
             return result
         if isinstance(result, list) and not (
             result and all(isinstance(part, TextContent | ImageContent) for part in result)
@@ -386,14 +403,21 @@ def build_server(
             # A list of rows, empty or not, has nowhere to say it: its tool promises rows, and a
             # text part among them would make the whole answer fail. The next answer will say it.
             return result
-        notice = watch.notice(session)
-        if notice is None:
+        notices = dict(untold)
+        untold.clear()
+        if client.get("name") != CLAUDE_CODE:
+            # Connect refreshes Claude Code's entry only. Another client started the same way,
+            # like the Claude desktop app, would hear it every session and can't act on it.
+            notices.pop("moah_connection", None)
+        if (restart := watch.notice(session)) is not None:
+            notices = {"moah_updated": restart, **notices}
+        if not notices:
             return result
         if isinstance(result, str):
-            return f"{notice}\n\n{result}"
+            return "\n\n".join([*notices.values(), result])
         if isinstance(result, dict):
-            return {"moah_updated": notice, **result}
-        return [TextContent(type="text", text=notice), *result]
+            return {**notices, **result}
+        return [*(TextContent(type="text", text=text) for text in notices.values()), *result]
 
     def pick(session: Session, project: str | None, cwd: str | None = None, *, write: bool = False):
         found, how = resolve_project(session, project, cwd, default_project)

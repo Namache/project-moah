@@ -141,8 +141,10 @@ def main(argv: list[str] | None = None) -> int:
             engine.dispose()
         return 0
     from app.mcp.server import build_server
+    from app.services.agent_connect import connection_notice
     from app.services.agent_sessions import SESSION_ENV
 
+    outdated = connection_notice(args.agent, args.session_id)
     if args.session_id:  # what Claude Code puts in the environment, when only arguments arrive
         os.environ[SESSION_ENV] = args.session_id
 
@@ -150,7 +152,10 @@ def main(argv: list[str] | None = None) -> int:
         # stdout belongs to the protocol; anything human-readable goes to stderr.
         print(f"Project Moah MCP server ready (agent: {args.agent})", file=sys.stderr, flush=True)
         build_server(
-            make_session_factory(engine), agent=args.agent, default_project=args.project
+            make_session_factory(engine),
+            agent=args.agent,
+            default_project=args.project,
+            connection_notice=outdated,
         ).run("stdio")
     finally:
         engine.dispose()
