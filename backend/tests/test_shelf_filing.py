@@ -239,3 +239,51 @@ async def test_everyday_words_never_file_and_leave_the_keywords(
         keywords = session.get(Shelf, rewards["id"]).keywords.split(",")
         assert "after" not in keywords and "target" in keywords
         assert "ask before" in keywords  # a phrase of everyday words still names its topic
+
+
+async def test_brain_health_reads_the_shelf_trees_once(database_url: str, tmp_path: Path) -> None:
+    """Brain health asks for a shelf once per cluster. Inside ``reading()`` the trees are read
+    once per project, and every answer is the same as a fresh one, with or without linked
+    records nearby."""
+    from sqlalchemy import event
+
+    async with app_client(database_url) as client:
+        ids = await seed(client, tmp_path)
+        health = (await client.get("/api/brain/health")).json()
+    engine = make_engine(database_url)
+    texts = [
+        ("camp", "Shop price for the camp axe"),
+        ("camp", "Boss dodge timing in combat"),
+        ("notebook", "Build the installer"),
+        ("notebook", "Write the code of conduct"),
+        ("notebook", "What the tomatoes need in summer"),
+    ]
+    try:
+        with make_session_factory(engine)() as session:
+            shelves = ShelfService(session)
+            fresh = [shelves.suggest(ids[p], text) for p, text in texts]
+            near = {n for ns in shelves.memberships(ids["camp"]).values() for n in ns}
+            fresh_near = shelves.suggest(ids["camp"], "Shop price for the camp axe", near)
+            with shelves.reading():
+                for p in ("camp", "notebook"):
+                    shelves.suggest(ids[p], "warm up")
+                count = {"n": 0}
+
+                def counted(*_args):
+                    count["n"] += 1
+
+                event.listen(engine, "before_cursor_execute", counted)
+                try:
+                    cached = [shelves.suggest(ids[p], text) for p, text in texts]
+                    cached_near = shelves.suggest(ids["camp"], "Shop price for the camp axe", near)
+                finally:
+                    event.remove(engine, "before_cursor_execute", counted)
+            assert count["n"] == 0
+            assert cached == fresh and cached_near == fresh_near
+            assert shelves._reading is None  # nothing is cached once the block ends
+    finally:
+        engine.dispose()
+    async with app_client(database_url) as client:
+        assert (await client.get("/api/brain/health")).json()["suggestions"] == health[
+            "suggestions"
+        ]

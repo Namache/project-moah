@@ -81,6 +81,7 @@ REVIEWED_LIMIT = 80
 NEWEST_PENDING = 5
 SUMMARY_LINE = 240
 NOTES_LIMIT = 6  # checkpoints a drafted review is picked from, newest first
+ENTERED_EVENTS = 30  # recent activity read to find when a task last changed status
 NEXT_STEPS = "**Next steps**\n\n"  # how a drafted review stores the agent's next steps
 # The answer "Approve and continue" sends: the agent goes on as it planned.
 APPROVED = "Approved. Go on as planned."
@@ -937,20 +938,84 @@ class ReviewService:
         events = self.session.scalars(
             select(ActivityEvent)
             .where(ActivityEvent.task_id == task.id)
-            .order_by(ActivityEvent.timestamp.desc())
-            .limit(30)
+            .order_by(ActivityEvent.timestamp.desc(), ActivityEvent.id.desc())
+            .limit(ENTERED_EVENTS)
         )
-        for event in events:
-            meta = event.metadata_json or {}
-            if meta.get("status") == task.status and meta.get("previous_status") != task.status:
-                who = event.actor_name or (
-                    event.actor_type if event.actor_type != "system" else None
+        return _entered_from(task, events)
+
+    def _drafts(self, tasks: list[Task]) -> dict[str, TaskReview]:
+        """The timeline's drafts for many waiting tasks at once: the same as ``_draft(task,
+        named=False)`` for each, in five queries instead of four per task."""
+        if not tasks:
+            return {}
+        ids = [t.id for t in tasks]
+        last_any: dict[str, datetime] = {}
+        last_work: dict[str, datetime] = {}
+        last_round: dict[str, int] = {}
+        for at in range(0, len(ids), 500):
+            chunk = ids[at : at + 500]
+            for task_id, kind, reviewed_at, round_ in self.session.execute(
+                select(
+                    TaskReview.task_id,
+                    TaskReview.kind,
+                    func.max(TaskReview.reviewed_at),
+                    func.max(TaskReview.round),
                 )
-                by_agent = event.actor_type in ("claude", "codex") or (
-                    event.actor_type == "system" and bool(event.actor_name)
+                .where(TaskReview.task_id.in_(chunk))
+                .group_by(TaskReview.task_id, TaskReview.kind)
+            ):
+                last_round[task_id] = max(last_round.get(task_id, 0), round_ or 0)
+                if reviewed_at is not None:
+                    if task_id not in last_any or reviewed_at > last_any[task_id]:
+                        last_any[task_id] = reviewed_at
+                    if kind == "work":
+                        last_work[task_id] = reviewed_at
+        events: dict[str, list[ActivityEvent]] = {}
+        notes: dict[str, list[Checkpoint]] = {}
+        for at in range(0, len(ids), 500):
+            chunk = ids[at : at + 500]
+            ranked = (
+                select(
+                    ActivityEvent.id,
+                    func.row_number()
+                    .over(
+                        partition_by=ActivityEvent.task_id,
+                        order_by=(ActivityEvent.timestamp.desc(), ActivityEvent.id.desc()),
+                    )
+                    .label("n"),
                 )
-                return event.timestamp, who, by_agent
-        return task.updated_at, None, False
+                .where(ActivityEvent.task_id.in_(chunk))
+                .subquery()
+            )
+            for event in self.session.scalars(
+                select(ActivityEvent)
+                .join(ranked, ranked.c.id == ActivityEvent.id)
+                .where(ranked.c.n <= ENTERED_EVENTS)
+                .order_by(ActivityEvent.timestamp.desc(), ActivityEvent.id.desc())
+            ):
+                events.setdefault(event.task_id, []).append(event)
+            for checkpoint in self.session.scalars(
+                select(Checkpoint)
+                .where(Checkpoint.task_id.in_(chunk))
+                .order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc())
+            ):
+                notes.setdefault(checkpoint.task_id, []).append(checkpoint)
+        out = {}
+        for task in tasks:
+            question = task.status == QUESTION_STATUS
+            after = last_any.get(task.id) if question else last_work.get(task.id)
+            picked_notes = [
+                _note(c)
+                for c in notes.get(task.id, [])
+                if c.project_id == task.project_id and (after is None or c.created_at > after)
+            ][:NOTES_LIMIT]
+            out[task.id] = self._draft_from(
+                task,
+                picked_notes,
+                _entered_from(task, events.get(task.id, [])),
+                last_round.get(task.id, 0) + 1,
+            )
+        return out
 
     def _notes(
         self,
@@ -999,17 +1064,7 @@ class ReviewService:
         for checkpoint in self.session.scalars(
             statement.order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc())
         ):
-            note = Note(
-                title=checkpoint.title,
-                created_at=checkpoint.created_at,
-                agent=checkpoint.agent,
-                summary=checkpoint.summary or "",
-                completed_work=checkpoint.completed_work or "",
-                remaining_work=checkpoint.remaining_work or "",
-                problems=checkpoint.problems or "",
-                next_steps=checkpoint.next_steps or "",
-                task_id=checkpoint.task_id,
-            )
+            note = _note(checkpoint)
             # LIKE also finds CAMP-4520 for CAMP-452, and any note with the number in it.
             if checkpoint.task_id == task.id or ref in task_refs(note.text(), prefix):
                 notes.append(note)
@@ -1034,13 +1089,24 @@ class ReviewService:
         lines about this task, picked out of notes that may cover several (review_notes.py).
         Not stored until the person acts on it."""
         question = task.status == QUESTION_STATUS
-        notes, picked = self._picked(task, self._since(task, work=not question), named=named)
-        entered, mover, _ = self._entered(task)
+        notes = self._notes(task, self._since(task, work=not question), named=named)
+        return self._draft_from(task, notes, self._entered(task), self._next_round(task.id))
+
+    def _draft_from(
+        self,
+        task: Task,
+        notes: list[Note],
+        entered: tuple[datetime, str | None, bool],
+        round_: int,
+    ) -> TaskReview:
+        question = task.status == QUESTION_STATUS
+        picked = draft_from_notes(notes, task.id, task.human_id)
+        entered, mover, _ = entered
         draft = TaskReview(
             id=None,
             project_id=task.project_id,
             task_id=task.id,
-            round=self._next_round(task.id),
+            round=round_,
             agent=picked.agent or mover or "agent",
             kind="question" if question else "work",
             status="pending",
@@ -1207,9 +1273,10 @@ class ReviewService:
                 .group_by(ReviewFile.review_id)
             ).all()
         )
+        drafts = self._drafts([t for t in tasks if t.id not in pending])
         items = []
         for task in tasks:
-            review = pending.get(task.id) or self._draft(task, named=False)
+            review = pending.get(task.id) or drafts[task.id]
             items.append(
                 ReviewItem(
                     kind="task",
@@ -1374,3 +1441,31 @@ def _batch_title(title: str) -> str:
         title = head
     title = re.sub(r"\s{2,}", " ", HASH.sub(" ", title)).strip(" ,;")
     return _one_line(title, 120)
+
+
+def _note(checkpoint: Checkpoint) -> Note:
+    return Note(
+        title=checkpoint.title,
+        created_at=checkpoint.created_at,
+        agent=checkpoint.agent,
+        summary=checkpoint.summary or "",
+        completed_work=checkpoint.completed_work or "",
+        remaining_work=checkpoint.remaining_work or "",
+        problems=checkpoint.problems or "",
+        next_steps=checkpoint.next_steps or "",
+        task_id=checkpoint.task_id,
+    )
+
+
+def _entered_from(task: Task, events: Iterable[ActivityEvent]) -> tuple[datetime, str | None, bool]:
+    """When the task last moved to its current status, who moved it, and whether that was an
+    agent, from its recent activity, newest first."""
+    for event in events:
+        meta = event.metadata_json or {}
+        if meta.get("status") == task.status and meta.get("previous_status") != task.status:
+            who = event.actor_name or (event.actor_type if event.actor_type != "system" else None)
+            by_agent = event.actor_type in ("claude", "codex") or (
+                event.actor_type == "system" and bool(event.actor_name)
+            )
+            return event.timestamp, who, by_agent
+    return task.updated_at, None, False

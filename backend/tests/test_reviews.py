@@ -873,3 +873,103 @@ async def test_work_one_note_covered_together_is_marked_as_a_batch(
         # Rain and Pause share only the wide note.
         assert waiting[rain]["batch"] == waiting[pause]["batch"] != waiting[camp]["batch"]
         assert waiting[rain]["batch_title"] == "Design doc refresh"
+
+
+async def test_the_timeline_reads_many_waiting_tasks_in_a_fixed_number_of_queries(
+    database_url: str, tmp_path: Path
+) -> None:
+    """Tasks moved to review without a report get a drafted review each. The timeline drafts
+    them all together: the same lines as one task's own draft, and no more queries for 6 tasks
+    than for 2 (it used to be 4 more per task)."""
+    from sqlalchemy import event
+
+    from app.db.session import make_engine, make_session_factory
+    from app.models.task import Task
+    from app.services.reviews import ReviewService
+
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+        pid = w["pid"]
+
+        async def waiting_task(title: str, note: str) -> str:
+            ref = (await client.post(f"/api/projects/{pid}/tasks", json={"title": title})).json()
+            ref = ref["human_id"]
+            async with agent(database_url) as session:
+                error, _ = await call(
+                    session,
+                    "brain_create_checkpoint",
+                    project="trailhead",
+                    task=ref,
+                    title=f"{title} done",
+                    summary=note,
+                    completed_work=f"- {title}",
+                )
+                assert not error
+            moved = await client.post(
+                f"/api/projects/{pid}/tasks/{ref}/move", json={"status": "review", "index": 0}
+            )
+            assert moved.status_code == 200, moved.text
+            return ref
+
+        refs = [await waiting_task(f"Trail sign {i}", f"Sign {i} is up.") for i in range(2)]
+        # One was accepted once and came back: its draft is round 2, from the newer note only.
+        decided = await client.post(
+            f"/api/projects/{pid}/tasks/{refs[0]}/review/decision", json={"verdict": "accept"}
+        )
+        assert decided.status_code == 200, decided.text
+        async with agent(database_url) as session:
+            error, _ = await call(
+                session,
+                "brain_create_checkpoint",
+                project="trailhead",
+                task=refs[0],
+                title="Sign 0 repainted",
+                summary="Sign 0 is repainted.",
+            )
+            assert not error
+        moved = await client.post(
+            f"/api/projects/{pid}/tasks/{refs[0]}/move", json={"status": "review", "index": 0}
+        )
+        assert moved.status_code == 200, moved.text
+
+    engine = make_engine(database_url)
+    try:
+
+        def timeline() -> tuple[int, list]:
+            count = {"n": 0}
+
+            def counted(*_args):
+                count["n"] += 1
+
+            event.listen(engine, "before_cursor_execute", counted)
+            try:
+                with make_session_factory(engine)() as session:
+                    items = ReviewService(session).timeline().waiting
+            finally:
+                event.remove(engine, "before_cursor_execute", counted)
+            return count["n"], items
+
+        two, items = timeline()
+        with make_session_factory(engine)() as session:
+            service = ReviewService(session)
+            for item in items:
+                task = session.get(Task, item.key.removeprefix("task:"))
+                own = service._draft(task, named=False)
+                assert (item.summary, item.agent, item.round, item.done_at) == (
+                    own.summary,
+                    own.agent,
+                    own.round,
+                    own.created_at,
+                ), item.ref
+        by_ref = {i.ref: i for i in items}
+        assert by_ref[refs[0]].round == 2 and by_ref[refs[0]].summary == "Sign 0 is repainted."
+        assert by_ref[refs[1]].round == 1 and by_ref[refs[1]].summary == "Sign 1 is up."
+
+        async with app_client(database_url) as client:
+            for i in range(2, 6):
+                await waiting_task(f"Trail sign {i}", f"Sign {i} is up.")
+        six, items = timeline()
+        assert len([i for i in items if i.generated]) == 6
+        assert six == two
+    finally:
+        engine.dispose()
