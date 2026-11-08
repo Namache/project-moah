@@ -380,10 +380,12 @@ def build_server(
         """Once per session, add 'restart me' to the first answer after a newer build appears."""
         if watch.told or not isinstance(result, str | dict | list):
             return result
-        if isinstance(result, list) and not all(
-            isinstance(part, TextContent | ImageContent) for part in result
+        if isinstance(result, list) and not (
+            result and all(isinstance(part, TextContent | ImageContent) for part in result)
         ):
-            return result  # a plain list of rows has nowhere to say it; the next answer will
+            # A list of rows, empty or not, has nowhere to say it: its tool promises rows, and a
+            # text part among them would make the whole answer fail. The next answer will say it.
+            return result
         notice = watch.notice(session)
         if notice is None:
             return result
