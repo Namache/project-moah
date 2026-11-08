@@ -247,6 +247,31 @@ def brief_decided(session: Session, project: Project, task: Task) -> list[Memory
     return decided_for(session, project, task, own, shown)
 
 
+def named_tasks(session: Session, project: Project, texts: Iterable[str | None]) -> list[Task]:
+    """The project's tasks a checkpoint's text names by ID (IDLE-6 or IDLE-006), in the order
+    first named. Archived tasks and IDs of other records are left out."""
+    refs: list[str] = []
+    for text in texts:
+        for found in MENTION_PATTERN.finditer(text or ""):
+            if found.group("scope"):
+                continue
+            prefix, number = found.group("ref").upper().rsplit("-", 1)
+            ref = f"{prefix}-{int(number):03d}"
+            if ref not in refs:
+                refs.append(ref)
+    if not refs:
+        return []
+    rows = session.scalars(
+        select(Task).where(
+            Task.project_id == project.id,
+            func.upper(Task.human_id).in_(refs),
+            Task.status != "archived",
+        )
+    ).all()
+    order = {ref: index for index, ref in enumerate(refs)}
+    return sorted(rows, key=lambda t: order.get(t.human_id.upper(), len(order)))
+
+
 def checkpoint_task(session: Session, project: Project, texts: Iterable[str | None]) -> Task | None:
     """For a checkpoint written with no task and no session task: the brief's unfinished task,
     when the checkpoint names it or a record the brief lists as decided for it. An agent that

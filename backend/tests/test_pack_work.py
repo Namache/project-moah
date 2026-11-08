@@ -629,3 +629,38 @@ async def test_a_checkpoint_after_working_from_the_brief_alone_finds_its_task(
         brief = build_brief(db, db.get(Project, pid))
         # The old checkpoint's "Left to do" is gone with it.
         assert f"UNFINISHED: {task} " in brief and "Offline formula started" not in brief
+
+
+async def test_a_checkpoint_lands_on_the_task_it_names(
+    database_url: str,
+) -> None:
+    """Checkpoints kept landing on the task the session touched last, even a note that names
+    another task by its ID."""
+    async with app_client(database_url) as client:
+        pid, rec = await build_camp(client)
+    offline, sound = rec["offline"]["human_id"], rec["sound"]["human_id"]
+    number = int(sound.rsplit("-", 1)[1])
+    async with agent(database_url) as session:
+        failed, _ = await call(session, "brain_context_pack", task=offline, project=pid)
+        assert not failed
+        # Naming the session's own task too keeps the note there.
+        failed, same = await call(
+            session,
+            "brain_create_checkpoint",
+            title=f"Cap applied in {offline}",
+            summary=f"Volume slider ({sound}) waits for it.",
+            project=pid,
+        )
+        assert not failed and same["task"] == offline
+        # Written as IDLE-6, not IDLE-006: still the sound task, and it becomes the session's.
+        failed, other = await call(
+            session,
+            "brain_create_checkpoint",
+            title=f"Volume slider for IDLE-{number} laid out",
+            project=pid,
+        )
+        assert not failed and other["task"] == sound and offline in other["task_note"]
+        failed, after = await call(
+            session, "brain_create_checkpoint", title="Slider styled", project=pid
+        )
+        assert not failed and after["task"] == sound

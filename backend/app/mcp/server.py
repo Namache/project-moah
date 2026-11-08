@@ -44,7 +44,7 @@ from app.services.activity import acting_as
 from app.services.agent_prompts import second_opinion
 from app.services.agent_sessions import SessionTracker
 from app.services.agent_sync import sync_quietly
-from app.services.brief import build_brief, checkpoint_task
+from app.services.brief import build_brief, checkpoint_task, named_tasks
 from app.services.builds import UpdateWatch
 from app.services.checkpoints import CheckpointService
 from app.services.context import ContextService
@@ -1370,8 +1370,17 @@ def build_server(
         title then waits in their Review screen as your question, and your next checkpoint
         settles it."""
         found, _ = pick(session, project, write=True)
-        guessed = None
-        if task is None and (current := working.current(session, found.id)) is not None:
+        guessed = moved = None
+        current = working.current(session, found.id) if task is None else None
+        if task is None:
+            # A note about another task belongs to it, not to the one the session last touched:
+            # "IDLE-006 popup laid out" while the session's task is IDLE-005. Only when the
+            # note names exactly one task, and not the session's own ("after IDLE-005" stays).
+            named = named_tasks(session, found, [title, summary, completed_work])
+            if len(named) == 1 and (current is None or named[0].id != current.id):
+                moved = named[0]
+                task = moved.id
+        if task is None and current is not None:
             task = current.id
         elif task is None:
             # Worked from the brief alone, with no pack: the brief's unfinished task, when the
@@ -1443,6 +1452,12 @@ def build_server(
             result["review"] = (
                 f"{cp.task.human_id} waits for the person in their Review screen. Stop and ask "
                 "them; when you go on, your next checkpoint settles it."
+            )
+        if moved is not None:
+            result["task_note"] = (
+                f"Filed under {moved.human_id}, the task this checkpoint names"
+                + (f", not this session's task {current.human_id}" if current else "")
+                + f". {moved.human_id} is now this session's task; pass task= for another."
             )
         if guessed is not None:
             result["task_note"] = (
