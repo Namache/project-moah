@@ -4,7 +4,8 @@ An agent that finishes a task writes a review (what was done, what was not, how 
 screenshots). The task waits in status review until the person accepts it (the task moves to
 Done) or sends it back with comments (the task is worked on again). Each send-back starts a new
 round. An agent that cannot go on without the person asks a question instead: the task waits in
-Blocked until the person answers, and the answer goes back to the agent the same way.
+Blocked until the person answers, and the answer goes back to the agent the same way. A checkpoint
+that says it waits for the person (see services/review_waits.py) opens such a question too.
 Files live in the database next to the review, like images on tasks, so a backup of the database
 is a backup of the screenshots too.
 """
@@ -92,6 +93,9 @@ class TaskReview(Base):
     moved_to: Mapped[str | None] = mapped_column(String(20))
     # Tasks the person made from this round's leftovers: [{"text": ..., "task_id": ...}].
     follow_ups: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    # For a question Moah opened from an agent's checkpoint that waits for the person: the
+    # newest such checkpoint. Its later notes update the round; one that moves on settles it.
+    checkpoint_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class ReviewFile(Base):

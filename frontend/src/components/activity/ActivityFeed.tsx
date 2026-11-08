@@ -78,6 +78,7 @@ const eventLabels: Record<string, string> = labels({
   REVIEW_REOPENED: msg("Reopened after acceptance"),
   REVIEW_FOLLOW_UPS: msg("Follow-up tasks made"),
   QUESTION_ASKED: msg("Question for you"),
+  WAIT_UPDATED: msg("Still waiting for you"),
   QUESTION_ANSWERED: msg("Question answered"),
 });
 

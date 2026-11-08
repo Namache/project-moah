@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bot, Check, FileText, LoaderCircle, Mic, Paperclip, RotateCcw, Send, Square, X } from "lucide-react";
+import { Bot, Check, FileText, LoaderCircle, Mic, Paperclip, RotateCcw, Send, Square, ThumbsUp, X } from "lucide-react";
 import { reviewsApi } from "../../api/reviews";
 import { agentsApi, type AgentName, type WorkPrompt } from "../../api/agents";
 import { useReopenReview, useReviewDecision } from "../../hooks/useReviews";
@@ -138,6 +138,8 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
   const [problem, setProblem] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const question = detail.current.kind === "question";
+  // A wait Moah opened from the agent's note: you can also just let it go on, or take it as done.
+  const fromNote = question && !!detail.current.from_note;
   const field = useRef<HTMLTextAreaElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const client = useQueryClient();
@@ -200,18 +202,19 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
 
   function send(verdict: ReviewDecisionInput["verdict"]) {
     // Sending back or answering needs words: say so where they go, instead of a grey button.
-    if (verdict !== "accept" && !said) {
+    if (verdict !== "accept" && verdict !== "approve" && !said) {
       setProblem(verdict === "answer" ? t("Write your answer first.") : t("Write what should change first, so the agent knows what to fix."));
       field.current?.focus();
       return;
     }
     setProblem(null);
-    const input: ReviewDecisionInput = verdict === "answer" ? { verdict, comment } : { verdict, comment, criteria };
+    const input: ReviewDecisionInput = verdict === "answer" || verdict === "approve" ? { verdict, comment } : { verdict, comment, criteria };
     decide.mutate(input, {
       onSuccess: (result) => {
         drafts.delete(key);
         setComment("");
         notify(verdict === "accept" ? t("Accepted. {task} is in Done.", { task: detail.task_ref })
+          : verdict === "approve" ? t("Approved. {task} is back in progress.", { task: detail.task_ref })
           : verdict === "answer" ? t("Answer sent. {task} is back in progress.", { task: detail.task_ref }) : t("Sent back. {task} is in progress again, with your comments.", { task: detail.task_ref }));
         onDecided(verdict, result);
       },
@@ -246,7 +249,17 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
         <Button size="sm" onClick={() => input.current?.click()} disabled={files.length >= MAX_FEEDBACK_FILES}><Paperclip size={15} aria-hidden="true" />{t("Attach")}</Button>
         <input ref={input} type="file" multiple hidden accept="image/png,image/jpeg,image/webp,image/gif,text/*,.md,.log,.json,.csv,.diff,.patch,.yaml,.yml" onChange={(event) => { void attach([...(event.target.files ?? [])]); event.target.value = ""; }} />
         <DictationNote />
-        {question ? (
+        {fromNote ? <>
+          <Button disabled={busy} onClick={() => send("answer")} title={t("Sends your answer to the agent; the task goes back to In progress")}>
+            <Send size={15} aria-hidden="true" />{t("Send answer")}
+          </Button>
+          <Button disabled={busy} onClick={() => send("accept")} title={t("It was finished work: the task moves to Done. You can still reopen it from Reviewed.")}>
+            <Check size={16} aria-hidden="true" />{t("Accept and move to Done")}
+          </Button>
+          <Button variant="primary" disabled={busy} onClick={() => send("approve")} title={t("The agent goes on as it planned, with your words if you wrote any; the task goes back to In progress")}>
+            <ThumbsUp size={15} aria-hidden="true" />{t("Approve and continue")}
+          </Button>
+        </> : question ? (
           <Button variant="primary" disabled={busy} onClick={() => send("answer")} title={t("Sends your answer to the agent; the task goes back to In progress")}>
             <Send size={15} aria-hidden="true" />{t("Send answer")}
           </Button>
@@ -259,6 +272,7 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
           </Button>
         </>}
       </div>
+      {fromNote && <p className="mt-2 text-xs text-ink-muted">{t("The agent waits in its chat too. Answering there is fine: when the agent goes on, this closes by itself.")}</p>}
       {problem && <p role="alert" className="mt-2 text-xs text-danger-ink">{problem}</p>}
       {decide.error && <p role="alert" className="mt-2 text-xs text-danger-ink">{(decide.error as Error).message}</p>}
     </div>

@@ -171,7 +171,7 @@ function QuestionBody({ detail, round, onPick, compact = false }: { detail: Revi
     <div className="space-y-4">
       <section aria-labelledby={`question-${round.round}`} className="overflow-hidden rounded-xl border border-warning/40 bg-gradient-to-br from-warning-soft to-surface shadow-card">
         <h3 id={`question-${round.round}`} className="flex items-center gap-2 px-5 pt-4 text-sm font-semibold text-warning-ink">
-          <CircleHelp size={17} aria-hidden="true" />{t("{agent} needs your answer to go on", { agent: agentName(round.agent) })}
+          <CircleHelp size={17} aria-hidden="true" />{round.from_note ? t("{agent} is waiting for you", { agent: agentName(round.agent) }) : t("{agent} needs your answer to go on", { agent: agentName(round.agent) })}
         </h3>
         <Markdown text={round.summary} className={`px-5 pb-4 pt-2 ${compact ? "" : "text-lg font-medium [&_p]:leading-8"}`} />
         {round.options.length > 0 && (
@@ -190,7 +190,7 @@ function QuestionBody({ detail, round, onPick, compact = false }: { detail: Revi
         )}
       </section>
       {round.details && (
-        <Section title={t("What the agent found")} icon={ClipboardList} tone="neutral">
+        <Section title={round.from_note ? t("From the agent's note") : t("What the agent found")} icon={ClipboardList} tone="neutral">
           <Markdown text={round.details} className="px-1" />
         </Section>
       )}

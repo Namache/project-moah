@@ -309,56 +309,52 @@ async def test_a_batch_checkpoint_shows_only_the_lines_about_this_task(
         assert current["next_steps"] == ["Add a test for a full camp."]
 
 
-async def test_agents_hand_finished_work_over_only_with_a_report(
+async def test_finished_work_reaches_review_even_without_the_agents_report(
     database_url: str, tmp_path: Path
 ) -> None:
     async with app_client(database_url) as client:
         w = await world(client, tmp_path)
-    pid, task = w["pid"], w["task"]
+    pid, task, other = w["pid"], w["task"], w["other"]
     async with agent(database_url) as session:
-        for status in ("review", "completed"):
-            error, out = await call(
-                session,
-                "brain_update_task",
-                project="trailhead",
-                task=task,
-                status=status,
-                next_action="Check the badge",
-            )
-            assert error and f"{task} was not moved to review, and nothing changed" in out
-            assert f'brain_submit_review(task="{task}"' in out
+        await call(
+            session,
+            "brain_create_checkpoint",
+            project="trailhead",
+            task=task,
+            title="Camp badge built",
+            completed_work="- Badge on every camp card\n- Dark mode colours",
+            remaining_work="- No test for a full camp yet",
+        )
+        error, out = await call(
+            session, "brain_update_task", project="trailhead", task=task, status="completed"
+        )
+        # Moved, with a report Moah drafts, and the agent is asked for a better one.
+        assert not error and out["applied"] is True and out["status"] == "review"
+        assert "Moah drafted" in out["next"] and f'brain_submit_review(task="{task}"' in out["next"]
+        # The old "complete this task" suggestion moves the task to review too.
         error, out = await call(
             session,
             "brain_create_proposal",
             project="trailhead",
             proposal_type="complete_task",
-            target=task,
+            target=other,
             reason="Done",
         )
-        assert error and "brain_submit_review" in out
-        error, out = await call(session, "brain_get_task", project="trailhead", task=task)
-        assert not error and out["status"] == "in_progress"
-        assert out["next_action"] != "Check the badge"
+        assert not error and out["status"] == "review" and "Moah drafted" in out["message"]
 
     async with app_client(database_url) as client:
-        assert (await client.get("/api/reviews")).json()["waiting"] == []
-        # Dragged to Review by the person, it waits there without a report ...
-        await client.post(
-            f"/api/projects/{pid}/tasks/{task}/move", json={"status": "review", "index": 0}
-        )
-    async with agent(database_url) as session:
-        error, out = await call(
-            session, "brain_update_task", project="trailhead", task=task, status="review"
-        )
-        assert error and f"{task} waits in review without your report" in out
+        waiting = (await client.get("/api/reviews")).json()["waiting"]
+        assert sorted(item["ref"] for item in waiting) == sorted([task, other])
+        current = (await client.get(f"/api/projects/{pid}/tasks/{task}/review")).json()["current"]
+        assert current["generated"] and "Badge on every camp card" in current["done"]
 
-    # ... and once the agent's report waits, setting the status again is harmless.
+    # Once the agent's own report waits, it is no longer asked for one.
     submit_review(database_url, pid, task)
     async with agent(database_url) as session:
         error, out = await call(
             session, "brain_update_task", project="trailhead", task=task, status="completed"
         )
-        assert not error and out["status"] == "review"
+        assert not error and out["status"] == "review" and "next" not in out
 
 
 async def test_suggestions_share_the_timeline_and_a_send_back_settles_them(
