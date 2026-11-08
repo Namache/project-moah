@@ -148,3 +148,51 @@ def test_desktop_server_announces_port_and_stops_on_stdin_eof(tmp_path: Path) ->
         if process.poll() is None:
             process.kill()
             process.wait(timeout=5)
+
+
+def test_diagnostics_answer_while_the_service_waits_on_its_input(tmp_path: Path) -> None:
+    """Like the desktop app: Electron keeps the service's input open, and Diagnostics runs Git.
+
+    On Windows, Git that inherits the waiting input can hang; Diagnostics must still answer.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM):
+            pass
+    except PermissionError as error:
+        if error.errno == errno.EPERM:
+            pytest.skip("This sandbox blocks loopback sockets")
+        raise
+    frontend_dist = tmp_path / "dist"
+    frontend_dist.mkdir()
+    (frontend_dist / "index.html").write_text("Project Moah desktop")
+    environment = os.environ.copy()
+    environment.update(
+        PROJECT_BRAIN_DESKTOP_TOKEN="desktop-diagnostics-token",
+        PROJECT_BRAIN_FRONTEND_DIST=str(frontend_dist),
+        PROJECT_BRAIN_DB_PATH=str(tmp_path / "desktop.db"),
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-m", "app.desktop_server"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    assert process.stdout is not None and process.stdin is not None
+    output: queue.Queue[str] = queue.Queue()
+    Thread(target=lambda: output.put(process.stdout.readline()), daemon=True).start()
+    try:
+        port = int(output.get(timeout=15).removeprefix("PROJECT_BRAIN_READY ").strip())
+        headers = {"X-Project-Brain-Token": "desktop-diagnostics-token"}
+        with Client(base_url=f"http://127.0.0.1:{port}", timeout=30) as client:
+            report = client.get("/api/system/diagnostics", headers=headers)
+            assert report.status_code == 200
+            assert report.json()["database"]["integrity"] == "ok"
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)

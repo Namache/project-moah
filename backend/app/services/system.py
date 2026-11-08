@@ -161,7 +161,13 @@ def diagnostics(session: Session) -> dict:
         try:
             git_version = (
                 subprocess.run(
-                    [git, "--version"], capture_output=True, text=True, timeout=5, check=False
+                    [git, "--version"],
+                    # Never the service's own input: see GitService._git.
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
                 ).stdout.strip()
                 or None
             )
