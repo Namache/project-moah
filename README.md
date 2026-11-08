@@ -37,13 +37,15 @@
 
 | | What Moah does | Where |
 |---|---|---|
-| **Remembers** | Tasks, decisions, rules, facts, known issues and warnings, in one local database. Lock what agents must not change. | Tasks, Memory |
-| **Briefs** | Every agent session starts with your rules and the unfinished task with what is already decided for it, so agents check Moah instead of asking you again. | Context packs |
+| **Remembers** | Tasks, decisions, rules, facts, known issues and warnings, in one local database. Lock what agents must not change; critical rules lock themselves. | Tasks, Memory |
+| **Briefs** | Every agent session starts with a short brief: your rules and the unfinished task with what is already decided for it, so agents check Moah instead of asking you again. A rule's full text comes when the work needs it. | Context packs |
 | **Links** | Records are connected the way they relate: a bug *caused by* a decision, a task that *uses* a rule. | Brain |
 | **Learns** | Links that lead to useful records get stronger, unused ones fade. | Brain health |
-| **Asks first** | Finished work and changes to locked things wait for you: read what the agent did, see its screenshots, then accept or send it back with comments. | Review |
+| **Asks first** | Agents' questions and finished work wait for you, even when they asked in the chat. Read what the agent did and see its screenshots, then accept it, a whole batch at once if you like, or send it back with comments. Changes to locked things wait for your OK too. | Review |
 | **Hands off** | Checkpoints let any agent, Claude Code or Codex, pick up where the last one stopped. | Checkpoints |
-| **Listens** | Dictate into any text field instead of typing, in many languages. Speech becomes text on your computer. | Any text field |
+| **Tidies up** | Ask an agent to archive finished tasks or old rules and it does, keeping your words in the history. Nothing is deleted, and locked records stay yours. | Tasks, Memory |
+| **Listens** | Dictate into any text field instead of typing, in many languages. Pick your microphone and test it first. Speech becomes text on your computer. | Any text field |
+| **Keeps you focused** | An optional focus timer, a small desktop timer you can drag anywhere, and a sound when new work waits in Review. | Settings |
 
 ---
 
@@ -132,7 +134,7 @@ The first install also downloads the Flatpak runtime, so it takes a little longe
 
 </details>
 
-**Connect your agent:** open the app, go to **Help → Connect Claude Code**, and choose **Connect Claude Code and Codex**. On the Flatpak, Help gives you one command to paste instead. Then restart your agent.
+**Connect your agent:** open the app, go to **Help → Connect Claude Code**, and choose **Connect Claude Code and Codex**. On the Flatpak, Help gives you one command to paste instead. Then restart your agent. You only do this once: after an update, Moah keeps the connection up to date.
 
 ---
 
