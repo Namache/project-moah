@@ -428,3 +428,22 @@ def test_session_task_is_forgotten_after_two_idle_hours() -> None:
     found = [(NOW - timedelta(minutes=295), "A"), (NOW - timedelta(minutes=95), "B")]
     assert [t for _, t in _by_session_id(items, found)] == ["A", "A", "B", "B"]
     assert [t for _, t in _by_session_id(items, found[:1])] == ["A", "A", None, None]
+
+
+async def test_a_server_with_no_folder_project_adopts_no_session(
+    client: AsyncClient, database_url: str
+) -> None:
+    """A desktop app's server, shared by its chats, has no folder project. It must not take
+    over a terminal session that started at the same moment, in whatever project."""
+    from app.services.agent_sessions import NEAR
+
+    game = (await client.post("/api/projects", json={"name": "Game"})).json()
+    born = datetime.now(UTC)
+    with factory(database_url)() as session:
+        record_start(session, "claude", {"session_id": "terminal"}, game["id"], {})
+        desktop = SessionTracker("claude", {}, now=born)
+        assert desktop.adopt(session, None, now=born + NEAR) is False
+        assert desktop.current is None
+        # The terminal's own server still finds it.
+        own = SessionTracker("claude", {}, now=born)
+        assert own.adopt(session, game["id"], now=born + NEAR) is True
