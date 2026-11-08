@@ -7,7 +7,7 @@ import { Button, HelpTip } from "./ui";
 import { ChevronRight } from "lucide-react";
 
 /** A checkbox with its name, and the explanation under a "?" beside it (outside the label, so opening it never ticks the box). */
-function Switch({ checked, onChange, label, help }: { checked: boolean; onChange: (on: boolean) => void; label: string; help: string }) {
+export function Switch({ checked, onChange, label, help }: { checked: boolean; onChange: (on: boolean) => void; label: string; help: string }) {
   return (
     <div className="flex items-center gap-2 text-sm text-ink">
       <label className="flex items-center gap-3"><input type="checkbox" className="h-4 w-4 accent-primary" checked={checked} onChange={(e) => onChange(e.target.checked)} /><strong>{label}</strong></label>

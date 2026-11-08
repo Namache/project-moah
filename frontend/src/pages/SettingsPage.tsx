@@ -1,10 +1,13 @@
-import { AgentSettingsCard } from "../components/AgentSettingsCard";
+import { AgentSettingsCard, Switch } from "../components/AgentSettingsCard";
+import { agentsApi } from "../api/agents";
 import { TaskSettingsCard } from "../components/TaskSettingsCard";
 import { FocusTimerSettings, SoundSettings } from "../components/pomodoro/FocusTimerSettings";
 import { DictationSettings } from "../components/dictation/DictationSettings";
 import { serverText } from "../api/dictation";
 import { Choice } from "../components/Choice";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSingleKeys } from "../lib/reviewKeys";
+import { queryKeys } from "../lib/queries";
 import { ArrowRight, Check, ChevronRight, Copy, Download, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -139,8 +142,21 @@ function AccessibilityCard() {
         <SelectField id="text-size" label={t("Text size")} help={t("Makes only the text bigger, on top of the interface size, and leaves the layout as it is.")}
           value={String(display.text)} choices={textChoices}
           onChange={(value) => void setDisplay({ zoom: display.zoom, text: Number(value) })} />
+        <ReviewKeysSwitch />
       </div>
     </Card>
+  );
+}
+
+/** Single-letter keys in Review (A, S, J, K) can be turned off (WCAG 2.1.4): speech input
+ * "types" letters, and an A heard in passing would accept work. */
+function ReviewKeysSwitch() {
+  const client = useQueryClient();
+  const singleKeys = useSingleKeys();
+  const save = useMutation({ mutationFn: (on: boolean) => agentsApi.update({ review_single_keys: on }), onSuccess: (data) => client.setQueryData(queryKeys.agentSettings, data) });
+  return (
+    <Switch checked={singleKeys} onChange={(on) => save.mutate(on)} label={t("Single-letter keys in Review")}
+      help={t("A accepts and opens the next task, S starts a comment, J and K move through the list. Turn them off if you use speech input or they get in your way; the buttons and arrow keys keep working.")} />
   );
 }
 

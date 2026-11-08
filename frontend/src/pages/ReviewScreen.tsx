@@ -35,7 +35,7 @@ function SuggestionPanel({ item, waitingHere }: { item: ReviewItem; waitingHere:
   );
 }
 
-function TaskPanel({ item, onDecided }: { item: ReviewItem; onDecided: (verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) => void }) {
+function TaskPanel({ item, onDecided, onUndone }: { item: ReviewItem; onDecided: (verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) => void; onUndone: (detail: ReviewDetail) => void }) {
   const review = useTaskReview(item.project_id, item.ref);
   const [quote, setQuote] = useState<Quoted | null>(null);
   // Acceptance criteria start ticked while the work waits: you untick what isn't met.
@@ -73,7 +73,7 @@ function TaskPanel({ item, onDecided }: { item: ReviewItem; onDecided: (verdict:
         </div>
       </div>
       {waiting
-        ? <ReviewComposer detail={detail} quote={quote} criteria={detail.criteria.map((c) => ({ id: c.id, met: !unticked[c.id] }))} onDecided={onDecided} />
+        ? <ReviewComposer detail={detail} quote={quote} criteria={detail.criteria.map((c) => ({ id: c.id, met: !unticked[c.id] }))} onDecided={onDecided} onUndone={onUndone} />
         : handedBack
           ? <div data-keep-clear="" className="border-t border-line bg-surface px-5 py-3"><SendBackToAgent projectId={detail.project_id} taskRef={detail.task_ref} answered={round.status === "answered"} /></div>
           : reopenable
@@ -202,11 +202,11 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
         )}
         {timeline.isPending ? <Loading label={t("Loading the review timeline")} />
           : timeline.isError ? <ErrorState title={t("The review timeline could not be loaded")} message={timeline.error.message} onRetry={() => void timeline.refetch()} />
-          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={item?.key ?? null} showProject={!projectId && !shownProject} onSelect={select} folded={folded} onFold={fold} />}
+          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={item?.key ?? null} showProject={!projectId && !shownProject && projects.length > 1} onSelect={select} folded={folded} onFold={fold} />}
       </aside>
       <PaneResizer width={listWidth} min={LIST_MIN} max={listMax} fallback={LIST_WIDTH} onResize={setListWidth} label={t("Resize the task list")} />
       <section aria-label={t("Selected review")} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {item?.kind === "task" ? <TaskPanel key={`${item.project_id}:${item.ref}`} item={item} onDecided={decided} />
+        {item?.kind === "task" ? <TaskPanel key={`${item.project_id}:${item.ref}`} item={item} onDecided={decided} onUndone={(back) => select({ key: `task:${back.task_id}` } as ReviewItem)} />
           : item?.kind === "suggestion" ? <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8"><SuggestionPanel key={item.key} item={item} waitingHere={item.reviewed_at === null ? waiting.filter((i) => i.kind === "suggestion" && i.project_id === item.project_id).length : 0} /></div>
           : !timeline.isPending && (
             <div className="flex flex-1 items-center justify-center p-8">

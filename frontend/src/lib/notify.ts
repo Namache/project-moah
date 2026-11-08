@@ -1,7 +1,14 @@
 import { useSyncExternalStore } from "react";
 
 export type NoticeTone = "success" | "danger" | "neutral";
-export interface Notice { id: number; message: string; tone: NoticeTone }
+export interface NoticeAction { label: string; run: () => void | Promise<void> }
+export interface Notice { id: number; message: string; tone: NoticeTone; group?: string; action?: NoticeAction }
+export interface NoticeOptions {
+  /** A new notice of the same group takes the place of the last one instead of piling up. */
+  group?: string;
+  /** One button on the notice, such as Undo. It stays longer, so there is time to press it. */
+  action?: NoticeAction;
+}
 
 let notices: Notice[] = [];
 let nextId = 1;
@@ -14,11 +21,13 @@ export function dismissNotice(id: number) {
 }
 
 /** Shows a short notice in the corner: "Saved", "Couldn't save...". It goes away by itself after a few seconds. */
-export function notify(message: string, tone: NoticeTone = "success") {
+export function notify(message: string, tone: NoticeTone = "success", options: NoticeOptions = {}) {
   const id = nextId++;
-  notices = [...notices.slice(-2), { id, message, tone }];
+  const { group, action } = options;
+  const kept = group ? notices.filter((notice) => notice.group !== group) : notices;
+  notices = [...kept.slice(-2), { id, message, tone, group, action }];
   emit();
-  setTimeout(() => dismissNotice(id), tone === "danger" ? 8000 : 3500);
+  setTimeout(() => dismissNotice(id), tone === "danger" || action ? 8000 : 3500);
 }
 
 export function useNotices(): Notice[] {

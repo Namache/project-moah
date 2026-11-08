@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, undefer
@@ -84,6 +84,8 @@ NOTES_LIMIT = 6  # checkpoints a drafted review is picked from, newest first
 NEXT_STEPS = "**Next steps**\n\n"  # how a drafted review stores the agent's next steps
 # The answer "Approve and continue" sends: the agent goes on as it planned.
 APPROVED = "Approved. Go on as planned."
+# How long an Accept can be taken back with Undo; after that, Reopen with a comment.
+UNDO_WINDOW = timedelta(minutes=10)
 # Tasks Moah starts itself, so that work waiting for the person always has a place in Review:
 # for an agent that worked without a task, or that asks after its task was closed.
 STARTED_TAG = "started-by-moah"
@@ -714,6 +716,43 @@ class ReviewService:
         self.tasks.update(project_id, task.id, TaskUpdate(status="in_progress"))
         return self.detail(project_id, task.id)
 
+    def undo_accept(self, project_id: str, task_ref: str) -> ReviewDetail:
+        """Take back an Accept pressed a moment ago, as if it never happened: the work waits in
+        Review again. Only for the latest acceptance, made in Review in the last few minutes,
+        while the task is still in Done; after that, reopen it with a comment instead."""
+        task = self.tasks.get(project_id, task_ref)
+        review = self.latest(task.id)
+        if (
+            review is None
+            or review.kind != "work"
+            or review.status != "accepted"
+            or review.moved_to is not None
+            or review.reviewed_at is None
+        ):
+            raise conflict(f"{task.human_id} has no acceptance to undo")
+        if task.status != "completed":
+            raise conflict(f"{task.human_id} is not in Done any more")
+        if utc_now() - _aware(review.reviewed_at) > UNDO_WINDOW:
+            raise conflict(
+                f"{task.human_id} was accepted too long ago to undo. Reopen it with a comment."
+            )
+        accepted_at = review.reviewed_at
+        for proposal in self.session.scalars(
+            select(Proposal).where(
+                Proposal.project_id == task.project_id,
+                Proposal.proposal_type == "complete_task",
+                Proposal.target_entity_id == task.id,
+                Proposal.status == "accepted",
+                Proposal.reviewed_at == accepted_at,
+            )
+        ):
+            proposal.status, proposal.reviewed_at, proposal.review_note = "pending", None, None
+        review.status, review.comment, review.reviewed_at = "pending", None, None
+        self._log(task, "REVIEW_UNDONE", review, accepted_at=accepted_at.isoformat())
+        self.session.flush()
+        self.tasks.update(project_id, task.id, TaskUpdate(status="review"))
+        return self.detail(project_id, task.id)
+
     def follow_ups(self, project_id: str, task_ref: str, payload: FollowUpCreate) -> ReviewDetail:
         """Make tasks from lines of the review shown for a task: what was not done, or an
         acceptance criterion that is not met. Each new task is related to this one."""
@@ -1273,3 +1312,8 @@ class ReviewService:
                 **extra,
             },
         )
+
+
+def _aware(moment: datetime) -> datetime:
+    """SQLite hands datetimes back without their UTC zone."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)

@@ -627,6 +627,40 @@ async def test_accepted_work_can_be_reopened_with_a_comment(
     assert "SENT BACK FROM REVIEW" in text and "The badge is wrong" in text
 
 
+async def test_an_accept_can_be_undone_for_a_few_minutes(
+    database_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import timedelta
+
+    from app.services import reviews
+
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    submit_review(database_url, pid, task)
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{task}/review"
+        assert (await client.post(url + "/undo")).status_code == 409  # nothing accepted yet
+        await client.post(url + "/decision", json={"verdict": "accept", "comment": "Nice"})
+        undone = await client.post(url + "/undo")
+        assert undone.status_code == 200
+        body = undone.json()
+        # As if Accept was never pressed: the same report waits again, with no decision on it.
+        assert body["task_status"] == "review"
+        assert body["current"]["status"] == "pending" and body["current"]["round"] == 1
+        assert body["current"]["comment"] is None and body["earlier"] == []
+        timeline = (await client.get("/api/reviews")).json()
+        assert [r["ref"] for r in timeline["waiting"]] == [task] and timeline["reviewed"] == []
+        events = (await client.get(f"/api/projects/{pid}/activity")).json()
+        assert any(e["event_type"] == "REVIEW_UNDONE" for e in events)
+        assert (await client.post(url + "/undo")).status_code == 409  # once
+        # Later than the window, Undo is refused: Reopen (with a comment) is the way then.
+        await client.post(url + "/decision", json={"verdict": "accept"})
+        monkeypatch.setattr(reviews, "UNDO_WINDOW", timedelta(seconds=-1))
+        late = await client.post(url + "/undo")
+        assert late.status_code == 409 and "Reopen" in late.json()["detail"]
+
+
 async def test_work_accepted_on_the_board_can_be_reopened_too(
     database_url: str, tmp_path: Path
 ) -> None:
