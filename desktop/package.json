@@ -31,6 +31,7 @@
       "main.cjs",
       "display.cjs",
       "serviceport.cjs",
+      "prefs.cjs",
       "errorlog.cjs",
       "preload.cjs",
       "pomodoro.cjs",

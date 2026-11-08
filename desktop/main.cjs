@@ -9,6 +9,7 @@ const path = require("node:path");
 const readline = require("node:readline");
 const display = require("./display.cjs");
 const { readServicePort, saveServicePort } = require("./serviceport.cjs");
+const { createChoices } = require("./prefs.cjs");
 const { createErrorLog } = require("./errorlog.cjs");
 const { createPomodoro, relaunchForX11 } = require("./pomodoro.cjs");
 
@@ -52,6 +53,8 @@ let fatalShown = false;
 let errorLogPath = "";
 let recordError = () => {};
 let pomodoro = null;
+// The window's small choices (theme, language and the like), kept in the settings folder; see prefs.cjs.
+let choices = null;
 
 // The page is served by the local service and loads nothing from elsewhere: scripts, styles, icons and
 // API calls all come from its own origin. React sets inline style properties, so inline styles stay allowed.
@@ -120,6 +123,11 @@ const RUSSIAN = {
   "The local service stopped during startup ({reason}).": "Локальная служба остановилась при запуске ({reason}).",
   "Details were saved to {path}": "Подробности сохранены в {path}",
   "Open Project Moah": "Открыть Project Moah",
+  "Open Review": "Открыть «На проверке»",
+  "Open Review ({count} waiting)": "Открыть «На проверке» (ждут: {count})",
+  "Project Moah: {count} waiting for review": "Project Moah: ждут проверки: {count}",
+  "Project Moah is still running": "Project Moah продолжает работать",
+  "Agents can keep using it. Open it again or quit it from its icon in the system tray.": "Агенты могут и дальше им пользоваться. Откройте его снова или закройте через значок в системном трее.",
   "Quit": "Выйти",
   "Work is ready for your review": "Работа ждёт вашей проверки",
   "An agent needs your answer": "Агенту нужен ваш ответ",
@@ -434,6 +442,7 @@ async function openWindow(port) {
     if (quitting || !hidesToTray) return;
     event.preventDefault();
     window.hide();
+    explainTrayOnce();
   });
   // The desktop timer is a window too, so "all windows closed" never comes while it shows:
   // Moah's own window really closing (not hiding to the tray) ends the app.
@@ -452,6 +461,71 @@ function showWindow() {
   maximizeOnShow = false;
   window.show();
   window.focus();
+}
+
+/**
+ * After an update: close this copy and open the newly installed one. A Flatpak keeps running the
+ * files it started with, so there the new copy is started through the Flatpak portal, which
+ * opens the latest installed version in a sandbox of its own.
+ */
+async function restartForUpdate() {
+  if (stopping) return;
+  writeLog("[update] restarting to open the newly installed build");
+  quitting = true;
+  saveWindowState();
+  pomodoro?.dispose();
+  await stopBackend();
+  backendStoppedForQuit = true;
+  if (installKind() === "flatpak") {
+    // The new copy must not find this one still holding the single-instance lock.
+    app.releaseSingleInstanceLock();
+    try {
+      const child = spawn("flatpak-spawn", ["--latest-version", "/app/bin/project-brain"], { detached: true, stdio: "ignore" });
+      child.on("error", (error) => writeLog(`[update] ${error.message}`));
+      child.unref();
+      // Give the portal a moment to take the request before this sandbox goes away.
+      setTimeout(() => app.exit(0), 1_500);
+      return;
+    } catch (error) {
+      writeLog(`[update] ${error.message}`);
+    }
+  }
+  app.relaunch();
+  app.exit(0);
+}
+
+/** The first time the X button hides the window, say where Moah went: otherwise it looks closed, or stuck open. */
+function explainTrayOnce() {
+  const marker = path.join(app.getPath("userData"), "tray-hint-shown");
+  if (existsSync(marker)) return;
+  try {
+    writeFileSync(marker, new Date().toISOString());
+  } catch (error) {
+    writeLog(`[tray] ${error.message}`);
+    return; // never repeat it on every close because the marker can't be saved
+  }
+  if (!Notification.isSupported()) return;
+  const note = new Notification({ title: say("Project Moah is still running"), body: say("Agents can keep using it. Open it again or quit it from its icon in the system tray."), icon: path.join(__dirname, "assets", "icon.png") });
+  note.on("click", showWindow);
+  note.show();
+}
+
+/** The tray menu, with a shortcut to Review that says how much waits there. */
+function trayMenu(waiting) {
+  return Menu.buildFromTemplate([
+    { label: say("Open Project Moah"), click: showWindow },
+    { label: waiting > 0 ? say("Open Review ({count} waiting)", { count: waiting }) : say("Open Review"), click: openReview },
+    { type: "separator" },
+    { label: say("Quit"), click: () => app.quit() },
+  ]);
+}
+
+let trayWaiting = 0;
+function updateTray(waiting) {
+  if (!tray || waiting === trayWaiting) return;
+  trayWaiting = waiting;
+  tray.setToolTip(waiting > 0 ? say("Project Moah: {count} waiting for review", { count: waiting }) : "Project Moah");
+  tray.setContextMenu(trayMenu(waiting));
 }
 
 /** Linux desktops without a tray (plain GNOME) accept a tray icon and never show it. */
@@ -483,11 +557,7 @@ function createTray() {
     return;
   }
   tray.setToolTip("Project Moah");
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: say("Open Project Moah"), click: showWindow },
-    { type: "separator" },
-    { label: say("Quit"), click: () => app.quit() },
-  ]));
+  tray.setContextMenu(trayMenu(0));
   tray.on("click", showWindow);
   // For scripts/check-desktop-window.cjs, which checks every build has its tray icon.
   global.projectMoahTray = !image.isEmpty();
@@ -548,6 +618,7 @@ async function checkReviews(port) {
   }
   // The focus timer's corner shows how much waits in Review; Moah chimes once per new arrival, timer on or off.
   pomodoro?.setPending(pending.total, fresh);
+  updateTray(pending.total ?? 0);
   if (!Notification.isSupported()) return;
   const many = (count) => say("{count} items wait for your review", { count });
   if (first && pending.total > 0) {
@@ -588,6 +659,7 @@ if (relaunching) {
   app.on("before-quit", (event) => {
     quitting = true;
     pomodoro?.dispose();
+    choices?.flush();
     if (backendStoppedForQuit) return;
     event.preventDefault();
     void stopBackend().finally(() => {
@@ -614,6 +686,13 @@ if (relaunching) {
     apiToken = randomBytes(32).toString("hex");
     ipcMain.on("project-brain:get-token", (event) => {
       event.returnValue = event.sender === window?.webContents ? apiToken : "";
+    });
+    choices = createChoices(path.join(logDir, "window-prefs.json"), { onError: (error) => writeLog(`[prefs] ${error.message}`) });
+    ipcMain.on("project-brain:get-prefs", (event) => {
+      event.returnValue = event.sender === window?.webContents ? choices.all() : null;
+    });
+    ipcMain.on("project-brain:set-pref", (event, key, value) => {
+      if (event.sender === window?.webContents) choices.set(key, value);
     });
     ipcMain.on("project-brain:get-display", (event) => {
       event.returnValue = event.sender === window?.webContents ? displayState() : null;
@@ -642,6 +721,11 @@ if (relaunching) {
         recordError(`Could not open the agent's app: ${error.message}`, "", "warning");
         return false;
       }
+    });
+    ipcMain.handle("project-brain:restart-for-update", (event) => {
+      if (event.sender !== window?.webContents) return false;
+      void restartForUpdate();
+      return true;
     });
     ipcMain.handle("project-brain:choose-folder", async (event, title) => {
       // Only the app's own window may open the chooser.

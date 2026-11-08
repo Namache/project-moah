@@ -27,6 +27,7 @@ from app.api.reviews import router as reviews_router
 from app.api.search import router as search_router
 from app.api.settings import router as settings_router
 from app.api.system import router as system_router
+from app.api.system import watch as update_watch
 from app.api.tasks import router as tasks_router
 from app.api.usage import router as usage_router
 from app.core.config import get_database_url
@@ -62,6 +63,7 @@ def create_app(
             # The desktop app is the installed build; MCP processes on an older one see it.
             with application.state.session_factory() as session:
                 register_build(session, installed=True)
+            update_watch()  # note this build and its executable now, to spot an install later
         application.state.usage_reader = UsageReader()
         warmup = None
         if warm_usage:

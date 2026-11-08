@@ -68,6 +68,11 @@ export const ru: Record<string, Translation> = {
   "Support": "Поддержка",
   "Nothing leaves this computer": "Ничего не покидает этот компьютер",
   "Stays on this computer": "Всё остаётся на этом компьютере",
+  "Project Moah was updated. Restart it to use the new version.": "Project Moah обновился. Перезапустите его, чтобы пользоваться новой версией.",
+  "Project Moah was updated. Close it and open it again to use the new version.": "Project Moah обновился. Закройте и снова откройте его, чтобы пользоваться новой версией.",
+  "Restart now": "Перезапустить",
+  "Restarting…": "Перезапуск…",
+  "Later": "Позже",
 
   // Archive project
   "{name} archived": "«{name}» в архиве",

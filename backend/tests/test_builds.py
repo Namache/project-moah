@@ -134,3 +134,43 @@ async def test_agents_hear_about_an_update_once_and_packs_record_the_build(
         builds = db.scalars(select(RetrievalSession.build)).all()
         assert builds and set(builds) == {current_build().label}
         assert pack_builds(db)["old_build_last_day"] == 2  # served by the old session's build
+
+
+async def test_an_empty_list_right_after_an_update_still_answers(
+    database_url: str, tmp_path: Path
+) -> None:
+    """The first answer after an install was an empty task list: the notice must not break it."""
+    async with app_client(database_url) as client:
+        await seed(client, tmp_path)
+    async with agent(database_url) as session:
+        error, _ = await call(session, "brain_brief", project="trailhead")
+        assert not error
+        with factory(database_url)() as db:
+            future = Build("9.9.9", current_build().stamp + 3600, "fffffff")
+            register_build(db, future, installed=True)
+        error, tasks = await call(
+            session, "brain_list_tasks", project="trailhead", status=["review"]
+        )
+        assert not error, tasks
+        assert tasks == []
+        # The notice waits for an answer that has room for it.
+        error, pack = await call(
+            session, "brain_context_pack", task="CAMP-001", project="trailhead"
+        )
+        assert not error and pack.startswith("MOAH WAS UPDATED")
+
+
+async def test_the_window_hears_about_an_install_made_while_it_was_open(database_url: str):
+    from app.api import system as system_api
+
+    system_api._watch = UpdateWatch(OLD)
+    try:
+        async with app_client(database_url) as client:
+            first = (await client.get("/api/system/update")).json()
+            assert first == {"running": OLD.label, "newer": False, "installed": None}
+            with factory(database_url)() as db:
+                register_build(db, NEW, installed=False)  # an agent started on the new build
+            later = (await client.get("/api/system/update")).json()
+            assert later == {"running": OLD.label, "newer": True, "installed": NEW.label}
+    finally:
+        system_api._watch = None

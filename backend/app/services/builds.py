@@ -158,6 +158,22 @@ class UpdateWatch:
         return restart_notice(self.build, newer)
 
 
+def update_status(session: Session, watch: UpdateWatch) -> dict:
+    """For the app window: whether a newer build was installed while it was open, so it can
+    offer a restart instead of carrying on with the old code. Never raises."""
+    try:
+        newer = watch.newer(session)
+    except Exception:  # noqa: BLE001 - a busy database just means "no news yet"
+        session.rollback()
+        newer = None
+    known = newer is not None and newer.version != "a newer build"
+    return {
+        "running": watch.build.label,
+        "newer": newer is not None,
+        "installed": newer.label if known else None,
+    }
+
+
 def pack_builds(session: Session, *, hours: int = 24) -> dict:
     """Packs served in the last day, by build, and how many came from an older build than the
     installed one. After an install this should fall to zero as agents restart."""

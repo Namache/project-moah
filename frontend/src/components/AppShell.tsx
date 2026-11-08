@@ -10,6 +10,7 @@ import { primaryNav, secondaryNav, supportNav } from "./navItems";
 import { ProjectsNav } from "./ProjectsNav";
 import { SidebarResizer, useSidebarWidth } from "./SidebarResizer";
 import { Notices } from "./Notices";
+import { UpdateBanner } from "./UpdateBanner";
 import { Menu, type MenuItem } from "./ui";
 import { projectPath } from "../lib/routes";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -137,6 +138,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {wide && <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />}
       <div className="min-w-0 flex-1">
+        <UpdateBanner />
         <main id="main-content" tabIndex={-1} className={fullScreen ? "outline-none" : "mx-auto max-w-[1280px] px-5 py-6 outline-none sm:px-8 sm:py-8 lg:px-10"}>
           {children}
         </main>
