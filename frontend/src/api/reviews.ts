@@ -14,6 +14,8 @@ export const reviewsApi = {
   /** Takes back an acceptance: the task goes back to In progress, and the comment reaches the next agent. */
   reopen: (projectId: string, ref: string, comment: string) =>
     request<ReviewDetail>(`${task(projectId, ref)}/reopen`, json("POST", { comment: comment.trim() })),
+  /** Takes back an Accept pressed a moment ago: the work waits in Review again. */
+  undo: (projectId: string, ref: string) => request<ReviewDetail>(`${task(projectId, ref)}/undo`, json("POST", {})),
   /** Makes tasks from lines of the review: what was not done, or an unmet criterion. */
   followUps: (projectId: string, ref: string, items: string[], status: FollowUpColumn = "todo") =>
     request<ReviewDetail>(`${task(projectId, ref)}/follow-ups`, json("POST", { items, status })),

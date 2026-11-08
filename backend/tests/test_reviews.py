@@ -627,6 +627,40 @@ async def test_accepted_work_can_be_reopened_with_a_comment(
     assert "SENT BACK FROM REVIEW" in text and "The badge is wrong" in text
 
 
+async def test_an_accept_can_be_undone_for_a_few_minutes(
+    database_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import timedelta
+
+    from app.services import reviews
+
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    submit_review(database_url, pid, task)
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{task}/review"
+        assert (await client.post(url + "/undo")).status_code == 409  # nothing accepted yet
+        await client.post(url + "/decision", json={"verdict": "accept", "comment": "Nice"})
+        undone = await client.post(url + "/undo")
+        assert undone.status_code == 200
+        body = undone.json()
+        # As if Accept was never pressed: the same report waits again, with no decision on it.
+        assert body["task_status"] == "review"
+        assert body["current"]["status"] == "pending" and body["current"]["round"] == 1
+        assert body["current"]["comment"] is None and body["earlier"] == []
+        timeline = (await client.get("/api/reviews")).json()
+        assert [r["ref"] for r in timeline["waiting"]] == [task] and timeline["reviewed"] == []
+        events = (await client.get(f"/api/projects/{pid}/activity")).json()
+        assert any(e["event_type"] == "REVIEW_UNDONE" for e in events)
+        assert (await client.post(url + "/undo")).status_code == 409  # once
+        # Later than the window, Undo is refused: Reopen (with a comment) is the way then.
+        await client.post(url + "/decision", json={"verdict": "accept"})
+        monkeypatch.setattr(reviews, "UNDO_WINDOW", timedelta(seconds=-1))
+        late = await client.post(url + "/undo")
+        assert late.status_code == 409 and "Reopen" in late.json()["detail"]
+
+
 async def test_work_accepted_on_the_board_can_be_reopened_too(
     database_url: str, tmp_path: Path
 ) -> None:
@@ -801,3 +835,41 @@ async def test_rejecting_records_only_the_criteria_marked_unmet(
         assert [c["is_completed"] for c in sent.json()["criteria"]] == [False, False]
         prompt = (await client.get(url + "/fix-prompt?agent=claude")).json()["prompt"]
         assert "Acceptance criteria not met yet\n- Badge shows free places" in prompt
+
+
+async def test_work_one_note_covered_together_is_marked_as_a_batch(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+        pid = w["pid"]
+        refs = [w["task"]]
+        for title in ("Keeper walk", "Wick's welcome", "Rain puddles", "Pause menu"):
+            made = await client.post(
+                f"/api/projects/{pid}/tasks", json={"title": title, "prefix": "CAMP"}
+            )
+            refs.append(made.json()["human_id"])
+        camp, walk, wick, rain, pause = refs
+        n = [r.split("-")[1] for r in refs]
+        # A wide note naming everything, and the batch's own note naming three: each task goes
+        # with the most specific note; a note left with one task makes no batch.
+        for title, done in (
+            (
+                "Design doc refresh",
+                f"Builds: camp ({camp}, {n[1]}, {n[2]}), polish ({rain}, {n[4]}).",
+            ),
+            (f"Camp helper batch: {camp} 3784f03b, {walk}, {wick}, all set to review", ""),
+            ("Rain alone", f"{rain} puddles drawn."),
+        ):
+            await client.post(
+                f"/api/projects/{pid}/checkpoints", json={"title": title, "completed_work": done}
+            )
+        for ref in refs:
+            await client.patch(f"/api/projects/{pid}/tasks/{ref}", json={"status": "review"})
+        waiting = {i["ref"]: i for i in (await client.get("/api/reviews")).json()["waiting"]}
+        camp_batch = {waiting[r]["batch"] for r in (camp, walk, wick)}
+        assert len(camp_batch) == 1 and None not in camp_batch
+        assert waiting[camp]["batch_title"] == "Camp helper batch"
+        # Rain and Pause share only the wide note.
+        assert waiting[rain]["batch"] == waiting[pause]["batch"] != waiting[camp]["batch"]
+        assert waiting[rain]["batch_title"] == "Design doc refresh"

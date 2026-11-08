@@ -62,6 +62,12 @@ def reopen_review(
     return ReviewService(session).reopen(project_id, ref, payload)
 
 
+@router.post(TASK + "/undo", response_model=ReviewDetail)
+def undo_accept(project_id: str, ref: str, session: DatabaseSession) -> ReviewDetail:
+    """Take back an Accept pressed a moment ago: the work waits in Review again."""
+    return ReviewService(session).undo_accept(project_id, ref)
+
+
 @router.post(TASK + "/follow-ups", response_model=ReviewDetail)
 def make_follow_ups(
     project_id: str, ref: str, payload: FollowUpCreate, session: DatabaseSession

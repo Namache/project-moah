@@ -26,9 +26,9 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, undefer
 
 from app.models.checkpoint import ActivityEvent, Checkpoint
@@ -66,7 +66,7 @@ from app.services.activity import ActivityService, current_actor
 from app.services.errors import conflict, invalid, not_found
 from app.services.images import clean_filename, sniff
 from app.services.projects import ProjectService
-from app.services.review_notes import Note, Picked, lines, task_refs
+from app.services.review_notes import HASH, TASK_REF, WORD, Note, Picked, lines, task_refs
 from app.services.review_notes import draft as draft_from_notes
 from app.services.tasks import TaskService
 
@@ -84,6 +84,11 @@ NOTES_LIMIT = 6  # checkpoints a drafted review is picked from, newest first
 NEXT_STEPS = "**Next steps**\n\n"  # how a drafted review stores the agent's next steps
 # The answer "Approve and continue" sends: the agent goes on as it planned.
 APPROVED = "Approved. Go on as planned."
+# How far before the oldest waiting work a note may be to batch it, and how many notes count.
+BATCH_LOOKBACK = timedelta(days=3)
+BATCH_NOTES = 200
+# How long an Accept can be taken back with Undo; after that, Reopen with a comment.
+UNDO_WINDOW = timedelta(minutes=10)
 # Tasks Moah starts itself, so that work waiting for the person always has a place in Review:
 # for an agent that worked without a task, or that asks after its task was closed.
 STARTED_TAG = "started-by-moah"
@@ -388,11 +393,55 @@ class ReviewService:
         )
         # Questions first: work is stuck until the person answers them.
         waiting.sort(key=lambda item: (item.question, item.done_at), reverse=True)
+        self._mark_batches(waiting)
         waiting_ids = {item.key.removeprefix("task:") for item in waiting if item.kind == "task"}
         reviewed = self._reviewed_tasks(project_id, projects, reviewed_limit, waiting_ids)
         reviewed += self._reviewed_suggestions(project_id, projects, reviewed_limit)
         reviewed.sort(key=lambda item: item.reviewed_at or item.done_at, reverse=True)
         return ReviewTimeline(waiting=waiting, reviewed=reviewed[:reviewed_limit])
+
+    def _mark_batches(self, waiting: list[ReviewItem]) -> None:
+        """Mark finished work that one agent note covered together. Each task goes with the
+        most specific recent note that names it and at least one other waiting task (in its
+        title, else in its completed work); a note whose tasks went elsewhere, leaving it one,
+        makes no batch."""
+        work = [i for i in waiting if i.kind == "task" and not i.question]
+        by_project: dict[str, dict[str, ReviewItem]] = {}
+        for item in work:
+            by_project.setdefault(item.project_id, {})[item.ref] = item
+        for project_id, items in by_project.items():
+            if len(items) < 2:
+                continue
+            prefixes = {ref.rsplit("-", 1)[0] for ref in items}
+            since = min(i.done_at for i in items.values()) - BATCH_LOOKBACK
+            notes = self.session.scalars(
+                select(Checkpoint)
+                .where(Checkpoint.project_id == project_id, Checkpoint.created_at >= since)
+                .order_by(Checkpoint.created_at.desc())
+                .limit(BATCH_NOTES)
+            )
+            best: dict[str, tuple[int, int, Checkpoint]] = {}
+            for order, note in enumerate(notes):
+                named: set[str] = set()
+                for text in (note.title, note.completed_work):
+                    named = {r for p in prefixes for r in task_refs(text, p)} & items.keys()
+                    if len(named) >= 2:
+                        break
+                if len(named) < 2:
+                    continue
+                for ref in named:
+                    rank = (len(named), order)
+                    if ref not in best or rank < best[ref][:2]:
+                        best[ref] = (*rank, note)
+            groups: dict[str, list[str]] = {}
+            for ref, (_, _, note) in best.items():
+                groups.setdefault(note.id, []).append(ref)
+            for note_id, refs in groups.items():
+                if len(refs) < 2:
+                    continue
+                title = _batch_title(best[refs[0]][2].title)
+                for ref in refs:
+                    items[ref].batch, items[ref].batch_title = f"batch:{note_id}", title
 
     def pending(self) -> PendingReviews:
         items = self.timeline(reviewed_limit=1).waiting
@@ -714,6 +763,43 @@ class ReviewService:
         self.tasks.update(project_id, task.id, TaskUpdate(status="in_progress"))
         return self.detail(project_id, task.id)
 
+    def undo_accept(self, project_id: str, task_ref: str) -> ReviewDetail:
+        """Take back an Accept pressed a moment ago, as if it never happened: the work waits in
+        Review again. Only for the latest acceptance, made in Review in the last few minutes,
+        while the task is still in Done; after that, reopen it with a comment instead."""
+        task = self.tasks.get(project_id, task_ref)
+        review = self.latest(task.id)
+        if (
+            review is None
+            or review.kind != "work"
+            or review.status != "accepted"
+            or review.moved_to is not None
+            or review.reviewed_at is None
+        ):
+            raise conflict(f"{task.human_id} has no acceptance to undo")
+        if task.status != "completed":
+            raise conflict(f"{task.human_id} is not in Done any more")
+        if utc_now() - _aware(review.reviewed_at) > UNDO_WINDOW:
+            raise conflict(
+                f"{task.human_id} was accepted too long ago to undo. Reopen it with a comment."
+            )
+        accepted_at = review.reviewed_at
+        for proposal in self.session.scalars(
+            select(Proposal).where(
+                Proposal.project_id == task.project_id,
+                Proposal.proposal_type == "complete_task",
+                Proposal.target_entity_id == task.id,
+                Proposal.status == "accepted",
+                Proposal.reviewed_at == accepted_at,
+            )
+        ):
+            proposal.status, proposal.reviewed_at, proposal.review_note = "pending", None, None
+        review.status, review.comment, review.reviewed_at = "pending", None, None
+        self._log(task, "REVIEW_UNDONE", review, accepted_at=accepted_at.isoformat())
+        self.session.flush()
+        self.tasks.update(project_id, task.id, TaskUpdate(status="review"))
+        return self.detail(project_id, task.id)
+
     def follow_ups(self, project_id: str, task_ref: str, payload: FollowUpCreate) -> ReviewDetail:
         """Make tasks from lines of the review shown for a task: what was not done, or an
         acceptance criterion that is not met. Each new task is related to this one."""
@@ -881,15 +967,28 @@ class ReviewService:
         like = f"%{ref}%"
         about = Checkpoint.task_id == task.id
         if named:
-            about = (
-                about
-                | Checkpoint.title.like(like)
-                | Checkpoint.summary.like(like)
-                | Checkpoint.completed_work.like(like)
-                | Checkpoint.remaining_work.like(like)
-                | Checkpoint.problems.like(like)
-                | Checkpoint.next_steps.like(like)
-            )
+            # A note can also name it as a bare number in a list ("CAMP-449, 432, 441"); the
+            # LIKEs only narrow the search, task_refs below decides.
+            # The number must start after a separator, so task 1 doesn't match every note
+            # holding a "1" somewhere.
+            prefix_like = f"%{ref.rsplit('-', 1)[0]}-%"
+            number = ref.rsplit("-", 1)[1]
+            number_likes = [
+                f"%{before}{number}%" for before in (" ", "\n", ",", "/", "&", "+", "-")
+            ]
+            for column in (
+                Checkpoint.title,
+                Checkpoint.summary,
+                Checkpoint.completed_work,
+                Checkpoint.remaining_work,
+                Checkpoint.problems,
+                Checkpoint.next_steps,
+            ):
+                about = (
+                    about
+                    | column.like(like)
+                    | (column.like(prefix_like) & or_(*(column.like(x) for x in number_likes)))
+                )
         statement = select(Checkpoint).where(Checkpoint.project_id == task.project_id, about)
         if after is not None:
             statement = statement.where(Checkpoint.created_at > after)
@@ -911,7 +1010,7 @@ class ReviewService:
                 next_steps=checkpoint.next_steps or "",
                 task_id=checkpoint.task_id,
             )
-            # LIKE also finds CAMP-4520 for CAMP-452.
+            # LIKE also finds CAMP-4520 for CAMP-452, and any note with the number in it.
             if checkpoint.task_id == task.id or ref in task_refs(note.text(), prefix):
                 notes.append(note)
             if len(notes) == NOTES_LIMIT:
@@ -1260,3 +1359,18 @@ class ReviewService:
                 **extra,
             },
         )
+
+
+def _aware(moment: datetime) -> datetime:
+    """SQLite hands datetimes back without their UTC zone."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _batch_title(title: str) -> str:
+    """A batch note's title as the batch's name: the words before its colon when they say
+    something ("Camp helper batch: CAMP-1 3784f03b, …"), without commit hashes."""
+    head, colon, _ = title.partition(":")
+    if colon and len(WORD.findall(TASK_REF.sub(" ", head))) >= 2:
+        title = head
+    title = re.sub(r"\s{2,}", " ", HASH.sub(" ", title)).strip(" ,;")
+    return _one_line(title, 120)

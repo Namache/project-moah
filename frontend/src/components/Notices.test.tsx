@@ -42,3 +42,29 @@ describe("Notices", () => {
     act(() => { for (let id = 0; id < 10; id += 1) dismissNotice(id); });
   });
 });
+
+describe("notices in a run", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("replaces the last one of the same group, and its button runs once and closes it", () => {
+    vi.useFakeTimers();
+    const run = vi.fn();
+    render(<Notices />);
+    act(() => {
+      notify("Accepted. CAMP-1 is in Done.", "success", { group: "decision", action: { label: "Undo", run } });
+      notify("Accepted. CAMP-2 is in Done.", "success", { group: "decision", action: { label: "Undo", run } });
+      notify("Saved");
+    });
+    expect(screen.queryByText("Accepted. CAMP-1 is in Done.")).not.toBeInTheDocument();
+    expect(screen.getByText("Accepted. CAMP-2 is in Done.")).toBeInTheDocument();
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    act(() => { screen.getByRole("button", { name: "Undo" }).click(); });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Accepted. CAMP-2 is in Done.")).not.toBeInTheDocument();
+    // With a button it stays long enough to press it.
+    act(() => { notify("Accepted. CAMP-3 is in Done.", "success", { group: "decision", action: { label: "Undo", run } }); vi.advanceTimersByTime(5000); });
+    expect(screen.getByText("Accepted. CAMP-3 is in Done.")).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(4000); });
+    expect(screen.queryByText("Accepted. CAMP-3 is in Done.")).not.toBeInTheDocument();
+  });
+});

@@ -118,7 +118,8 @@ describe("Review", () => {
     const waiting = await within(timeline).findByRole("list", { name: "Finished work to check" });
     expect(within(waiting).getAllByRole("button")).toHaveLength(2);
     expect(within(waiting).getAllByText("Suggestion")).toHaveLength(2);
-    expect(within(waiting).getAllByText(/Trailhead/).length).toBeGreaterThan(0);
+    // With one project, its name isn't repeated on every line.
+    expect(within(waiting).queryByText(/Trailhead/)).not.toBeInTheDocument();
     // The first waiting suggestion opens on the right.
     expect(await screen.findByRole("article", { name: /PROP-001/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Accept all 2" })).toBeInTheDocument();

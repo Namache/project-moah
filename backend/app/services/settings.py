@@ -32,6 +32,8 @@ class AgentSettings(BaseModel):
     # weights (Thompson sampling), so links nobody has rated get an occasional chance to prove
     # themselves, at the cost of packs that differ a little from one call to the next.
     explore_packs: bool = False
+    # On by default: A, S, J and K act in Review. Off for speech input, which "types" letters.
+    review_single_keys: bool = True
 
 
 class AgentSettingsUpdate(BaseModel):
@@ -43,6 +45,7 @@ class AgentSettingsUpdate(BaseModel):
     claude_command: str | None = Field(default=None, min_length=1, max_length=500)
     update_check_enabled: bool | None = None
     explore_packs: bool | None = None
+    review_single_keys: bool | None = None
 
 
 def get_agent_settings(session: Session) -> AgentSettings:

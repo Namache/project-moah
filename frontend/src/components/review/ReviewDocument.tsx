@@ -330,7 +330,10 @@ function WorkBody({ detail, round, onQuote, followUps, ticks, compact = false }:
           <Frame tone={round.not_done.length ? "danger" : "neutral"} title={t("Not done")} icon={CircleX} count={round.not_done.length}>
             {round.not_done.length
               ? <ul>{round.not_done.map((text, i) => <Item key={i} text={text} done={false} onQuote={onQuote} projectId={detail.project_id} followUp={made.get(text)} actions={followUps} />)}</ul>
-              : <p className="flex items-center gap-2 px-2 py-1 text-sm text-success-ink"><PartyPopper size={16} aria-hidden="true" />{round.generated ? t("Its notes list nothing left for this task.") : t("Nothing left out, says the agent.")}</p>}
+              : round.generated
+                // Notes that don't mention leftovers are not a promise that nothing is left.
+                ? <p className="flex items-center gap-2 px-2 py-1 text-sm text-ink-muted"><CircleHelp size={16} aria-hidden="true" />{t("Its notes don't say what is left. Check the task before you accept.")}</p>
+                : <p className="flex items-center gap-2 px-2 py-1 text-sm text-success-ink"><PartyPopper size={16} aria-hidden="true" />{t("Nothing left out, says the agent.")}</p>}
           </Frame>
         </>
       )}
@@ -457,7 +460,7 @@ export function ReviewDocument({ detail, project, onQuote, onPick, ticks, follow
         </div>
         {!question && hasAccount(round) && <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
           <span className="inline-flex items-center gap-1 rounded-lg bg-success-soft px-2 py-1 text-success-ink"><CircleCheck size={13} aria-hidden="true" />{tp(round.done.length, "{count} done", "{count} done")}</span>
-          <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 ${round.not_done.length ? "bg-danger-soft text-danger-ink" : "bg-neutral-soft text-neutral-ink"}`}><CircleX size={13} aria-hidden="true" />{tp(round.not_done.length, "{count} not done", "{count} not done")}</span>
+          {(round.not_done.length > 0 || !round.generated) && <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 ${round.not_done.length ? "bg-danger-soft text-danger-ink" : "bg-neutral-soft text-neutral-ink"}`}><CircleX size={13} aria-hidden="true" />{tp(round.not_done.length, "{count} not done", "{count} not done")}</span>}
           {round.screenshots.length > 0 && <span className="inline-flex items-center gap-1 rounded-lg bg-special-soft px-2 py-1 text-special-ink"><Camera size={13} aria-hidden="true" />{tp(round.screenshots.length, "{count} screenshot", "{count} screenshots")}</span>}
           {detail.criteria.length > 0 && <span className="inline-flex items-center gap-1 rounded-lg bg-info-soft px-2 py-1 text-info-ink"><ListChecks size={13} aria-hidden="true" />{t("{done} of {total} criteria ticked", { done: doneCriteria, total: detail.criteria.length })}</span>}
           {round.follow_ups.length > 0 && <span className="inline-flex items-center gap-1 rounded-lg bg-neutral-soft px-2 py-1 text-neutral-ink"><ListPlus size={13} aria-hidden="true" />{tp(round.follow_ups.length, "{count} follow-up task", "{count} follow-up tasks")}</span>}

@@ -12,6 +12,7 @@ import { t } from "../../lib/i18n";
 import { MAX_FEEDBACK_BYTES, MAX_FEEDBACK_FILES, MAX_TEXT_BYTES, type ReviewDecisionInput, type ReviewDetail, type ReviewFile } from "../../types/review";
 import { Button } from "../ui";
 import { useReviewFileUrl } from "./reviewBits";
+import { TYPING, useSingleKeys } from "../../lib/reviewKeys";
 
 const NAME: Record<AgentName, string> = { claude: "Claude Code", codex: "Codex" };
 // What you typed for each task stays while you look at other reviews.
@@ -131,7 +132,7 @@ function useGrowing(field: RefObject<HTMLTextAreaElement | null>, text: string) 
  * the task goes back to In progress). Sending back needs a comment or a file, so the agent knows
  * what to fix. For an agent's question, the box takes your answer instead.
  */
-export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail: ReviewDetail; quote: Quoted | null; criteria: { id: string; met: boolean }[]; onDecided: (verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) => void }) {
+export function ReviewComposer({ detail, quote, criteria, onDecided, onUndone }: { detail: ReviewDetail; quote: Quoted | null; criteria: { id: string; met: boolean }[]; onDecided: (verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) => void; onUndone?: (detail: ReviewDetail) => void }) {
   const key = `${detail.project_id}:${detail.task_id}`;
   const [comment, setComment] = useState(() => drafts.get(key) ?? "");
   const [uploading, setUploading] = useState(0);
@@ -200,6 +201,18 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
   const said = comment.trim().length > 0 || files.length > 0;
   const busy = decide.isPending || uploading > 0;
 
+  async function undo() {
+    try {
+      await reviewsApi.undo(detail.project_id, detail.task_ref);
+      notify(t("Undone. {task} waits in Review again.", { task: detail.task_ref }), "success", { group: "review-decision" });
+      onUndone?.(detail);
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : t("It could not be undone."), "danger", { group: "review-decision" });
+    } finally {
+      await client.invalidateQueries();
+    }
+  }
+
   function send(verdict: ReviewDecisionInput["verdict"]) {
     // Sending back or answering needs words: say so where they go, instead of a grey button.
     if (verdict !== "accept" && verdict !== "approve" && !said) {
@@ -213,13 +226,45 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
       onSuccess: (result) => {
         drafts.delete(key);
         setComment("");
-        notify(verdict === "accept" ? t("Accepted. {task} is in Done.", { task: detail.task_ref })
-          : verdict === "approve" ? t("Approved. {task} is back in progress.", { task: detail.task_ref })
-          : verdict === "answer" ? t("Answer sent. {task} is back in progress.", { task: detail.task_ref }) : t("Sent back. {task} is in progress again, with your comments.", { task: detail.task_ref }));
+        if (verdict === "accept") {
+          // One notice for a run of accepts, each with a way to take it back.
+          notify(t("Accepted. {task} is in Done.", { task: detail.task_ref }), "success", {
+            group: "review-decision",
+            action: { label: t("Undo"), run: () => undo() },
+          });
+        } else {
+          notify(verdict === "approve" ? t("Approved. {task} is back in progress.", { task: detail.task_ref })
+            : verdict === "answer" ? t("Answer sent. {task} is back in progress.", { task: detail.task_ref }) : t("Sent back. {task} is in progress again, with your comments.", { task: detail.task_ref }),
+          "success", { group: "review-decision" });
+        }
         onDecided(verdict, result);
       },
     });
   }
+
+  // Keys for going through a pile without the mouse: A accepts finished work and moves on, S puts
+  // you in the comment box to send it back (or answer). Never while you type, or with a modifier.
+  const singleKeys = useSingleKeys();
+  const keys = useRef({ send, question, busy, singleKeys });
+  keys.current = { send, question, busy, singleKeys };
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const now = keys.current;
+      if (!now.singleKeys || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(TYPING)) return;
+      const key = event.key.toLowerCase();
+      if (key === "a" && !now.question && !now.busy) {
+        event.preventDefault();
+        now.send("accept");
+      } else if (key === "s") {
+        event.preventDefault();
+        field.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div data-keep-clear="" onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}
@@ -267,11 +312,12 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
           <Button variant="danger" disabled={busy} onClick={() => send("reject")} title={t("Your comments go back to the agent, and the task goes back to In progress")}>
             <RotateCcw size={15} aria-hidden="true" />{t("Send back")}
           </Button>
-          <Button variant="primary" disabled={busy} onClick={() => send("accept")} title={t("The task moves to Done. You can still reopen it from Reviewed.")}>
+          <Button variant="primary" disabled={busy} onClick={() => send("accept")} aria-keyshortcuts={singleKeys ? "A" : undefined} title={singleKeys ? t("The task moves to Done. You can still reopen it from Reviewed. Key: A") : t("The task moves to Done. You can still reopen it from Reviewed.")}>
             <Check size={16} aria-hidden="true" />{t("Accept and move to Done")}
           </Button>
         </>}
       </div>
+      {!question && singleKeys && <p className="mt-2 hidden text-xs text-ink-subtle sm:block">{t("Keys: A accepts and opens the next, S starts a comment, J and K move through the list.")}</p>}
       {fromNote && <p className="mt-2 text-xs text-ink-muted">{t("The agent waits in its chat too. Answering there is fine: when the agent goes on, this closes by itself.")}</p>}
       {problem && <p role="alert" className="mt-2 text-xs text-danger-ink">{problem}</p>}
       {decide.error && <p role="alert" className="mt-2 text-xs text-danger-ink">{(decide.error as Error).message}</p>}
