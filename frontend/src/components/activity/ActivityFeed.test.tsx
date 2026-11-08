@@ -31,7 +31,8 @@ it("shows project events with actor, timestamp, entity link, and applies actor f
   expect(await screen.findByText("Task created")).toBeInTheDocument();
   expect(screen.getByText("Claude Code · Claude")).toBeInTheDocument();
   expect(screen.getByText("CAMP-001")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Open task" })).toHaveAttribute("href", "/projects/p1/tasks?task=task-1");
+  expect(screen.getByRole("link", { name: "CAMP-001 Build camp" })).toHaveAttribute("href", "/projects/p1/tasks?task=task-1");
+  expect(screen.getByRole("heading", { level: 2, name: /October 10/ })).toBeInTheDocument();
   expect(document.querySelector("time")).toHaveAttribute("datetime", event.timestamp);
 
   await user.click(screen.getByRole("button", { name: "Claude" }));
@@ -53,7 +54,7 @@ it("shows project identity and loads later workspace events", async () => {
   expect(await screen.findByRole("button", { name: "Load more activity" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Load more activity" }));
   expect(await screen.findByRole("link", { name: "Starling" })).toHaveAttribute("href", "/projects/p2");
-  expect(screen.getByRole("link", { name: "Open checkpoint" })).toHaveAttribute("href", "/projects/p2?checkpoint=checkpoint-1");
+  expect(screen.getByRole("link", { name: "Phase 4 complete" })).toHaveAttribute("href", "/projects/p2?checkpoint=checkpoint-1");
   expect(fetchMock).toHaveBeenCalledWith("/api/activity?limit=50&offset=50", expect.any(Object));
 });
 

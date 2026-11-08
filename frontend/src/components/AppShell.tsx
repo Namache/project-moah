@@ -134,9 +134,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </p>
           </nav>
         </div>
+        {/* Inside the sidebar landmark (it is fixed-positioned, so the place in the page doesn't move it). */}
+        {wide && <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />}
       </aside>
 
-      {wide && <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />}
       <div className="min-w-0 flex-1">
         <UpdateBanner />
         <main id="main-content" tabIndex={-1} className={fullScreen ? "outline-none" : "mx-auto max-w-[1280px] px-5 py-6 outline-none sm:px-8 sm:py-8 lg:px-10"}>

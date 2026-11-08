@@ -145,7 +145,6 @@ export const ru: Record<string, Translation> = {
 
   // Activity
   "All": "Все",
-  "Human": "Человек",
   "Tasks": "Задачи",
   "Memory": "Память",
   "Project updated": "Проект изменён",
@@ -216,7 +215,6 @@ export const ru: Record<string, Translation> = {
   "Changes to tasks, memory, and checkpoints will appear here as they are recorded.": "Здесь будут появляться изменения задач, записей и контрольных точек.",
   "Try another filter to see more of your workspace's history.": "Выберите другой фильтр, чтобы увидеть больше истории рабочего пространства.",
   "Try another filter to see more of this project's history.": "Выберите другой фильтр, чтобы увидеть больше истории проекта.",
-  "Workspace activity": "Активность рабочего пространства",
   "Project activity": "Активность проекта",
   "More activity could not be loaded.": "Не удалось загрузить остальную активность.",
   "Try again": "Повторить",
@@ -1895,4 +1893,6 @@ export const ru: Record<string, Translation> = {
   "Negative": "Запреты",
   "Structure": "Структура",
   "Time": "Время",
+  "Yesterday": "Вчера",
+  "Unknown date": "Дата неизвестна",
 };

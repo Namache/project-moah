@@ -90,7 +90,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
       {options.map(({ value: v, label: text, icon: Icon, count }) => (
         <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)} className={`filter-tab inline-flex flex-none items-center gap-1.5 ${value === v ? "filter-tab-active" : ""}`}>
           {Icon && <Icon size={15} aria-hidden="true" />}{text}{count !== undefined && " "}
-          {count !== undefined && <span className={`text-xs tabular-nums ${value === v ? "text-ink-muted" : "text-ink-subtle"}`}>{count}</span>}
+          {count !== undefined && <span className="text-xs tabular-nums text-ink-muted">{count}</span>}
         </button>
       ))}
     </div>
