@@ -28,7 +28,7 @@ export function GettingStarted({ project }: { project: Project }) {
     { label: t("Create first task"), done: (tasks.data?.length ?? 0) > 0, to: projectPath(project.id, "tasks") },
     { label: t("Add first decision"), done: (counts.data?.by_type?.decision ?? 0) > 0, to: projectPath(project.id, "memory", { new: "1" }) },
     { label: t("Connect Claude or Codex"), done: (agent.data?.length ?? 0) > 0, to: "/help/claude" },
-    { label: t("Preview your first Context Pack"), done: readPref(contextSeenKey(project.id)) === "1", to: projectPath(project.id, "context") },
+    { label: t("Preview your first context pack"), done: readPref(contextSeenKey(project.id)) === "1", to: projectPath(project.id, "context") },
   ];
   const finished = items.filter((i) => i.done).length;
   if (finished === items.length) return null;

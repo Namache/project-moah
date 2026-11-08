@@ -97,7 +97,7 @@ export function BrainView({ webgl = hasWebGL() }: { webgl?: boolean }) {
           </select>
         </div>
         <div className="min-w-0 flex-1">
-          <label htmlFor="brain-find" className="text-xs font-semibold text-ink-muted">{t("Find a record")}</label>
+          <label htmlFor="brain-find" className="text-xs font-semibold text-ink-muted">{t("Find an item")}</label>
           <input id="brain-find" list="brain-records" className="field-input mt-1" value={find} onChange={(e) => findRecord(e.target.value)} placeholder={t("DEC-003, PB-12…")} />
           <datalist id="brain-records">{(brain.data?.nodes ?? []).slice(0, 3000).map((n) => <option key={n.key} value={n.label}>{projectNames.get(n.project_id)}: {n.title}</option>)}</datalist>
         </div>

@@ -1,7 +1,8 @@
 import { CheckCircle2, FileText, FolderKanban, ListTodo, Brain, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useUrlParams } from "../hooks/useUrlParams";
-import { Button, EmptyState, ErrorState, PageHeading, ProjectAvatar } from "../components/ui";
+import { Badge, Button, EmptyState, ErrorState, PageHeading, ProjectAvatar, toneClasses } from "../components/ui";
+import { memoryTypeStyle, taskStatusStyle } from "../lib/tones";
 import { useProjects } from "../hooks/useProjects";
 import { useSearch } from "../hooks/useSearch";
 import { memoryTypes } from "../types/memory";
@@ -30,16 +31,24 @@ function resultHref(r: SearchResult): string {
   return projectPath(r.project_id);
 }
 
+/** Statuses that are simply the normal state of a result, so they add nothing to the row. */
+const quietStatuses = new Set(["active", "recorded"]);
+
 function Row({ result, showProject, color }: { result: SearchResult; showProject: boolean; color?: { icon: string | null; accent: string | null } }) {
-  const Icon = entityIcons[result.entity_type] ?? FileText;
-  const kind = result.memory_type ? memoryTypes.find((m) => m.value === (result.memory_type as MemoryType))?.label ?? result.memory_type : entityKinds[result.entity_type];
+  const memoryType = result.memory_type as MemoryType | null;
+  const memoryStyle = memoryType ? memoryTypeStyle[memoryType] : undefined;
+  const Icon = memoryStyle?.icon ?? entityIcons[result.entity_type] ?? FileText;
+  const kind = memoryType ? memoryTypes.find((m) => m.value === memoryType)?.label ?? memoryType : entityKinds[result.entity_type];
+  const taskStyle = result.entity_type === "task" ? taskStatusStyle[result.status as TaskStatus] : undefined;
   return (
     <li>
       <Link to={resultHref(result)} className="block rounded-xl border border-line bg-surface p-4 hover:border-forest/40 hover:shadow-card focus-visible:outline-2 focus-visible:outline-forest">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          <span className="inline-flex items-center gap-1.5 font-semibold text-forest"><Icon size={14} aria-hidden="true" />{kind}</span>
-          {result.human_id && <span className="font-bold tracking-wide text-ink-muted">{result.human_id}</span>}
-          <span className="rounded-full bg-neutral-soft px-2 py-0.5 font-semibold text-ink-muted">{statusText(result)}</span>
+          {/* Memory reads with the same icon and colour as on the Memory page; everything else uses the accent. */}
+          <span className={`inline-flex items-center gap-1.5 font-semibold ${memoryStyle ? toneClasses[memoryStyle.tone].text : "text-forest"}`}><Icon size={14} aria-hidden="true" />{kind}</span>
+          {result.human_id && <span className="font-mono font-semibold text-ink-muted">{result.human_id}</span>}
+          {taskStyle ? <Badge tone={taskStyle.tone} icon={taskStyle.icon}>{statusText(result)}</Badge>
+            : !quietStatuses.has(result.status) && <Badge>{statusText(result)}</Badge>}
           {showProject && <span className="inline-flex items-center gap-1.5 font-semibold text-ink"><ProjectAvatar size="small" project={{ name: result.project_name, icon: color?.icon ?? null, accent: color?.accent ?? null }} />{result.project_name}</span>}
         </div>
         <h2 className="mt-2 text-sm font-semibold text-ink">{result.title}</h2>
