@@ -428,6 +428,38 @@ describe("Review screen", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/CAMP-002/review/undo"))).toBe(true));
   });
 
+  it("opens the work one agent note covered as one batch and accepts it in one go", async () => {
+    const { calls, state } = setup();
+    for (const item of state.waiting as { ref: string; batch?: string; batch_title?: string }[]) {
+      if (item.ref === "CAMP-002" || item.ref === "CAMP-003") Object.assign(item, { batch: "batch:n1", batch_title: "Supply batch" });
+    }
+    const user = userEvent.setup();
+    renderAt("/review");
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    const group = await within(timeline).findByRole("list", { name: "Batch: Supply batch" });
+    expect(within(group).getAllByRole("button")).toHaveLength(2);
+    await user.click(within(timeline).getByRole("button", { name: /Supply batch/ }));
+    const tasks = await screen.findByRole("list", { name: "Tasks in this batch" });
+    // Each task with its own lines, picked out of the notes for one without a report.
+    expect(await within(tasks).findByText("Cost panel")).toBeInTheDocument();
+    expect(await within(tasks).findByText("Ration drain is 0.5 a day")).toBeInTheDocument();
+    // Unfinished work (CAMP-002 has "Gamepad focus" not done) starts unticked, with the reason.
+    const unfinished = await screen.findByRole("checkbox", { name: "Accept CAMP-002 with the batch" });
+    expect(unfinished).not.toBeChecked();
+    expect(within(tasks).getByText("Left unticked: 1 not done")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Accept CAMP-003 with the batch" })).toBeChecked();
+    // Ticking it shows it would go too; unticking leaves it for later again.
+    await user.click(unfinished);
+    expect(await screen.findByRole("button", { name: "Accept 2 and move to Done" })).toBeInTheDocument();
+    await user.click(unfinished);
+    await user.click(screen.getByRole("button", { name: "Accept 1 and move to Done" }));
+    const decided = calls.filter((c) => c.method === "POST" && c.url.endsWith("/review/decision"));
+    expect(decided.map((c) => c.url)).toEqual(["/api/projects/p1/tasks/CAMP-003/review/decision"]);
+    expect(decided[0].body).toMatchObject({ verdict: "accept" });
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/CAMP-003/review/undo"))).toBe(true));
+  });
+
   it("leaves single-letter keys alone when Settings turned them off", async () => {
     const { calls } = setup({ singleKeys: false });
     const user = userEvent.setup();

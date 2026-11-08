@@ -7,6 +7,7 @@ import { AcceptAllButton } from "../components/proposals/AcceptAllButton";
 import { ProposalCard } from "../components/proposals/ProposalCard";
 import { PaneResizer, usePaneWidth } from "../components/PaneResizer";
 import { ReopenBox, ReviewComposer, SendBackToAgent, type Quoted } from "../components/review/ReviewComposer";
+import { BatchPanel } from "../components/review/ReviewBatch";
 import { ReviewDocument, type CriteriaTicks, type FollowUpActions } from "../components/review/ReviewDocument";
 import { ReviewTimeline, useReviewFolds, type Folds } from "../components/review/ReviewTimeline";
 import { EmptyState, ErrorState } from "../components/ui";
@@ -143,10 +144,13 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
   // moment later. Until then, stay on the same task instead of jumping to the top of the list.
   const shown = useRef<ReviewItem | null>(null);
   const last = shown.current;
+  // A batch of work from one agent note opens as a whole while any of it still waits.
+  const batchItems = wanted?.startsWith("batch:") ? waiting.filter((i) => i.batch === wanted) : [];
+  const batch = batchItems.length ? wanted : null;
   const item = all.find((i) => i.key === wanted)
     ?? (last ? all.find((i) => i.kind === last.kind && i.project_id === last.project_id && i.ref === last.ref) : undefined)
     ?? firstShown(waiting, reviewed, folded) ?? waiting[0] ?? reviewed[0] ?? null;
-  shown.current = item;
+  shown.current = batch ? null : item;
 
   function select(next: ReviewItem | null) {
     setParams((current) => {
@@ -202,11 +206,20 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
         )}
         {timeline.isPending ? <Loading label={t("Loading the review timeline")} />
           : timeline.isError ? <ErrorState title={t("The review timeline could not be loaded")} message={timeline.error.message} onRetry={() => void timeline.refetch()} />
-          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={item?.key ?? null} showProject={!projectId && !shownProject && projects.length > 1} onSelect={select} folded={folded} onFold={fold} />}
+          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={batch ?? item?.key ?? null} showProject={!projectId && !shownProject && projects.length > 1} onSelect={select} folded={folded} onFold={fold} />}
       </aside>
       <PaneResizer width={listWidth} min={LIST_MIN} max={listMax} fallback={LIST_WIDTH} onResize={setListWidth} label={t("Resize the task list")} />
       <section aria-label={t("Selected review")} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {item?.kind === "task" ? <TaskPanel key={`${item.project_id}:${item.ref}`} item={item} onDecided={decided} onUndone={(back) => select({ key: `task:${back.task_id}` } as ReviewItem)} />
+        {batch ? <BatchPanel key={batch} batch={batch} items={batchItems} onOpen={select}
+            onDone={(accepted) => {
+              const gone = new Set(accepted.map((i) => i.key));
+              const rest = waiting.filter((i) => !gone.has(i.key) && i.batch !== batch && !folded[i.question ? "questions" : "waiting"]);
+              const stay = batchItems.some((i) => !gone.has(i.key));
+              // On to the next finished work, a batch as a whole; questions only when no work is left.
+              const next = rest.find((i) => !i.question) ?? rest[0];
+              if (!stay) select(next ? (next.batch ? { ...next, key: next.batch } : next) : null);
+            }} />
+          : item?.kind === "task" ? <TaskPanel key={`${item.project_id}:${item.ref}`} item={item} onDecided={decided} onUndone={(back) => select({ key: `task:${back.task_id}` } as ReviewItem)} />
           : item?.kind === "suggestion" ? <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8"><SuggestionPanel key={item.key} item={item} waitingHere={item.reviewed_at === null ? waiting.filter((i) => i.kind === "suggestion" && i.project_id === item.project_id).length : 0} /></div>
           : !timeline.isPending && (
             <div className="flex flex-1 items-center justify-center p-8">

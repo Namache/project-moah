@@ -107,6 +107,9 @@ export interface ReviewItem {
   round: number;
   screenshots: number;
   generated: boolean;
+  /** Finished work one agent note covered together: the batch's key, and its name. */
+  batch?: string | null;
+  batch_title?: string | null;
 }
 
 export interface ReviewTimeline { waiting: ReviewItem[]; reviewed: ReviewItem[] }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Camera, ChevronRight, CircleCheck, CircleHelp, Lightbulb, MessageSquareReply, NotebookText, RotateCcw } from "lucide-react";
+import { Camera, ChevronRight, CircleCheck, CircleHelp, Layers, Lightbulb, MessageSquareReply, NotebookText, RotateCcw } from "lucide-react";
 import type { ReviewItem } from "../../types/review";
 import { statusLabels, type TaskStatus } from "../../types/task";
 import { TaskStatusBadge } from "../tasks/TaskBits";
@@ -139,6 +139,14 @@ export function ReviewTimeline({ waiting, reviewed, selected, showProject, onSel
   const work = waiting.filter((item) => !item.question);
   const visible = [...(folded.questions ? [] : questions), ...(folded.waiting ? [] : work), ...(folded.reviewed ? [] : reviewed)];
   const row = (item: ReviewItem) => <Row key={item.key} item={item} selected={item.key === selected} showProject={showProject} onSelect={() => onSelect(item)} />;
+  // Work one agent note covered together sits under one heading you can open as a whole.
+  const blocks: ({ item: ReviewItem } | { batch: string; title: string; items: ReviewItem[] })[] = [];
+  for (const item of work) {
+    if (!item.batch) { blocks.push({ item }); continue; }
+    const found = blocks.find((b) => "batch" in b && b.batch === item.batch);
+    if (found && "batch" in found) found.items.push(item);
+    else blocks.push({ batch: item.batch, title: item.batch_title ?? "", items: [item] });
+  }
 
   // A chosen line scrolls into view when its group is shown.
   useEffect(() => {
@@ -184,7 +192,18 @@ export function ReviewTimeline({ waiting, reviewed, selected, showProject, onSel
       )}
       <Section title={t("Finished work to check")} hint={t("The agent says it's done. Accept it or send it back.")} count={work.length} tone="bg-primary text-white" folded={folded.waiting} onFold={() => onFold("waiting")}>
         {work.length
-          ? <ul className="space-y-2" aria-label={t("Finished work to check")}>{work.map(row)}</ul>
+          ? <ul className="space-y-2" aria-label={t("Finished work to check")}>{blocks.map((block) => "item" in block ? row(block.item) : (
+              <li key={block.batch} className="rounded-xl border border-dashed border-line-strong p-1.5">
+                <button type="button" data-review-key={block.batch} onClick={() => onSelect({ ...block.items[0], key: block.batch })} aria-current={selected === block.batch ? "true" : undefined}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs font-semibold focus-visible:outline-2 focus-visible:outline-forest ${selected === block.batch ? "bg-sage-pale text-forest" : "text-ink-muted hover:bg-hover"}`}>
+                  <Layers size={14} className="shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate" title={block.title}>{block.title || t("One agent note")}</span>
+                  <span className="shrink-0 rounded-full bg-primary px-1.5 leading-5 text-white tabular-nums">{block.items.length}</span>
+                  <span className="shrink-0 text-forest">{t("Review together")}</span>
+                </button>
+                <ul className="mt-1.5 space-y-1.5" aria-label={t("Batch: {name}", { name: block.title || t("One agent note") })}>{block.items.map(row)}</ul>
+              </li>
+            ))}</ul>
           : <p className="flex items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-4 text-sm text-ink-muted"><CircleCheck size={18} className="text-success" aria-hidden="true" />{questions.length ? t("No finished work waiting.") : t("You're all caught up.")}</p>}
       </Section>
       <Section title={t("Reviewed")} count={reviewed.length} tone="bg-neutral-soft text-ink-muted" folded={folded.reviewed} onFold={() => onFold("reviewed")}>

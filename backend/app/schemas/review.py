@@ -261,6 +261,10 @@ class ReviewItem(UtcModel):
     round: int = 1
     screenshots: int = 0
     generated: bool = False
+    # Finished work one agent note covered together ("Camp batch: CAMP-4, 5, 6"): the note's
+    # id, and its title, so Review can show and accept the batch as one.
+    batch: str | None = None
+    batch_title: str | None = None
 
 
 class ReviewTimeline(BaseModel):
