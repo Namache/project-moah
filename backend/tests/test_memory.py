@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 from httpx import AsyncClient
+from starlette.exceptions import HTTPException
 
 from app.schemas.memory import MemoryCreate, MemorySupersede, MemoryUpdate
 from app.services.memory import MemoryService
@@ -319,3 +320,54 @@ async def test_memory_filter_matches_non_ascii_text(client) -> None:
         found = (await client.get(f"/api/projects/{project}/memory", params={"q": query})).json()
         items = found["items"] if isinstance(found, dict) else found
         assert [m["title"] for m in items] == ["Über Straße config"], query
+
+
+async def test_critical_rules_are_locked_by_default(client: AsyncClient, database_url: str) -> None:
+    """A critical rule (the privacy rule, say) is locked from the moment it is critical, by
+    whoever makes it so, and only a person can take the lock off."""
+    from app.db.session import make_engine, make_session_factory
+
+    pid = await project(client, "Trailhead")
+    base = f"/api/projects/{pid}/memory"
+    engine = make_engine(database_url)
+    try:
+        with make_session_factory(engine)() as session:
+            service = MemoryService(session)
+            # An agent writing a critical rule gets it locked, without asking to lock it.
+            made = service.create(
+                pid,
+                MemoryCreate(
+                    type="rule", title="Never publish private data", importance="critical"
+                ),
+                actor="codex",
+            )
+            assert made.is_locked
+            # An agent raising an unlocked rule to critical locks it too, and can't undo that.
+            rule = service.create(
+                pid, MemoryCreate(type="rule", title="Ask before pushing"), "codex"
+            )
+            assert not rule.is_locked
+            raised = service.update(pid, rule.id, MemoryUpdate(importance="critical"), "codex")
+            assert raised.is_locked
+            with pytest.raises(HTTPException):
+                service.update(pid, rule.id, MemoryUpdate(is_locked=False), actor="codex")
+            with pytest.raises(HTTPException):
+                service.archive(pid, rule.id, actor="codex")
+            # A critical note is not a rule: nothing changes there.
+            note = service.create(
+                pid, MemoryCreate(type="note", title="Try blue", importance="critical"), "codex"
+            )
+            assert not note.is_locked
+    finally:
+        engine.dispose()
+    # A person who makes a rule critical gets the lock too, unless they untick it.
+    plain = (await client.post(base, json={"type": "rule", "title": "Keep it local"})).json()
+    patched = await client.patch(f"{base}/{plain['id']}", json={"importance": "critical"})
+    assert patched.json()["is_locked"] is True
+    unlocked = await client.patch(f"{base}/{plain['id']}", json={"is_locked": False})
+    assert unlocked.json()["is_locked"] is False
+    kept_off = await client.post(
+        base,
+        json={"type": "rule", "title": "Draft rule", "importance": "critical", "is_locked": False},
+    )
+    assert kept_off.json()["is_locked"] is False

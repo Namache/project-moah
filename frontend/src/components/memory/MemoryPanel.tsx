@@ -117,7 +117,12 @@ export function MemoryPanel({ projectId, memoryRef, onClose, onChanged, readonly
   }, [memory]);
 
   function setField<K extends keyof Draft>(key: K, value: Draft[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
+    // A rule made critical is locked by default (the person can still untick it).
+    setDraft((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "importance" && value === "critical" && current.importance !== "critical" && next.type === "rule") next.is_locked = true;
+      return next;
+    });
     setError("");
   }
 
