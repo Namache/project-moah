@@ -9,6 +9,7 @@ const path = require("node:path");
 const readline = require("node:readline");
 const display = require("./display.cjs");
 const { readServicePort, saveServicePort } = require("./serviceport.cjs");
+const { createChoices } = require("./prefs.cjs");
 const { createErrorLog } = require("./errorlog.cjs");
 const { createPomodoro, relaunchForX11 } = require("./pomodoro.cjs");
 
@@ -52,6 +53,8 @@ let fatalShown = false;
 let errorLogPath = "";
 let recordError = () => {};
 let pomodoro = null;
+// The window's small choices (theme, language and the like), kept in the settings folder; see prefs.cjs.
+let choices = null;
 
 // The page is served by the local service and loads nothing from elsewhere: scripts, styles, icons and
 // API calls all come from its own origin. React sets inline style properties, so inline styles stay allowed.
@@ -588,6 +591,7 @@ if (relaunching) {
   app.on("before-quit", (event) => {
     quitting = true;
     pomodoro?.dispose();
+    choices?.flush();
     if (backendStoppedForQuit) return;
     event.preventDefault();
     void stopBackend().finally(() => {
@@ -614,6 +618,13 @@ if (relaunching) {
     apiToken = randomBytes(32).toString("hex");
     ipcMain.on("project-brain:get-token", (event) => {
       event.returnValue = event.sender === window?.webContents ? apiToken : "";
+    });
+    choices = createChoices(path.join(logDir, "window-prefs.json"), { onError: (error) => writeLog(`[prefs] ${error.message}`) });
+    ipcMain.on("project-brain:get-prefs", (event) => {
+      event.returnValue = event.sender === window?.webContents ? choices.all() : null;
+    });
+    ipcMain.on("project-brain:set-pref", (event, key, value) => {
+      if (event.sender === window?.webContents) choices.set(key, value);
     });
     ipcMain.on("project-brain:get-display", (event) => {
       event.returnValue = event.sender === window?.webContents ? displayState() : null;

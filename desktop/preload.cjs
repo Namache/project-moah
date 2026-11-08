@@ -7,12 +7,16 @@ const apiToken = ipcRenderer.sendSync("project-brain:get-token");
 const install = ipcRenderer.sendSync("project-brain:get-install");
 // Settings > Accessibility: the saved interface and text size, and what Automatic means on this screen.
 const display = ipcRenderer.sendSync("project-brain:get-display");
+// The window's small choices (theme, language and the like) as the settings folder keeps them.
+const prefs = ipcRenderer.sendSync("project-brain:get-prefs");
 contextBridge.exposeInMainWorld(
   "projectBrainDesktop",
   Object.freeze({
     apiToken,
     install,
     display,
+    prefs: prefs ? Object.freeze(prefs) : null,
+    setPref: (key, value) => ipcRenderer.send("project-brain:set-pref", key, value),
     setDisplay: (prefs) => ipcRenderer.invoke("project-brain:set-display", prefs),
     // Ctrl+Plus/Minus/0 or a move to another screen changed the size; returns a function that stops listening.
     onDisplayChange: (listener) => {

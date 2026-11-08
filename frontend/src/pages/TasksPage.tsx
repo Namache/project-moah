@@ -12,9 +12,10 @@ import { TaskPanel } from "../components/tasks/TaskPanel";
 import { useMilestones, useMoveTask, useTasks } from "../hooks/useTasks";
 import type { TaskDetail, TaskStatus, TaskSummary } from "../types/task";
 import { t } from "../lib/i18n";
+import { readPref, writePref } from "../lib/prefs";
 
 function view(): "board" | "list" {
-  try { return localStorage.getItem("pb-task-view") === "list" ? "list" : "board"; } catch { return "board"; }
+  return readPref("pb-task-view") === "list" ? "list" : "board";
 }
 
 export function TasksPage({ projectId, archived }: { projectId: string; archived: boolean }) {
@@ -45,7 +46,7 @@ export function TasksPage({ projectId, archived }: { projectId: string; archived
   }, [wantsNew, archived, setParam]);
   const open = (task: TaskSummary) => setParam("task", task.human_id);
   const syncRef = useCallback((task: TaskDetail | null) => setParam("task", task?.human_id ?? null), [setParam]);
-  const switchMode = (next: "board" | "list") => { setMode(next); try { localStorage.setItem("pb-task-view", next); } catch { /* optional */ } };
+  const switchMode = (next: "board" | "list") => { setMode(next); writePref("pb-task-view", next); };
 
   if (tasksQuery.isError) return <ErrorState title={t("Tasks could not be loaded")} message={tasksQuery.error.message} onRetry={() => void tasksQuery.refetch()} />;
   const empty = tasksQuery.isSuccess && (tasksQuery.data?.length ?? 0) === 0;
