@@ -77,7 +77,6 @@ from app.services.activity import ActivityService
 from app.services.brief import (
     LEFT_LIMIT,
     brief_decided,
-    brief_project_rules,
     unfinished_task,
     work_refs,
 )
@@ -453,7 +452,6 @@ class ContextService:
         self.named_memory: set[str] = set()  # memory ids typed in the request
         # memory id -> where the task's own work names it (see _work_named)
         self.work_named: dict[str, str] = {}
-        self.brief_rules: set[str] = set()  # project rules the agent's brief already listed
         # The records the brief lists as already decided for the task (brief.brief_decided):
         # kept whatever the detail level, so the brief's promise holds.
         self.promised: set[str] = set()
@@ -491,16 +489,17 @@ class ContextService:
         feedback can teach the links. Previews in the app are not recorded. An agent's pack
         explores (see ``sample``) only when the person turned exploring on in Settings, or when
         ``explore=True``; by default the same request gives the same pack. ``global_rules=False``
-        leaves out the Global rules and the project rules the brief lists, for an agent whose
-        session brief already gave them. ``sent`` is what this agent session was already sent
-        (kept by the MCP server): those items are named instead of repeated, and a pack with
-        nothing new is not recorded. ``for_agent`` (by default: when ``record_for`` is set)
+        leaves out the Global rules, for an agent whose session brief already gave them.
+        ``sent`` is what this agent session was already sent (kept by the MCP server): those
+        items are named instead of repeated, and a pack with nothing new is not recorded.
+        ``for_agent`` (by default: when ``record_for`` is set)
         leaves out the awake shelves line and recent activity, which help a person see why a
         pack holds what it does but give an agent nothing to act on. ``session_task`` is the
         task the agent's session works on (kept by the MCP server): a pack with no ``task`` is
         for it, ahead of the focus or a guess. ``in_brief`` says the agent's session brief
-        covered this project (by default: when ``global_rules`` is False); only then are the
-        project rules and the "Left to do" the brief showed left out."""
+        covered this project (by default: when ``global_rules`` is False); only then is the
+        "Left to do" the brief showed left out. The brief lists project rules by title only,
+        so packs send their full text like any other record."""
         if explore is None:
             # PROJECT_BRAIN_EXPLORE=0 keeps exploring off even when the setting is on, for
             # tests and side-by-side trials.
@@ -715,9 +714,6 @@ class ContextService:
         self._named(project_id, query, detail_task)
         self.work_named = self._work_named(project_id, detail_task)
         self.in_brief = (not global_rules) if in_brief is None else in_brief
-        self.brief_rules = (
-            {m.id for m in brief_project_rules(self.memory, project_id)} if self.in_brief else set()
-        )
         self.promised = set()
         if detail_task is not None:
             model = self.session.get(Task, detail_task.id)
@@ -1596,9 +1592,6 @@ class ContextService:
                 or (m.id in connected and verified(path))
             ):
                 omitted["not related"] += 1
-                continue
-            if m.id in self.brief_rules and not manual:
-                omitted["already in your brief"] += 1
                 continue
             score = (
                 (50 if linked else 45 if work else 40 if named_task else 0)

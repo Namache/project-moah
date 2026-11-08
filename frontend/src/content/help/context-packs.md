@@ -18,7 +18,7 @@ A pack is for the task the agent names. Without one, it stays on the task the ag
 
 ## What agents get
 
-An agent's pack leaves out what its session brief already gave it: your Global rules, and the rules and "left to do" of the project that brief showed. A pack for another project keeps that project's rules. It also leaves out recent activity and the shelves that woke up. They help you see why a pack holds what it does, but give an agent nothing to act on. A second request in the same session sends only what is new.
+An agent's pack leaves out what its session brief already gave it: your Global rules, and the "left to do" of the project that brief showed. The brief lists a project's rules by title only, so a pack sends the full text of the rules the work needs. It also leaves out recent activity and the shelves that woke up. They help you see why a pack holds what it does, but give an agent nothing to act on. A second request in the same session sends only what is new.
 
 ## Detail levels
 

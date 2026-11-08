@@ -695,7 +695,8 @@ def build_server(
         task is an ID such as CAMP-037; without it, the pack keeps to this session's task, or
         picks the task the work is about, and says which. detail is minimal, balanced or
         detailed. explain=true says why each record came.
-        Rules your brief gave are left out; pass global_rules=true if you never got the brief.
+        Global rules your brief gave are left out; pass global_rules=true if you never got
+        the brief. Project rules come in full when the work needs them.
         The pack's task becomes this session's task. A repeat sends only what is new; full=true
         sends everything again."""
         found, _ = pick(session, project)

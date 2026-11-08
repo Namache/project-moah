@@ -669,12 +669,12 @@ async def test_agents_link_records_and_shape_shelves(database_url: str) -> None:
         failed, woke = await call(session, "brain_shelves", task=task["human_id"], project=pid)
         assert not failed and woke["activation"][0]["shelf"] == "Inventory"
         assert woke["activation"][0]["active"] is True
-        # The rule wakes with its shelf. An agent's pack leaves out the shelf line (and the rule,
-        # which its brief lists); explain=true shows both.
+        # The rule wakes with its shelf. An agent's pack leaves out the shelf line but sends the
+        # rule in full (its brief lists it by title only); explain=true shows both.
         failed, _ = await call(session, "brain_brief", project=pid)
         assert not failed
         failed, text = await call(session, "brain_context_pack", task=task["human_id"], project=pid)
-        assert not failed and "ACTIVE SHELVES" not in text and rule["human_id"] not in text
+        assert not failed and "ACTIVE SHELVES" not in text and rule["human_id"] in text
         failed, text = await call(
             session,
             "brain_context_pack",
