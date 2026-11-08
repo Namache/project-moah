@@ -336,6 +336,27 @@ async def test_a_task_blocked_by_another_waits_for_it_and_loops_are_refused(
         )
 
 
+async def test_a_task_update_may_add_links_alone(database_url: str, tmp_path: Path) -> None:
+    """The tool's own example, links=["blocked_by PROJ-4"] with no other field, failed with
+    "at least one task field is required"."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        popup = (
+            await client.post(f"/api/projects/{a}/tasks", json={"title": "Welcome back popup"})
+        ).json()["human_id"]
+    async with agent(database_url) as session:
+        error, done = await call(
+            session,
+            "brain_update_task",
+            task=popup,
+            links=["relates_to CAMP-001"],
+            project="trailhead",
+        )
+        assert not error and done["applied"] and done["links"] == ["relates_to CAMP-001"], done
+        error, text = await call(session, "brain_update_task", task=popup, project="trailhead")
+        assert error and "at least one field" in text
+
+
 async def test_reads_stay_in_the_chosen_project(database_url: str, tmp_path: Path) -> None:
     async with app_client(database_url) as client:
         world = await seed(client, tmp_path)

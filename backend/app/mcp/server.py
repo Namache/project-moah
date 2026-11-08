@@ -1144,7 +1144,8 @@ def build_server(
                 )
             drafted = ReviewService(session).submitted_review(current.id) is None
             changes["status"] = status = "review"
-        TaskUpdate.model_validate(changes)
+        if changes:  # links alone change no field: nothing to check
+            TaskUpdate.model_validate(changes)
         proposals = ProposalService(session)
         if status == "archived":
             p = proposals.create(
