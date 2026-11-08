@@ -357,6 +357,16 @@ def build_server(
     # brief is the start-up hook's, for the folder the client started this server in.
     briefed: dict[str, str | None] = {}
 
+    def folder_project(session: Session) -> str | None:
+        """The project of the folder this server runs in, for adopting a session (see
+        SessionTracker.adopt). Only looked up while the server has no session id."""
+        if sessions.started is not None:
+            return None
+        try:
+            return resolve_project(session, None, None, default_project)[0].id
+        except ProjectChoiceError:  # no project for the folder: adopt by time alone
+            return None
+
     def tool(annotations: ToolAnnotations):
         """Register a tool that gets a session, attribution, and readable errors."""
 
@@ -367,7 +377,7 @@ def build_server(
                 packs.tick()
                 with session_factory() as session:
                     try:
-                        if sessions.refresh(session):
+                        if sessions.refresh(session, folder_project(session)):
                             working.clear()  # /clear started a new session: no task of its own
                             packs.clear()  # and none of the packs sent before are in its context
                             briefed.clear()  # and the start-up hook gave it a new brief
