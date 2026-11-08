@@ -28,7 +28,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, undefer
 
 from app.models.checkpoint import ActivityEvent, Checkpoint
@@ -881,15 +881,28 @@ class ReviewService:
         like = f"%{ref}%"
         about = Checkpoint.task_id == task.id
         if named:
-            about = (
-                about
-                | Checkpoint.title.like(like)
-                | Checkpoint.summary.like(like)
-                | Checkpoint.completed_work.like(like)
-                | Checkpoint.remaining_work.like(like)
-                | Checkpoint.problems.like(like)
-                | Checkpoint.next_steps.like(like)
-            )
+            # A note can also name it as a bare number in a list ("CAMP-449, 432, 441"); the
+            # LIKEs only narrow the search, task_refs below decides.
+            # The number must start after a separator, so task 1 doesn't match every note
+            # holding a "1" somewhere.
+            prefix_like = f"%{ref.rsplit('-', 1)[0]}-%"
+            number = ref.rsplit("-", 1)[1]
+            number_likes = [
+                f"%{before}{number}%" for before in (" ", "\n", ",", "/", "&", "+", "-")
+            ]
+            for column in (
+                Checkpoint.title,
+                Checkpoint.summary,
+                Checkpoint.completed_work,
+                Checkpoint.remaining_work,
+                Checkpoint.problems,
+                Checkpoint.next_steps,
+            ):
+                about = (
+                    about
+                    | column.like(like)
+                    | (column.like(prefix_like) & or_(*(column.like(x) for x in number_likes)))
+                )
         statement = select(Checkpoint).where(Checkpoint.project_id == task.project_id, about)
         if after is not None:
             statement = statement.where(Checkpoint.created_at > after)
@@ -911,7 +924,7 @@ class ReviewService:
                 next_steps=checkpoint.next_steps or "",
                 task_id=checkpoint.task_id,
             )
-            # LIKE also finds CAMP-4520 for CAMP-452.
+            # LIKE also finds CAMP-4520 for CAMP-452, and any note with the number in it.
             if checkpoint.task_id == task.id or ref in task_refs(note.text(), prefix):
                 notes.append(note)
             if len(notes) == NOTES_LIMIT:
