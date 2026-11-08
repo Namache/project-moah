@@ -370,5 +370,6 @@ def test_writing_settings_keeps_their_permissions(tmp_path) -> None:
     config = tmp_path / ".claude.json"
     config.write_text("{}")
     os.chmod(config, 0o600)
+    private = stat.S_IMODE(config.stat().st_mode)  # Windows keeps only a read-only flag
     _write(config, '{"mcpServers": {}}\n')
-    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert stat.S_IMODE(config.stat().st_mode) == private
