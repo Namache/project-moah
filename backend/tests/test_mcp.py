@@ -108,7 +108,7 @@ async def seed(client: AsyncClient, tmp_path: Path) -> dict:
 async def test_tools_are_small_documented_and_hide_internals(database_url: str) -> None:
     async with agent(database_url) as session:
         tools = {t.name: t for t in (await session.list_tools()).tools}
-        assert len(tools) == 27 and all(n.startswith("brain_") for n in tools)
+        assert len(tools) == 28 and all(n.startswith("brain_") for n in tools)
         reads = {
             "brain_brief",
             "brain_second_opinion",
@@ -696,3 +696,94 @@ async def test_search_answers_plain_questions_and_new_records_show_lookalikes(
         )
         assert not error and "possible_duplicates" not in created
         assert "duplicates_hint" not in created
+
+
+async def test_agents_archive_and_restore_tasks_only_on_request(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        world = await seed(client, tmp_path)
+        a = world["a"]
+        made = []
+        for title, status in (
+            ("Ship the map screen", "completed"),
+            ("Write the save format", "completed"),
+            ("Old idea", "backlog"),
+            ("Fix the jump", "in_progress"),
+        ):
+            row = (await client.post(f"/api/projects/{a}/tasks", json={"title": title})).json()
+            await client.patch(
+                f"/api/projects/{a}/tasks/{row['human_id']}", json={"status": status}
+            )
+            made.append(row["human_id"])
+        done1, done2, idea, open_task = made
+    async with agent(database_url) as session:
+        # The person's words are required: no request, no archive.
+        error, text = await call(
+            session, "brain_archive_tasks", project="trailhead", tasks=[idea], person_asked=" "
+        )
+        assert error and "brain_create_proposal" in text
+        error, text = await call(
+            session, "brain_archive_tasks", project="trailhead", person_asked="tidy up"
+        )
+        assert error and "all_done" in text
+
+        error, result = await call(
+            session,
+            "brain_archive_tasks",
+            project="trailhead",
+            all_done=True,
+            tasks=[idea, "NOPE-999"],
+            person_asked="archive the done tasks and the old idea",
+        )
+        assert not error
+        assert {r["task"] for r in result["archived"]} == {done1, done2, idea}
+        assert result["skipped"] == [{"task": "NOPE-999", "why": "not found in this project"}]
+
+        error, again = await call(
+            session, "brain_archive_tasks", project="trailhead", tasks=[idea], person_asked="again"
+        )
+        assert (
+            not error and again["count"] == 0 and again["skipped"][0]["why"] == "already archived"
+        )
+
+        error, back = await call(
+            session,
+            "brain_archive_tasks",
+            project="trailhead",
+            tasks=[done1, idea, open_task],
+            restore=True,
+            person_asked="bring those two back",
+        )
+        assert not error
+        assert {(r["task"], r["status"]) for r in back["restored"]} == {
+            (done1, "completed"),
+            (idea, "backlog"),
+        }
+        assert back["skipped"] == [{"task": open_task, "why": "not archived (in_progress)"}]
+        error, text = await call(
+            session,
+            "brain_archive_tasks",
+            project="trailhead",
+            all_done=True,
+            restore=True,
+            person_asked="restore all",
+        )
+        assert error and "Restore names its tasks" in text
+
+    async with app_client(database_url) as client:
+        tasks = {
+            t["human_id"]: t["status"]
+            for t in (await client.get(f"/api/projects/{a}/tasks?include_archived=true")).json()
+        }
+        assert tasks[done2] == "archived" and tasks[done1] == "completed"
+        assert tasks[open_task] == "in_progress"
+        events = (await client.get(f"/api/projects/{a}/activity")).json()
+        archived = [e for e in events if e["event_type"] == "TASK_ARCHIVED"]
+        assert archived and all(
+            e["actor_name"] == "claude"
+            and e["metadata"]["asked_by_person"] == "archive the done tasks and the old idea"
+            for e in archived
+        )
+        # Nothing became a proposal: the person asked, so it was done.
+        assert (await client.get(f"/api/projects/{a}/proposals")).json() == []
