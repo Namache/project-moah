@@ -42,6 +42,16 @@ from app.services.text import contains_pattern, ensure_tags, name_key
 HUMAN_ID_PATTERN = re.compile(r"[A-Za-z]{2,10}-\d{1,6}")
 IMPORTANCE_RANK = {"critical": 0, "high": 1, "normal": 2, "low": 3}
 # Fields a locked memory protects. Pinning and linking tasks are still allowed.
+# Critical rules (privacy, approvals, anything that must hold) are locked from the moment they
+# are critical. Only a person unlocks one, and only a person locks it again after that.
+LOCKED_BY_DEFAULT_TYPES = ("rule",)
+
+
+def locked_by_default(memory_type: str, importance: str | None) -> bool:
+    """Whether a record of this type and importance starts out locked."""
+    return memory_type in LOCKED_BY_DEFAULT_TYPES and importance == "critical"
+
+
 PROTECTED_FIELDS = {
     "title",
     "content",
@@ -205,7 +215,12 @@ class MemoryService:
             importance=payload.importance,
             ai_visibility=payload.ai_visibility,
             is_pinned=payload.is_pinned,
-            is_locked=payload.is_locked,
+            # A person who unticks the lock on purpose keeps it off; everyone else gets it.
+            is_locked=payload.is_locked
+            or (
+                locked_by_default(payload.type, payload.importance)
+                and not (actor == HUMAN and "is_locked" in payload.model_fields_set)
+            ),
             is_resolved=payload.is_resolved,
             source_type=payload.source_type or (None if actor == HUMAN else "agent"),
             source_reference=payload.source_reference or (None if actor == HUMAN else actor),
@@ -238,8 +253,17 @@ class MemoryService:
             raise self._locked_error(memory)
         if memory.status in ("superseded", "invalidated") and PROTECTED_FIELDS & requested_fields:
             raise conflict(f"{memory.human_id} is {memory.status}; its text is kept as history")
+        becomes_critical = (
+            changes.get("importance") == "critical" and memory.importance != "critical"
+        )
         for field, value in changes.items():
             setattr(memory, field, value)
+        if (
+            becomes_critical
+            and locked_by_default(memory.type, memory.importance)
+            and not (actor == HUMAN and "is_locked" in changes)
+        ):
+            memory.is_locked = True  # made critical: locked, until a person unlocks it
         if tags is not None:
             self._set_tags(memory, tags)
         if task_ids is not None:
@@ -275,7 +299,11 @@ class MemoryService:
             importance=payload.importance or old.importance,
             ai_visibility=payload.ai_visibility or old.ai_visibility,
             is_pinned=old.is_pinned,
-            is_locked=old.is_locked if payload.is_locked is None else payload.is_locked,
+            is_locked=(old.is_locked if payload.is_locked is None else payload.is_locked)
+            or (
+                locked_by_default(old.type, payload.importance or old.importance)
+                and not (actor == HUMAN and payload.is_locked is not None)
+            ),
             source_type=None if actor == HUMAN else "agent",
             source_reference=None if actor == HUMAN else actor,
             created_at=now,
