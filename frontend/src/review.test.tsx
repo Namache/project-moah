@@ -245,7 +245,9 @@ describe("Review screen", () => {
     expect(await screen.findByText("Codex wrote no report, so this is picked out of its notes on the task.")).toBeInTheDocument();
     expect(screen.getByText("Lines about other tasks are left out.")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: /^Done/ })).getByText("Ration drain is 0.5 a day")).toBeVisible();
-    expect(within(screen.getByRole("region", { name: /^Not done/ })).getByText("Its notes list nothing left for this task.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: /^Not done/ })).getByText("Its notes don't say what is left. Check the task before you accept.")).toBeInTheDocument();
+    // Silence in the notes is not "0 not done".
+    expect(screen.queryByText("0 not done")).not.toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: /^What the agent plans next/ })).getByText("Watch one long trip in the log")).toBeInTheDocument();
     // The whole note, other tasks and all, is folded away underneath; so is what was asked.
     const notes = screen.getByText("The agent's full note").closest("details")!;

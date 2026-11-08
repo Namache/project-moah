@@ -1643,7 +1643,7 @@ export const ru: Record<string, Translation> = {
   "Nothing listed.": "Ничего не указано.",
   "Filed under another task": "Записана в другой задаче",
   "For you to check": "Что проверить",
-  "Its notes list nothing left for this task.": "По заметкам агента, по этой задаче ничего не осталось.",
+  "Its notes don't say what is left. Check the task before you accept.": "В заметках агента не сказано, что осталось. Проверьте задачу, прежде чем принять.",
   "Left": "Осталось",
   "Lines about other tasks are left out.": "Строки о других задачах скрыты.",
   "The agent's full notes": ["Полная заметка агента", "Полные заметки агента", "Полные заметки агента"],
