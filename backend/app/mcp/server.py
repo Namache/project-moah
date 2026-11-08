@@ -20,6 +20,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent, ToolAnnotations
 from pydantic import ValidationError
+from sqlalchemy.exc import UnboundExecutionError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException
 
@@ -105,7 +106,10 @@ def review_drop_folder(session: Session) -> Path | None:
     read only its own data folder. None outside the sandbox: any path works there."""
     if not Path("/.flatpak-info").exists():
         return None
-    database = session.get_bind().url.database
+    try:
+        database = session.get_bind().url.database
+    except UnboundExecutionError:  # a server built only to count its tools has no database
+        return None
     if not database:
         return None
     return Path(database).resolve().parent / "review-files"
