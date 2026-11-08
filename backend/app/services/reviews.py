@@ -12,9 +12,9 @@ question waits in Review (first, since work is stuck on it) until the person ans
 goes back like a send-back. A task that is only blocked, with no question asked, does not wait in
 Review: it waits for something else. An agent's checkpoint that says it waits for the person
 (services/review_waits.py) opens such a question by itself, since agents seldom ask through
-Moah: its later notes update that one question instead of opening more, and a note that moves on
-settles it as answered in the chat (the person answered there). The person can also approve it
-and let the agent go on, or accept the work as done.
+Moah: its later notes update that one question instead of opening more, a note that moves on
+settles it as answered in the chat (the person answered there), and handing the work over
+replaces it. The person can also approve it and let the agent go on, or accept the work as done.
 A line the person picks (what was not done, an unmet criterion) can become a follow-up task;
 accepting never makes one by itself.
 Accepted work can be reopened from Reviewed with a comment: the task goes back to In progress and
@@ -175,7 +175,8 @@ class ReviewService:
             if len(shot.data) > MAX_REVIEW_FILE_BYTES:
                 raise invalid(f"{shot.filename} is over {MAX_REVIEW_FILE_BYTES // 2**20} MB")
             checked.append((shot, *file_type(shot.data, images_only=True)))
-        self.moved_on(task, move=False)
+        # What still waits, a question from the agent's note too, is replaced by this report:
+        # handing the work over is no answer from the person.
         self._replace_pending(task)
         review = TaskReview(
             project_id=project_id,
@@ -456,7 +457,11 @@ class ReviewService:
             # A stored draft: picked again from the notes of its own round, so it reads like
             # a pending one (and older drafts lose the lines about other tasks).
             after = max(
-                (r.reviewed_at for r in rounds if r.round < current.round and r.reviewed_at),
+                (
+                    r.reviewed_at
+                    for r in rounds
+                    if r.round < current.round and r.reviewed_at and r.kind == "work"
+                ),
                 default=None,
             )
             current.panel_notes = self._picked(task, after, current.reviewed_at)
@@ -831,11 +836,14 @@ class ReviewService:
         self.session.flush()
         return draft
 
-    def _since(self, task: Task) -> datetime | None:
-        """When the last round was decided: older checkpoints describe earlier work."""
-        return self.session.scalar(
-            select(func.max(TaskReview.reviewed_at)).where(TaskReview.task_id == task.id)
-        )
+    def _since(self, task: Task, *, work: bool) -> datetime | None:
+        """When the last round was decided: older checkpoints describe earlier work. For a work
+        report only decisions on work count: an answer to a question halfway through the work
+        does not end it, so the notes from before the question belong in the report too."""
+        statement = select(func.max(TaskReview.reviewed_at)).where(TaskReview.task_id == task.id)
+        if work:
+            statement = statement.where(TaskReview.kind == "work")
+        return self.session.scalar(statement)
 
     def _entered(self, task: Task) -> tuple[datetime, str | None, bool]:
         """When the task last moved to its current status, who moved it, and whether that was
@@ -926,7 +934,8 @@ class ReviewService:
         agent moved to review (or a question it asked in the chat) without writing one: the
         lines about this task, picked out of notes that may cover several (review_notes.py).
         Not stored until the person acts on it."""
-        notes, picked = self._picked(task, self._since(task), named=named)
+        question = task.status == QUESTION_STATUS
+        notes, picked = self._picked(task, self._since(task, work=not question), named=named)
         entered, mover, _ = self._entered(task)
         draft = TaskReview(
             id=None,
@@ -934,7 +943,7 @@ class ReviewService:
             task_id=task.id,
             round=self._next_round(task.id),
             agent=picked.agent or mover or "agent",
-            kind="question" if task.status == QUESTION_STATUS else "work",
+            kind="question" if question else "work",
             status="pending",
             summary=picked.summary,
             done=picked.done,
