@@ -29,6 +29,7 @@ from app.core import error_log
 from app.mcp.cli import main, with_update_check  # noqa: F401 - old entry point
 from app.mcp.linking import SessionPacks, SessionTask, link_written, sort_named
 from app.mcp.projects import ProjectChoiceError, resolve_project
+from app.mcp.schemas import compact_tools
 from app.models.checkpoint import ActivityEvent
 from app.models.graph import OPERATIONS
 from app.models.memory import Memory
@@ -1958,6 +1959,7 @@ def build_server(
             "message": "Recorded. A person will review it in Project Moah.",
         }
 
+    compact_tools(server)
     return server
 
 
