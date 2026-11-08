@@ -33,9 +33,8 @@ Measurements:
    three; a question about something else must not be pulled onto the task. Saved in
    docs/benchmarks/retrieval-continue.json.
 
-Packs are built as an agent gets them (agent-shaped, Global rules and the project rules the
-brief lists left out), and the agent counts as knowing the brief's project rules: a needed rule
-the brief lists counts as found.
+Packs are built as an agent gets them (agent-shaped, Global rules left out). The brief lists
+project rules by title only, so a needed rule counts as found only when a pack sends it.
 
 Run ``python -m tests.retrieval_bench`` from backend/ to print the numbers as JSON.
 Real agents may not follow the brief literally; that needs live runs (see the 2026-10 and
@@ -55,8 +54,7 @@ from httpx import AsyncClient
 
 from app.models.project import Project
 from app.services import brief as brief_module
-from app.services.context import ContextService, SentRecords, brief_project_rules
-from app.services.memory import MemoryService
+from app.services.context import ContextService, SentRecords
 
 # ---- the fixture -----------------------------------------------------------------------------
 
@@ -390,8 +388,9 @@ def _pack(
 
 
 def _in_brief(session, pid: str, label_of: dict[str, str]) -> set[str]:
-    """The project rules the agent read in its brief, by label."""
-    return {label_of.get(m.id, m.id) for m in brief_project_rules(MemoryService(session), pid)}
+    """The project rules whose text the agent read in its brief, by label: none, as the brief
+    lists project rules by title only."""
+    return set()
 
 
 def _count(text: str) -> int:

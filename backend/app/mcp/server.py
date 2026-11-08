@@ -29,6 +29,7 @@ from app.core import error_log
 from app.mcp.cli import main, with_update_check  # noqa: F401 - old entry point
 from app.mcp.linking import SessionPacks, SessionTask, link_written, sort_named
 from app.mcp.projects import ProjectChoiceError, resolve_project
+from app.mcp.schemas import compact_tools
 from app.models.checkpoint import ActivityEvent
 from app.models.graph import OPERATIONS
 from app.models.memory import Memory
@@ -79,8 +80,8 @@ folder as cwd, unless its brief is already in your context, and follow it. Their
 are here, so check Moah (brain_context_pack or brain_search) before you ask them anything.
 Writing records and checkpoints is part of the work and needs no permission. Global rules,
 global decisions and locked records go to the person as proposals (brain_create_proposal). Each
-request, however small, is a task of its own (brain_create_task unless an open one covers it):
-hand it over with brain_submit_review when done, and ask with brain_ask_person when you stop for
+request, however small, is a task of its own (brain_create_task in_progress unless one
+covers it): hand it over with brain_submit_review when done, and ask with brain_ask_person when you stop for
 an answer."""
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
@@ -104,6 +105,7 @@ STARTED_BY_MOAH = (
     "Rename it, merge it into the task it belongs to, or archive it if it was nothing."
 )
 TASK_TITLE_LIMIT = 200
+NEW_TASK_STATUSES = ("in_progress", "todo", "backlog")
 # Said when an agent waits on a task the person already closed (ReviewService.follow_up).
 FOLLOW_UP_NOTE = (
     "{closed} is already closed, so this waits in {task}, the follow-up Moah keeps for it. Go "
@@ -444,6 +446,8 @@ def build_server(
                             working.clear()  # /clear started a new session: no task of its own
                             packs.clear()  # and none of the packs sent before are in its context
                             briefed.clear()  # and the start-up hook gave it a new brief
+                        if (named := sessions.named_by_person(session)) is not None:
+                            working.set(*named)  # the person's message named the task
                         with acting_as(actor, agent):
                             result = fn(session, *args, **kwargs)
                         sessions.record_tasks(session, working.tasks())
@@ -691,7 +695,8 @@ def build_server(
         task is an ID such as CAMP-037; without it, the pack keeps to this session's task, or
         picks the task the work is about, and says which. detail is minimal, balanced or
         detailed. explain=true says why each record came.
-        Rules your brief gave are left out; pass global_rules=true if you never got the brief.
+        Global rules your brief gave are left out; pass global_rules=true if you never got
+        the brief. Project rules come in full when the work needs them.
         The pack's task becomes this session's task. A repeat sends only what is new; full=true
         sends everything again."""
         found, _ = pick(session, project)
@@ -1064,12 +1069,16 @@ def build_server(
         milestone: str | None = None,
         links: list[str] | None = None,
     ) -> dict:
-        """Create a task. It starts as todo or backlog; people decide when work is complete.
-        links adds typed links, each written "relationship target" ("caused_by BUG-002"). A task
-        created while this session works on another task is linked to that task."""
+        """Create a task. status: in_progress for the request you start on now (it becomes
+        this session's task, so your notes and checkpoints land on it), todo or backlog for
+        later work. People decide when work is complete. links adds typed links, each written
+        "relationship target" ("caused_by BUG-002"). A task created while this session works
+        on another task is linked to that task."""
         found, _ = pick(session, project, write=True)
-        if status not in ("backlog", "todo"):
-            raise ValueError("New tasks can start as 'backlog' or 'todo'.")
+        if status not in NEW_TASK_STATUSES:
+            raise ValueError(
+                "A new task starts as 'in_progress' (work you start now), 'todo' or 'backlog'."
+            )
         task = TaskService(session).create(
             found.id,
             TaskCreate(
@@ -1092,6 +1101,8 @@ def build_server(
             links=links or [],
             session_task=working.current(session, found.id),
         )
+        if task.status == "in_progress":
+            working.set(found.id, task.id)
         return {
             "created": task.human_id,
             "title": task.title,
@@ -1958,6 +1969,7 @@ def build_server(
             "message": "Recorded. A person will review it in Project Moah.",
         }
 
+    compact_tools(server)
     return server
 
 

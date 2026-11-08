@@ -38,6 +38,7 @@ SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 PID_ENV = "CLAUDE_PID"
 KEEP = timedelta(days=62)
 TASK = "task"
+PROMPT = "prompt"  # a message the person wrote (services/chat_questions.py)
 CLAIM = "claimed"  # a server with no session id of its own took this session over
 STARTS = ("startup", "resume", "clear")
 # The hook and the MCP server start together, seconds apart; a session that started further
@@ -92,6 +93,7 @@ class SessionTracker:
         self.current: str | None = self.started
         self.born = now or datetime.now(UTC)
         self._recorded: dict[tuple[str, str], str | None] = {}
+        self._prompt_seen = 0  # the newest prompt-hook event already taken up
 
     def adopt(self, session: Session, project_id: str | None, now: datetime | None = None) -> bool:
         """For a server that got no session id: take over the session the hook saw start in the
@@ -166,6 +168,31 @@ class SessionTracker:
         changed = newest != self.current
         self.current = newest
         return changed
+
+    def named_by_person(self, session: Session) -> tuple[str, str] | None:
+        """(project id, task id) of the task the person's newest message named, once per
+        message, when the prompt hook saw it after this server last looked. The person's own
+        words say what the work is now, so the session follows them: without this, an agent
+        that never fetched a pack filed its checkpoint under an older task (2026-11-07 run)."""
+        if self.current is None:
+            return None
+        event = session.scalars(
+            select(AgentSessionEvent)
+            .where(
+                AgentSessionEvent.agent == self.agent,
+                AgentSessionEvent.session_id == self.current,
+                AgentSessionEvent.source == PROMPT,
+                AgentSessionEvent.id > self._prompt_seen,
+            )
+            .order_by(AgentSessionEvent.id.desc())
+            .limit(1)
+        ).first()
+        if event is None:
+            return None
+        self._prompt_seen = event.id
+        if event.task_id is None or event.project_id is None:
+            return None
+        return event.project_id, event.task_id
 
     def record_tasks(self, session: Session, tasks: Mapping[str, str]) -> None:
         """Store each project's session task when it differs from the one last stored."""

@@ -338,9 +338,8 @@ async def test_agent_packs_carry_only_what_the_agent_acts_on(
             pid, task=task, record_for="claude", global_rules=False
         )
         assert "ACTIVE SHELVES" not in mine.text and "RECENT ACTIVITY" not in mine.text
-        # The project's rule is in the agent's brief: counted, not sent twice.
-        assert rec["floor"]["title"] not in mine.text
-        assert mine.omitted["already in your brief"] >= 1
+        # The agent's brief lists the project's rule by title only, so the pack sends it in full.
+        assert rec["floor"]["title"] in mine.text
         assert mine.task_source == "given"
 
         explained = ContextService(session).build(
@@ -349,14 +348,20 @@ async def test_agent_packs_carry_only_what_the_agent_acts_on(
         assert "ACTIVE SHELVES" in explained.text
 
 
-async def test_the_pack_leaves_out_exactly_the_rules_the_brief_lists(
+async def test_the_brief_lists_rules_by_title_and_the_pack_sends_them_in_full(
     client: AsyncClient, database_url: str
 ) -> None:
     pid = (await post(client, "/api/projects", name="Rulebook"))["id"]
     words = "apple banana cherry damson elder fig grape hazel iris juniper kiwi lime mango nectar"
     word_of = {}
     for word in words.split():
-        made = await post(client, f"/api/projects/{pid}/memory", type="rule", title=f"On {word}")
+        made = await post(
+            client,
+            f"/api/projects/{pid}/memory",
+            type="rule",
+            title=f"On {word}",
+            content=f"Peel every {word} first.",
+        )
         word_of[made["id"]] = word
     await post(
         client,
@@ -372,7 +377,8 @@ async def test_the_pack_leaves_out_exactly_the_rules_the_brief_lists(
         assert len(chosen) == 12
         everything = MemoryService(session).list(pid, statuses=["active"], limit=300)
         for m in everything:
-            assert (f"- {m.human_id} {m.title}" in brief) == (m in chosen), m.title
+            assert (f"\n- {m.human_id} {m.title}\n" in brief) == (m in chosen), m.title
+        assert "Peel every" not in brief  # titles only
     # A task whose words match one rule the brief lists and one it does not.
     listed = chosen[1].id
     [unlisted] = [m.id for m in everything if m.id in word_of and m not in chosen][:1]
@@ -382,14 +388,9 @@ async def test_the_pack_leaves_out_exactly_the_rules_the_brief_lists(
         mine = ContextService(session).build(
             pid, task=work["human_id"], record_for="claude", global_rules=False
         )
-        held = {i.ref for i in mine.items}
-        assert unlisted in held and listed not in held
-        assert mine.omitted["already in your brief"] == 1
-        # A session whose brief did not cover this project gets both.
-        theirs = ContextService(session).build(
-            pid, task=work["human_id"], record_for="claude", global_rules=False, in_brief=False
-        )
-        assert {listed, unlisted} <= {i.ref for i in theirs.items}
+        assert {listed, unlisted} <= {i.ref for i in mine.items}
+        assert f"Peel every {word_of[listed]} first." in mine.text
+        assert "already in your brief" not in mine.omitted
 
 
 async def test_a_continue_request_through_mcp_sets_the_task_and_feedback(
@@ -507,7 +508,7 @@ async def test_a_pack_with_no_task_stays_on_the_session_task(database_url: str) 
         assert not failed and f"This session's task is {offline}" in text
 
 
-async def test_packs_leave_out_only_the_rules_of_the_project_the_brief_showed(
+async def test_packs_send_project_rules_whether_or_not_the_brief_showed_the_project(
     database_url: str,
 ) -> None:
     async with app_client(database_url) as client:
@@ -518,12 +519,12 @@ async def test_packs_leave_out_only_the_rules_of_the_project_the_brief_showed(
         assert not failed
         failed, text = await call(session, "brain_context_pack", task=task, project=pid)
         assert not failed and f"\n{floor}\n" in text  # that brief showed no project rules
-        failed, _ = await call(session, "brain_brief", project=pid)
-        assert not failed
+        failed, brief = await call(session, "brain_brief", project=pid)
+        assert not failed and f"- {floor} {rec['floor']['title']}\n" in brief  # title only
         failed, text = await call(
-            session, "brain_context_pack", task=task, project=pid, explain=True
+            session, "brain_context_pack", task=task, project=pid, explain=True, full=True
         )
-        assert not failed and f"\n{floor}\n" not in text and "already in your brief" in text
+        assert not failed and f"\n{floor}\n" in text
 
 
 async def test_a_task_pack_after_the_brief_sends_its_left_to_do_once(database_url: str) -> None:

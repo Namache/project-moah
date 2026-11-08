@@ -404,3 +404,87 @@ async def test_the_reply_in_the_chat_answers_the_question_when_only_arguments_ar
     status, rounds = reviews_of(database_url, badge)
     assert status == "in_progress"
     assert (rounds[0][1], rounds[0][5], rounds[0][6]) == ("answered", "The 46x46 one.", "chat")
+
+
+async def test_the_session_follows_the_task_the_person_names_and_checkpoints_land_there(
+    database_url: str, tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """2026-11-07 real run: the person named a new task in the chat, the agent fetched no pack,
+    and its checkpoint went to the task the session had before. Now the MCP server takes up the
+    task the person's message names by ID, and a task created in progress is the session's."""
+    import sys
+
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    from tests.test_mcp import BACKEND, call
+
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    root, camp, legend = w["root"], w["task"], w["other"]
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "app.mcp", "--agent", "claude"],
+        cwd=str(BACKEND),
+        env={
+            "PROJECT_BRAIN_DATABASE_URL": database_url,
+            "PATH": "/usr/bin:/bin",
+            "CLAUDE_CONFIG_DIR": "/nonexistent/claude",
+            "CODEX_HOME": "/nonexistent/codex",
+            "CLAUDE_CODE_SESSION_ID": SESSION,
+        },
+    )
+
+    def checkpoint_task(text: dict) -> str:
+        return text["task"]
+
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as agent:
+        await agent.initialize()
+        error, _ = await call(
+            agent, "brain_update_task", project="trailhead", task=camp, status="in_progress"
+        )
+        assert not error
+        error, text = await call(agent, "brain_create_checkpoint", project="trailhead", title="a")
+        assert not error and checkpoint_task(text) == camp
+
+        # The person moves the work on in the chat, naming the other task by its ID.
+        run_hook(
+            monkeypatch,
+            capsys,
+            database_url,
+            "prompt",
+            {"prompt": f"Good. Now do {legend}, the map legend.", "cwd": str(root)},
+        )
+        error, text = await call(agent, "brain_create_checkpoint", project="trailhead", title="b")
+        assert not error and checkpoint_task(text) == legend
+        # Once taken up, the message does not pull the session back after the agent moves on.
+        error, _ = await call(
+            agent, "brain_update_task", project="trailhead", task=camp, status="in_progress"
+        )
+        error, text = await call(agent, "brain_create_checkpoint", project="trailhead", title="c")
+        assert not error and checkpoint_task(text) == camp
+        # A message naming the session's own task, or two tasks at once, changes nothing.
+        for prompt in (f"Keep going on {camp}.", f"Is {camp} or {legend} bigger?"):
+            run_hook(
+                monkeypatch, capsys, database_url, "prompt", {"prompt": prompt, "cwd": str(root)}
+            )
+            error, text = await call(
+                agent, "brain_create_checkpoint", project="trailhead", title="d"
+            )
+            assert not error and checkpoint_task(text) == camp
+
+        # A request the agent records as a task it starts now becomes the session's task.
+        error, text = await call(
+            agent,
+            "brain_create_task",
+            project="trailhead",
+            title="Fix the badge colour",
+            status="in_progress",
+        )
+        assert not error and text["status"] == "in_progress"
+        error, done = await call(agent, "brain_create_checkpoint", project="trailhead", title="e")
+        assert not error and checkpoint_task(done) == text["created"]
+        error, message = await call(
+            agent, "brain_create_task", project="trailhead", title="x", status="review"
+        )
+        assert error and "in_progress" in message

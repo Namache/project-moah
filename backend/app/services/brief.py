@@ -3,6 +3,8 @@ current project's rules and state, and how to keep Project Moah up to date.
 
 Kept small on purpose. It is injected once per session, so every line costs tokens in every chat.
 Details come later, only when the work needs them, from context packs (see RETRIEVE_WHEN).
+Project rules are listed by title only: a context pack brings a rule's full text when the work
+needs it. The person's global rules stay in full, because they apply to every request.
 The one exception is the unfinished task: its decisions are listed by title, because agents
 asked the person again what those records already said (2026-11-02 test).
 """
@@ -64,8 +66,8 @@ CLOSED_TASK = ("completed", "archived")
 # A checkpoint's task counts as unfinished only while work on it goes on: not parked in the
 # backlog or todo, and not finished and waiting in review.
 UNFINISHED_STATUSES = ("in_progress", "blocked")
-# How many project rules and standing decisions the brief lists. Packs for an agent leave out
-# exactly the rules listed here (see brief_project_rules), so nothing is sent twice.
+# How many project rules and standing decisions the brief lists. Project rules are listed by
+# title only, so context packs still send their full text when the work needs it.
 BRIEF_PROJECT_RULES = 12
 BRIEF_STANDING = 10
 # What counts as already decided for a task: settled guidance first, then what is known.
@@ -77,8 +79,9 @@ LEFT_LIMIT = 300
 AGENT_HIDDEN = ("hidden", "manual_only")
 
 
-def _rule_line(m: MemoryRead, scope: str = "") -> str:
-    body = " ".join(m.content.split())
+def _rule_line(m: MemoryRead, scope: str = "", full: bool = True) -> str:
+    """``full`` adds the rule's text after its title."""
+    body = " ".join(m.content.split()) if full else ""
     return f"- {scope}{m.human_id} {m.title}" + (f": {body}" if body else "")
 
 
@@ -118,7 +121,7 @@ def standing_records(visible: list[MemoryRead]) -> list[MemoryRead]:
 
 
 def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
-    """The project rules the session brief lists, for context packs to leave out."""
+    """The project rules the session brief lists by title."""
     return listed_rules(
         project_id, _visible(memory.list(project_id, statuses=["active"], limit=300))
     )
@@ -407,7 +410,8 @@ def build_brief(
         project_rules = listed_rules(project.id, records)
         standing = standing_records(records)
         if project_rules:
-            lines += ["PROJECT RULES"] + [_rule_line(m) for m in project_rules]
+            lines += ["PROJECT RULES (titles; brain_context_pack gives the full text)"]
+            lines += [_rule_line(m, full=False) for m in project_rules]
         if standing:
             lines += ["KEY DECISIONS AND WARNINGS"]
             lines += [f"- {m.human_id} {m.title}" for m in standing]

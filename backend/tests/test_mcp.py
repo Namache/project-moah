@@ -669,12 +669,12 @@ async def test_agents_link_records_and_shape_shelves(database_url: str) -> None:
         failed, woke = await call(session, "brain_shelves", task=task["human_id"], project=pid)
         assert not failed and woke["activation"][0]["shelf"] == "Inventory"
         assert woke["activation"][0]["active"] is True
-        # The rule wakes with its shelf. An agent's pack leaves out the shelf line (and the rule,
-        # which its brief lists); explain=true shows both.
+        # The rule wakes with its shelf. An agent's pack leaves out the shelf line but sends the
+        # rule in full (its brief lists it by title only); explain=true shows both.
         failed, _ = await call(session, "brain_brief", project=pid)
         assert not failed
         failed, text = await call(session, "brain_context_pack", task=task["human_id"], project=pid)
-        assert not failed and "ACTIVE SHELVES" not in text and rule["human_id"] not in text
+        assert not failed and "ACTIVE SHELVES" not in text and rule["human_id"] in text
         failed, text = await call(
             session,
             "brain_context_pack",
@@ -1109,3 +1109,19 @@ async def test_an_old_flatpak_connection_hears_once_how_to_refresh_it(
     async with agent(database_url, "claude", start=start, client="claude-ai") as session:
         error, task = await call(session, "brain_get_task", task="CAMP-001", project="trailhead")
         assert not error and "moah_connection" not in task
+
+
+async def test_tool_schemas_are_compact_and_list_their_choices(database_url: str) -> None:
+    async with agent(database_url) as session:
+        tools = {t.name: t for t in (await session.list_tools()).tools}
+        text = json.dumps([t.input_schema for t in tools.values()])
+        assert '"title": "' not in text.replace('"title": {"type"', "")
+        assert '{"type": "null"}' not in text
+        create = tools["brain_create_task"].input_schema
+        assert create["required"] == ["title"] and create["properties"]["title"]["type"] == "string"
+        assert create["properties"]["status"]["enum"] == ["in_progress", "todo", "backlog"]
+        assert "decision" in tools["brain_create_memory"].input_schema["properties"]["type"]["enum"]
+        # Optional arguments are plain, and null is still accepted when a client sends it.
+        assert create["properties"]["description"] == {"type": "string"}
+        error, text = await call(session, "brain_list_projects")
+        assert not error

@@ -31,7 +31,7 @@ def context_pack(
     """Preview what an agent would receive. ``include`` names manual-only memory.
 
     ``agent=true`` previews exactly what an agent gets on top of its start-up brief: the
-    Global rules and the project rules the brief lists are left out, as they are for an agent,
+    Global rules are left out, as they are for an agent,
     and ``brief_tokens`` says how big that brief is. Without it, the pack holds everything."""
     pack = ContextService(session).build(
         project_id,
