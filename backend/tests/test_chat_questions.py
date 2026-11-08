@@ -316,3 +316,43 @@ def test_a_turn_without_a_question_ends_before_loading_the_database(tmp_path: Pa
             timeout=60,
         )
         assert done.stdout.strip() == loads, done.stderr
+
+
+async def test_the_reply_in_the_chat_answers_the_question_when_only_arguments_arrive(
+    database_url: str, tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A Flatpak started from a container gets Claude Code's session id only as an argument
+    (agent_connect._claude_server). Without it the server never records the session's task,
+    so the person's reply in the chat could not settle the question it answered."""
+    from tests.test_mcp import agent, call
+
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    badge, legend = w["task"], w["other"]
+    # Before: the server's environment has no CLAUDE_CODE_SESSION_ID, like the Flatpak's.
+    async with agent(database_url, "claude") as session:
+        error, _ = await call(
+            session,
+            "brain_ask_person",
+            project="trailhead",
+            task=legend,
+            question="Which legend style: icons or words?",
+        )
+        assert not error
+    run_hook(monkeypatch, capsys, database_url, "prompt", {"prompt": "Icons."})
+    assert reviews_of(database_url, legend)[1][0][1] == "pending"  # the reply found nothing
+
+    # Now: Connect hands the server the session id as an argument.
+    async with agent(database_url, "claude", "--session-id", SESSION) as session:
+        error, _ = await call(
+            session,
+            "brain_ask_person",
+            project="trailhead",
+            task=badge,
+            question="Which lot size should the badge use?",
+        )
+        assert not error
+    run_hook(monkeypatch, capsys, database_url, "prompt", {"prompt": "The 46x46 one."})
+    status, rounds = reviews_of(database_url, badge)
+    assert status == "in_progress"
+    assert (rounds[0][1], rounds[0][5], rounds[0][6]) == ("answered", "The 46x46 one.", "chat")

@@ -181,6 +181,47 @@ def test_the_flatpak_connects_when_run_with_home_access(
     assert saved["mcp_servers"]["project-moah"]["command"] == "flatpak"
 
 
+def test_the_flatpak_hands_claude_codes_session_to_the_server(
+    home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A Flatpak started from a container gets none of Claude Code's environment, so a shell
+    passes the session id on as an argument: without it Moah can't match the person's reply
+    in the chat to the question it answers."""
+    import subprocess
+
+    (home / ".claude").mkdir()
+    (home / "flatpak-info").write_text(ONE_RUN)
+    monkeypatch.setattr(agent_connect, "FLATPAK_INFO", home / "flatpak-info")
+    assert statuses(agent_connect.connect_agents(FLATPAK))["claude"] == "connected"
+    server = json.loads((home / ".claude.json").read_text(encoding="utf-8"))["mcpServers"][
+        "project-moah"
+    ]
+    assert server["command"] == "sh" and server["args"][0] == "-c"
+    # Run it as Claude Code would, with a stand-in flatpak that prints what it was given.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "flatpak").write_text('#!/bin/sh\nprintf "%s|" "$@"\n')
+    (bin_dir / "flatpak").chmod(0o755)
+    for session, expected in (("0b5e8c1a-2f4d", "0b5e8c1a-2f4d"), (None, "")):
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}
+        if session:
+            env["CLAUDE_CODE_SESSION_ID"] = session
+        ran = subprocess.run(
+            [server["command"], *server["args"]], env=env, capture_output=True, text=True
+        )
+        assert ran.stdout.split("|")[:-1] == [
+            "run",
+            "--command=project-moah-mcp",
+            "x",
+            "--agent",
+            "claude",
+            "--session-id",
+            expected,
+        ]
+    # Other installs get the environment and start the server directly, as before.
+    assert agent_connect._claude_server(LAUNCH["command"])["command"] == EXE
+
+
 def test_replaces_the_old_project_brain_connection(home: Path) -> None:
     (home / ".claude").mkdir()
     old = {"command": "flatpak", "args": ["run", "--command=project-brain-mcp"]}

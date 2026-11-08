@@ -145,6 +145,19 @@ def _codex_hooks(command: list[str]) -> dict[str, dict]:
     }
 
 
+def _claude_server(command: list[str]) -> dict:
+    """Claude Code tells the MCP server its session in CLAUDE_CODE_SESSION_ID. A Flatpak started
+    from a container (distrobox runs `flatpak` on the host through host-spawn) arrives without
+    the agent's environment, so a shell hands the id over as an argument, as the brief hook does
+    with the folder. Without it Moah can't tell which task the person's reply in the chat
+    answers, and the question waits in Review after it was answered."""
+    args = [*command[1:], "--agent", "claude"]
+    if command[0] != "flatpak":
+        return {"type": "stdio", "command": command[0], "args": args, "env": {}}
+    line = f'exec {shlex.join([command[0], *args, "--session-id"])} "${{CLAUDE_CODE_SESSION_ID:-}}"'
+    return {"type": "stdio", "command": "sh", "args": ["-c", line], "env": {}}
+
+
 def connect_claude(command: list[str]) -> bool:
     """False when Claude Code isn't on this computer."""
     home = claude_home()
@@ -156,12 +169,7 @@ def connect_claude(command: list[str]) -> bool:
     servers = data.setdefault("mcpServers", {})
     if _ours(json.dumps(servers.get(OLD_SERVER_NAME, ""))):
         del servers[OLD_SERVER_NAME]
-    servers[SERVER_NAME] = {
-        "type": "stdio",
-        "command": command[0],
-        "args": [*command[1:], "--agent", "claude"],
-        "env": {},
-    }
+    servers[SERVER_NAME] = _claude_server(command)
     settings_path = home / "settings.json"
     settings = _with_hooks(_read_json(settings_path), _claude_hooks(command))
     _write(config, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
