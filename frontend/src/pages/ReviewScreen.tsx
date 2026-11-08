@@ -8,7 +8,7 @@ import { ProposalCard } from "../components/proposals/ProposalCard";
 import { PaneResizer, usePaneWidth } from "../components/PaneResizer";
 import { ReopenBox, ReviewComposer, SendBackToAgent, type Quoted } from "../components/review/ReviewComposer";
 import { ReviewDocument, type CriteriaTicks, type FollowUpActions } from "../components/review/ReviewDocument";
-import { ReviewTimeline } from "../components/review/ReviewTimeline";
+import { ReviewTimeline, useReviewFolds, type Folds } from "../components/review/ReviewTimeline";
 import { EmptyState, ErrorState } from "../components/ui";
 import { useFollowUps, useReviewTimeline, useTaskReview } from "../hooks/useReviews";
 import { notify } from "../lib/notify";
@@ -100,6 +100,13 @@ function projectsIn(items: ReviewItem[]) {
   return [...found.values()].sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name));
 }
 
+/** With nothing chosen, open the first task in a group that is shown: questions, then work, then reviewed. */
+function firstShown(waiting: ReviewItem[], reviewed: ReviewItem[], folded: Folds): ReviewItem | undefined {
+  return (folded.questions ? undefined : waiting.find((i) => i.question))
+    ?? (folded.waiting ? undefined : waiting.find((i) => !i.question))
+    ?? (folded.reviewed ? undefined : reviewed[0]);
+}
+
 /**
  * The Review screen: on the left, one line per task agents finished, from every project (or one);
  * on the right, the selected task's review and your comment box underneath. Drag the line between
@@ -107,6 +114,7 @@ function projectsIn(items: ReviewItem[]) {
  */
 export function ReviewScreen({ projectId, embedded = false }: { projectId?: string; embedded?: boolean }) {
   const timeline = useReviewTimeline(projectId);
+  const [folded, fold] = useReviewFolds();
   const [params, setParams] = useSearchParams();
   const box = useRef<HTMLDivElement>(null);
   const [room, setRoom] = useState(1280);
@@ -137,7 +145,7 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
   const last = shown.current;
   const item = all.find((i) => i.key === wanted)
     ?? (last ? all.find((i) => i.kind === last.kind && i.project_id === last.project_id && i.ref === last.ref) : undefined)
-    ?? waiting[0] ?? reviewed[0] ?? null;
+    ?? firstShown(waiting, reviewed, folded) ?? waiting[0] ?? reviewed[0] ?? null;
   shown.current = item;
 
   function select(next: ReviewItem | null) {
@@ -166,7 +174,7 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
     }
     // On to the next piece of work waiting, the way a mail app moves on after archiving a message.
     const index = waiting.findIndex((i) => i.key === item.key);
-    const rest = waiting.filter((i) => i.key !== item.key);
+    const rest = waiting.filter((i) => i.key !== item.key && !folded[i.question ? "questions" : "waiting"]);
     select(rest[Math.min(Math.max(index, 0), rest.length - 1)] ?? null);
   }
 
@@ -194,7 +202,7 @@ export function ReviewScreen({ projectId, embedded = false }: { projectId?: stri
         )}
         {timeline.isPending ? <Loading label={t("Loading the review timeline")} />
           : timeline.isError ? <ErrorState title={t("The review timeline could not be loaded")} message={timeline.error.message} onRetry={() => void timeline.refetch()} />
-          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={item?.key ?? null} showProject={!projectId && !shownProject} onSelect={select} />}
+          : <ReviewTimeline waiting={waiting} reviewed={reviewed} selected={item?.key ?? null} showProject={!projectId && !shownProject} onSelect={select} folded={folded} onFold={fold} />}
       </aside>
       <PaneResizer width={listWidth} min={LIST_MIN} max={listMax} fallback={LIST_WIDTH} onResize={setListWidth} label={t("Resize the task list")} />
       <section aria-label={t("Selected review")} className="flex min-h-0 min-w-0 flex-1 flex-col">
