@@ -137,6 +137,39 @@ describe("Review screen", () => {
     localStorage.removeItem("moah.review.folded");
   });
 
+  it("keeps a group folded or shown until you press its arrow, also after accepting and a restart", async () => {
+    const { state } = setup();
+    state.waiting = [upgrade];
+    const user = userEvent.setup();
+    const { unmount } = renderAt("/review");
+    const timeline = await screen.findByRole("complementary", { name: "Review timeline" });
+    await within(timeline).findByRole("list", { name: "Finished work to check" });
+    // Accepting the last waiting task opens a reviewed one, but Reviewed stays folded.
+    await user.click(await screen.findByRole("button", { name: "Accept and move to Done" }));
+    await waitFor(() => expect(within(timeline).getByRole("button", { name: /^Reviewed/ })).toHaveTextContent("2"));
+    expect(within(timeline).getByRole("button", { name: /^Reviewed/ })).toHaveAttribute("aria-expanded", "false");
+    // Fold "Finished work to check" and show Reviewed, then start again with new work waiting.
+    await user.click(within(timeline).getByRole("button", { name: /^Finished work to check/ }));
+    await user.click(within(timeline).getByRole("button", { name: /^Reviewed/ }));
+    unmount();
+    state.waiting = [upgrade, rations];
+    renderAt("/review");
+    const again = await screen.findByRole("complementary", { name: "Review timeline" });
+    await within(again).findByRole("list", { name: "Reviewed" });
+    const work = within(again).getByRole("button", { name: /^Finished work to check/ });
+    expect(work).toHaveAttribute("aria-expanded", "false");
+    expect(work).toHaveTextContent("2");
+    // With nothing chosen, the first task you can see opens, not one hidden in a folded group.
+    expect(within(within(again).getByRole("list", { name: "Reviewed" })).getAllByRole("button")[0]).toHaveAttribute("aria-current", "true");
+    cleanup();
+    // A link straight to a task in a folded group opens it on the right; the group stays folded.
+    renderAt("/review?item=task:t3");
+    const third = await screen.findByRole("complementary", { name: "Review timeline" });
+    expect(await screen.findByText("Ration drain is 0.5 a day")).toBeInTheDocument();
+    expect(within(third).getByRole("button", { name: /^Finished work to check/ })).toHaveAttribute("aria-expanded", "false");
+    localStorage.removeItem("moah.review.folded");
+  });
+
   it("lets you drag the line between the list and the review", async () => {
     setup();
     const user = userEvent.setup();

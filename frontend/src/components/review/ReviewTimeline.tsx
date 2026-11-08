@@ -70,13 +70,31 @@ function Count({ n, tone }: { n: number; tone: string }) {
   return <span className={`rounded-full px-1.5 text-xs font-bold leading-5 tabular-nums ${n ? tone : "bg-neutral-soft text-ink-muted"}`}>{n}</span>;
 }
 
-type Group = "questions" | "waiting" | "reviewed";
+export type Group = "questions" | "waiting" | "reviewed";
+export type Folds = Record<Group, boolean>;
 const FOLDED_KEY = "moah.review.folded";
 // Reviewed starts folded: what waits for you matters first, and the list only grows.
 const FOLDED_AT_FIRST: Record<Group, boolean> = { questions: false, waiting: false, reviewed: true };
 
-function readFolded(): Record<Group, boolean> {
-  try { return { ...FOLDED_AT_FIRST, ...(JSON.parse(readPref(FOLDED_KEY) ?? "{}") as Partial<Record<Group, boolean>>) }; } catch { return FOLDED_AT_FIRST; }
+function readFolded(): Folds {
+  try { return { ...FOLDED_AT_FIRST, ...(JSON.parse(readPref(FOLDED_KEY) ?? "{}") as Partial<Folds>) }; } catch { return FOLDED_AT_FIRST; }
+}
+
+/**
+ * Which groups are folded. Only the person's click on a group's arrow changes it: choosing a task,
+ * a notification, accepting work or restarting the app never folds or unfolds a group. It is saved
+ * at once, so it is the same the next time the app starts.
+ */
+export function useReviewFolds(): [Folds, (group: Group) => void] {
+  const [folded, setFolded] = useState(readFolded);
+  function fold(group: Group) {
+    setFolded((current) => {
+      const next = { ...current, [group]: !current[group] };
+      writePref(FOLDED_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+  return [folded, fold];
 }
 
 /** A heading that folds its list away, with how many items it holds. */
@@ -102,38 +120,23 @@ function Section({ title, hint, count, tone, headTone = "text-ink-muted", folded
 /**
  * The left column: one line per task. What waits for you comes first, with agents' questions on
  * top because their work is stuck until you answer; what you already decided follows. Each group
- * folds away with its arrow, and stays as you left it. Up and Down arrows (or J and K) move through
- * the lines you can see.
+ * folds away with its arrow, and stays as you left it until you press the arrow again, even when
+ * the chosen task sits in a folded group. Up and Down arrows (or J and K) move through the lines
+ * you can see.
  */
-export function ReviewTimeline({ waiting, reviewed, selected, showProject, onSelect }: { waiting: ReviewItem[]; reviewed: ReviewItem[]; selected: string | null; showProject: boolean; onSelect: (item: ReviewItem) => void }) {
+export function ReviewTimeline({ waiting, reviewed, selected, showProject, onSelect, folded, onFold }: { waiting: ReviewItem[]; reviewed: ReviewItem[]; selected: string | null; showProject: boolean; onSelect: (item: ReviewItem) => void; folded: Folds; onFold: (group: Group) => void }) {
   const list = useRef<HTMLDivElement>(null);
-  const [folded, setFolded] = useState(readFolded);
   const questions = waiting.filter((item) => item.question);
   const work = waiting.filter((item) => !item.question);
   const visible = [...(folded.questions ? [] : questions), ...(folded.waiting ? [] : work), ...(folded.reviewed ? [] : reviewed)];
   const row = (item: ReviewItem) => <Row key={item.key} item={item} selected={item.key === selected} showProject={showProject} onSelect={() => onSelect(item)} />;
 
-  // A line chosen from outside the list (a notification, a link) shows: its group unfolds for
-  // now, and the list scrolls to it.
-  const groupOf = (key: string | null): Group | null => !key ? null
-    : questions.some((i) => i.key === key) ? "questions" : work.some((i) => i.key === key) ? "waiting" : reviewed.some((i) => i.key === key) ? "reviewed" : null;
-  const selectedGroup = groupOf(selected);
-  useEffect(() => {
-    if (selectedGroup && folded[selectedGroup]) setFolded((current) => ({ ...current, [selectedGroup]: false }));
-  }, [selected, selectedGroup]);
+  // A chosen line scrolls into view when its group is shown.
   useEffect(() => {
     if (!selected) return;
     const row = list.current?.querySelector<HTMLElement>(`[data-review-key="${CSS.escape(selected)}"]`);
     row?.scrollIntoView?.({ block: "nearest" });
   }, [selected, folded]);
-
-  function fold(group: Group) {
-    setFolded((current) => {
-      const next = { ...current, [group]: !current[group] };
-      writePref(FOLDED_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
@@ -150,16 +153,16 @@ export function ReviewTimeline({ waiting, reviewed, selected, showProject, onSel
   return (
     <div ref={list} onKeyDown={onKeyDown} className="space-y-4">
       {questions.length > 0 && (
-        <Section title={t("Questions from agents")} hint={t("The agent stopped and waits for your reply.")} count={questions.length} tone="bg-warning text-black" headTone="text-warning-ink" folded={folded.questions} onFold={() => fold("questions")}>
+        <Section title={t("Questions from agents")} hint={t("The agent stopped and waits for your reply.")} count={questions.length} tone="bg-warning text-black" headTone="text-warning-ink" folded={folded.questions} onFold={() => onFold("questions")}>
           <ul className="space-y-2" aria-label={t("Questions from agents")}>{questions.map(row)}</ul>
         </Section>
       )}
-      <Section title={t("Finished work to check")} hint={t("The agent says it's done. Accept it or send it back.")} count={work.length} tone="bg-primary text-white" folded={folded.waiting} onFold={() => fold("waiting")}>
+      <Section title={t("Finished work to check")} hint={t("The agent says it's done. Accept it or send it back.")} count={work.length} tone="bg-primary text-white" folded={folded.waiting} onFold={() => onFold("waiting")}>
         {work.length
           ? <ul className="space-y-2" aria-label={t("Finished work to check")}>{work.map(row)}</ul>
           : <p className="flex items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-4 text-sm text-ink-muted"><CircleCheck size={18} className="text-success" aria-hidden="true" />{questions.length ? t("No finished work waiting.") : t("You're all caught up.")}</p>}
       </Section>
-      <Section title={t("Reviewed")} count={reviewed.length} tone="bg-neutral-soft text-ink-muted" folded={folded.reviewed} onFold={() => fold("reviewed")}>
+      <Section title={t("Reviewed")} count={reviewed.length} tone="bg-neutral-soft text-ink-muted" folded={folded.reviewed} onFold={() => onFold("reviewed")}>
         {reviewed.length
           ? <ul className="space-y-2" aria-label={t("Reviewed")}>{reviewed.map(row)}</ul>
           : <p className="px-1 text-sm text-ink-subtle">{t("Work you accept or send back is listed here. You can still reopen accepted work from here.")}</p>}
