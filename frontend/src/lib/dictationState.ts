@@ -21,7 +21,7 @@ export function useDictationState(): DictationState {
   return useSyncExternalStore((onChange) => { listeners.add(onChange); return () => listeners.delete(onChange); }, () => state);
 }
 
-/** Starts or stops dictation into the focused text field, like Ctrl+Shift+Space. */
+/** Starts or stops dictation into the focused text field, like the dictation shortcut. */
 export function toggleDictation() {
   window.dispatchEvent(new Event(TOGGLE));
 }

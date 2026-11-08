@@ -151,9 +151,11 @@ def test_desktop_server_announces_port_and_stops_on_stdin_eof(tmp_path: Path) ->
 
 
 def test_diagnostics_answer_while_the_service_waits_on_its_input(tmp_path: Path) -> None:
-    """Like the desktop app: Electron keeps the service's input open, and Diagnostics runs Git.
+    """Like the desktop app: Electron keeps the service's input open, and Diagnostics runs Git
+    and checks the speech engine.
 
-    On Windows, Git that inherits the waiting input can hang; Diagnostics must still answer.
+    On Windows, Git that inherits the waiting input can hang, and so could loading the speech
+    engine's numpy while a read of that input was waiting; Diagnostics must still answer.
     """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM):
@@ -165,11 +167,16 @@ def test_diagnostics_answer_while_the_service_waits_on_its_input(tmp_path: Path)
     frontend_dist = tmp_path / "dist"
     frontend_dist.mkdir()
     (frontend_dist / "index.html").write_text("Project Moah desktop")
+    # Any file will do: the model is only read on a first dictation, but with one present the
+    # status check loads the engine, as it does in the packaged app.
+    model = tmp_path / "model.bin"
+    model.write_bytes(b"")
     environment = os.environ.copy()
     environment.update(
         PROJECT_BRAIN_DESKTOP_TOKEN="desktop-diagnostics-token",
         PROJECT_BRAIN_FRONTEND_DIST=str(frontend_dist),
         PROJECT_BRAIN_DB_PATH=str(tmp_path / "desktop.db"),
+        PROJECT_MOAH_DICTATION_MODEL=str(model),
     )
     process = subprocess.Popen(
         [sys.executable, "-m", "app.desktop_server"],
@@ -190,6 +197,8 @@ def test_diagnostics_answer_while_the_service_waits_on_its_input(tmp_path: Path)
             report = client.get("/api/system/diagnostics", headers=headers)
             assert report.status_code == 200
             assert report.json()["database"]["integrity"] == "ok"
+            assert report.json()["dictation"]["available"] is True
+            assert client.get("/api/health", headers=headers).status_code == 200
         process.stdin.close()
         assert process.wait(timeout=10) == 0
     finally:

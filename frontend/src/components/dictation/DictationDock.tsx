@@ -9,14 +9,10 @@ import { LiveDictation } from "../../lib/liveDictation";
 import { readDictationLanguage } from "../../lib/dictationLanguage";
 import { fieldName, isDictatable, setFieldValue, type TextField } from "../../lib/dictationTarget";
 import { onDictationToggle, publishDictationState } from "../../lib/dictationState";
+import { matchesShortcut, shortcutAria, shortcutLabel, useDictationShortcut } from "../../lib/dictationShortcut";
 import { t } from "../../lib/i18n";
 
 type Phase = "idle" | "starting" | "recording" | "transcribing";
-
-/** Ctrl+Shift+Space (Cmd+Shift+Space on a Mac) starts and stops dictation from the keyboard. */
-export function isDictationShortcut(event: KeyboardEvent) {
-  return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.code === "Space";
-}
 
 /** Open modal dialogs make the rest of the page inert, so the microphone moves into the top one. */
 function topModal(): HTMLDialogElement | null {
@@ -26,12 +22,13 @@ function topModal(): HTMLDialogElement | null {
 
 /**
  * One microphone for the whole app. Click the text field you want to write in, then press the
- * microphone (or Ctrl+Shift+Space). Words appear in that field while you speak and get a final,
+ * microphone (or the shortcut from Settings, Ctrl+T at first; Cmd+T on a Mac). Words appear in that field while you speak and get a final,
  * more accurate pass when you stop. Speech is turned into text on this computer, never online.
  * With inline set, the screen shows its own microphone button and this shows none.
  */
 export function DictationDock({ inline = false }: { inline?: boolean }) {
   const available = useDictationAvailable();
+  const shortcut = useDictationShortcut();
   const [phase, setPhase] = useState<Phase>("idle");
   const [message, setMessage] = useState("");
   const [focused, setFocused] = useState<TextField | null>(null);
@@ -62,7 +59,8 @@ export function DictationDock({ inline = false }: { inline?: boolean }) {
   useEffect(() => {
     if (!available) return;
     function onKey(event: KeyboardEvent) {
-      if (!isDictationShortcut(event)) return;
+      // Settings > Dictation is choosing new keys: this press belongs to it.
+      if (event.defaultPrevented || !matchesShortcut(event, shortcut)) return;
       event.preventDefault();
       void toggle();
     }
@@ -177,8 +175,8 @@ export function DictationDock({ inline = false }: { inline?: boolean }) {
         disabled={phase === "starting" || phase === "transcribing"}
         aria-label={label}
         aria-pressed={phase === "recording"}
-        aria-keyshortcuts="Control+Shift+Space"
-        title={`${label} (Ctrl+Shift+Space)`}
+        aria-keyshortcuts={shortcutAria(shortcut)}
+        title={`${label} (${shortcutLabel(shortcut)})`}
         className={`inline-flex h-11 w-11 items-center justify-center rounded-full border shadow-dialog transition-colors disabled:opacity-70 ${phase === "recording" ? "animate-pulse border-danger bg-danger-soft text-danger-ink" : into ? "border-forest bg-primary text-white hover:opacity-90" : "border-line bg-surface text-ink-muted hover:text-ink"}`}
       >
         {phase === "recording" ? <Square size={16} aria-hidden="true" /> : phase === "idle" ? <Mic size={18} aria-hidden="true" /> : <LoaderCircle size={18} aria-hidden="true" className="animate-spin" />}

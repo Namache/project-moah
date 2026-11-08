@@ -42,6 +42,54 @@ def loopback_listener(preferred: int | None = None) -> socket.socket:
     raise OSError("No loopback port is free")
 
 
+def wait_for_end_of_input(fd: int, poll_seconds: float = 0.25) -> None:
+    """Return once the other end of this input (Electron's pipe) is closed.
+
+    On Windows a read that waits on a pipe holds the pipe for as long as it waits, and anything
+    else that touches the service's standard input meanwhile waits too. Loading numpy for the
+    speech engine does, while it holds the interpreter lock, so the whole service froze (Settings
+    and Diagnostics load it). There the pipe is only peeked at, which never waits.
+    """
+    if os.name == "nt" and _peek_windows_pipe_until_closed(fd, poll_seconds):
+        return
+    # Elsewhere, and on Windows when someone starts the service by hand from a console.
+    while os.read(fd, 1):
+        pass
+
+
+def _peek_windows_pipe_until_closed(fd: int, poll_seconds: float) -> bool:
+    """False, at once, when the input is no pipe."""
+    import ctypes
+    import msvcrt
+    import time
+    from ctypes import wintypes
+
+    file_type_pipe = 3
+    kernel32 = ctypes.WinDLL("kernel32")
+    handle = msvcrt.get_osfhandle(fd)
+    kernel32.GetFileType.argtypes = [wintypes.HANDLE]
+    kernel32.GetFileType.restype = wintypes.DWORD
+    if kernel32.GetFileType(handle) != file_type_pipe:
+        return False
+    kernel32.PeekNamedPipe.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    kernel32.PeekNamedPipe.restype = wintypes.BOOL
+    waiting = wintypes.DWORD()
+    # Fails once the other end is closed (ERROR_BROKEN_PIPE).
+    while kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(waiting), None):
+        if waiting.value:
+            os.read(fd, waiting.value)  # this much is there already, so this never waits
+        else:
+            time.sleep(poll_seconds)
+    return True
+
+
 async def serve() -> bool:
     """Start on the last run's loopback port, or a free one, and announce it once started."""
     # Imported here, not at the top: the same executable serves agents (--mcp) and their
@@ -81,8 +129,7 @@ async def serve() -> bool:
         """Let Electron close its pipe to stop the service on every platform."""
         if sys.stdin is None:
             return
-        while os.read(sys.stdin.fileno(), 1):
-            pass
+        wait_for_end_of_input(sys.stdin.fileno())
         with suppress(RuntimeError):
             loop.call_soon_threadsafe(setattr, server, "should_exit", True)
 
