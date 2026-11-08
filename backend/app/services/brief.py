@@ -54,7 +54,8 @@ Follow every rule above. Moah also holds the person's earlier answers.
   warnings. Skip trivia and what the code or Git shows; link only real relationships.
 - After task work, before your final reply: brain_create_checkpoint (done, left, next,
   and the IDs that helped).
-- Finished a task? Hand it over with brain_submit_review, with screenshots. Changes to
+- One task per request, however small (brain_create_task unless one covers it); hand each
+  over with brain_submit_review, with screenshots. Changes to
   global rules, global decisions and locked records go through brain_create_proposal."""
 )
 

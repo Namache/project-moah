@@ -276,3 +276,111 @@ async def test_handing_over_after_a_wait_keeps_the_wait_in_history(
         assert detail["current"]["round"] == 2
         [earlier] = detail["earlier"]
         assert (earlier["status"], earlier["moved_to"]) == ("answered", "chat")
+
+
+async def test_asking_after_the_person_accepted_waits_in_one_follow_up(
+    database_url: str, tmp_path: Path
+) -> None:
+    """The person accepted the badge, and the agent still waits for them (push it? merge
+    it?): the question waits in a follow-up task, since Review shows nothing for a Done one."""
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    submit_review(database_url, pid, task)
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{task}/review/decision"
+        assert (await client.post(url, json={"verdict": "accept"})).status_code == 200
+        before = len((await client.get(f"/api/projects/{pid}/tasks")).json())
+
+    async with agent(database_url) as session:
+        error, out = await call(
+            session,
+            "brain_create_checkpoint",
+            project="trailhead",
+            task=task,
+            title="Badge merged locally, waiting for Sam's OK to push",
+            summary="Both commits are ready on the badge branch.",
+        )
+        assert not error and "review" in out
+        follow_up = out["task"]
+        assert follow_up != task and f"{task} is already closed" in out["task_started"]
+        # Asking about the accepted task again goes to the same follow-up, not a second one.
+        error, out = await call(
+            session,
+            "brain_ask_person",
+            project="trailhead",
+            task=task,
+            question="Push the badge branch now, or wait for the legend?",
+            options=["Push now", "Wait for the legend"],
+        )
+        assert not error and out["asked"] == follow_up and out["status"] == "blocked"
+        assert follow_up in out["task_started"]
+
+    async with app_client(database_url) as client:
+        tasks = (await client.get(f"/api/projects/{pid}/tasks")).json()
+        assert len(tasks) == before + 1
+        # The accepted task stays as the person left it.
+        assert (await client.get(f"/api/projects/{pid}/tasks/{task}")).json()["status"] == (
+            "completed"
+        )
+        made = (await client.get(f"/api/projects/{pid}/tasks/{follow_up}")).json()
+        assert made["title"] == f"Follow-up to {task}: Camp capacity badge"
+        assert {"started-by-moah", "follow-up"} <= set(made["tags"])
+        assert f"after {task} “Camp capacity badge” was done" in made["description"]
+        assert any(r["task"]["human_id"] == task for r in made["relationships"])
+        [item] = (await client.get("/api/reviews")).json()["waiting"]
+        assert item["ref"] == follow_up and item["question"] is True
+        current = (await client.get(f"/api/projects/{pid}/tasks/{follow_up}/review")).json()[
+            "current"
+        ]
+        assert current["summary"].startswith("Push the badge branch")
+        assert current["options"] == ["Push now", "Wait for the legend"]
+
+        # Answered in Review: the follow-up goes on, and once it is accepted too, the next
+        # question after it starts a new follow-up of the badge, not one of the follow-up.
+        answer = await client.post(
+            f"/api/projects/{pid}/tasks/{follow_up}/review/decision",
+            json={"verdict": "answer", "comment": "Push now."},
+        )
+        assert answer.json()["task_status"] == "in_progress"
+    submit_review(database_url, pid, follow_up)
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{follow_up}/review/decision"
+        assert (await client.post(url, json={"verdict": "accept"})).status_code == 200
+    async with agent(database_url) as session:
+        error, out = await call(
+            session,
+            "brain_ask_person",
+            project="trailhead",
+            task=follow_up,
+            question="Tag the release too?",
+        )
+        assert not error and out["asked"] not in (task, follow_up)
+    async with app_client(database_url) as client:
+        newest = (await client.get(f"/api/projects/{pid}/tasks/{out['asked']}")).json()
+        assert newest["title"] == f"Follow-up to {follow_up}: Camp capacity badge"
+
+
+async def test_a_note_after_the_person_accepted_that_does_not_wait_starts_nothing(
+    database_url: str, tmp_path: Path
+) -> None:
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, task = w["pid"], w["task"]
+    submit_review(database_url, pid, task)
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{task}/review/decision"
+        assert (await client.post(url, json={"verdict": "accept"})).status_code == 200
+        before = len((await client.get(f"/api/projects/{pid}/tasks")).json())
+    async with agent(database_url) as session:
+        error, out = await call(
+            session,
+            "brain_create_checkpoint",
+            project="trailhead",
+            task=task,
+            title="Badge accepted; branch cleaned up",
+        )
+        assert not error and out["task"] == task and "task_started" not in out
+    async with app_client(database_url) as client:
+        assert len((await client.get(f"/api/projects/{pid}/tasks")).json()) == before
+        assert (await client.get("/api/reviews")).json()["waiting"] == []
