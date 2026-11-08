@@ -259,6 +259,41 @@ GLOBAL_RULE_MESSAGE = (
 )
 
 
+TASK_DUPLICATE_HINT = (
+    "If one of these is the same work, use it (brain_update_task) instead of keeping two tasks."
+)
+DONE_TASK_STATUSES = ("completed", "archived")
+
+
+def possible_duplicate_tasks(session: Session, project_id: str, task_id: str, title: str) -> dict:
+    """Up to three unfinished tasks whose titles share at least two meaningful words with
+    ``title`` (its only one, for a one-word title): every request gets a task now, so the same
+    request asked twice must not quietly become two. Empty when none match."""
+    from app.services.context import match_keys
+
+    def words(text: str) -> set[str]:
+        return {k for k in match_keys(text) if len(k) > 2}
+
+    own = words(title)
+    if not own:
+        return {}
+    try:
+        hits = SearchService(session).search(
+            title, project_id=project_id, entity_types=["task"], any_word=True, limit=20
+        )
+    except Exception:  # noqa: BLE001 - the task is saved; a hint must never fail the write
+        session.rollback()
+        return {}
+    same = [
+        {"id": h["human_id"], "title": h["title"], "status": h["status"]}
+        for h in hits["items"]
+        if h["entity_id"] != task_id
+        and h["status"] not in DONE_TASK_STATUSES
+        and len(own & words(h["title"])) >= min(DUPLICATE_SHARED, len(own))
+    ][:3]
+    return {"possible_duplicates": same, "duplicates_hint": TASK_DUPLICATE_HINT} if same else {}
+
+
 def refuse_global_rule(project: Project, memory: Memory) -> None:
     """Agents may not change a global rule or decision directly; it must be proposed."""
     if project.kind == "global" and memory.type in GLOBAL_PERSON_TYPES:
@@ -1063,6 +1098,7 @@ def build_server(
                 session, found.id, task.id, f"{title} {description or ''}", None, kind="task"
             ),
             **linked,
+            **possible_duplicate_tasks(session, found.id, task.id, task.title),
         }
 
     @tool(WRITE)

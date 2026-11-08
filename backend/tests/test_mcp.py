@@ -251,6 +251,33 @@ async def test_one_weak_match_does_not_hide_the_record_that_answers(
         assert not error and [r["title"] for r in found["results"]] == ["Gold is a float"]
 
 
+async def test_a_new_task_warns_about_an_unfinished_task_with_the_same_title(
+    database_url: str, tmp_path: Path
+) -> None:
+    """Every request gets its own task now, so asking twice made two tasks without a word."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        for title, status in (("Welcome back popup", "todo"), ("Welcome back screen", "completed")):
+            made = await client.post(
+                f"/api/projects/{a}/tasks", json={"title": title, "status": status}
+            )
+            assert made.status_code == 201
+            if status == "todo":
+                first = made.json()["human_id"]
+    async with agent(database_url) as session:
+        error, made = await call(
+            session, "brain_create_task", title="Welcome-back popup", project="trailhead"
+        )
+        assert not error and made["created"] != first
+        # A finished task with similar words is history, not a duplicate.
+        assert [d["id"] for d in made["possible_duplicates"]] == [first]
+        assert "brain_update_task" in made["duplicates_hint"]
+        error, other = await call(
+            session, "brain_create_task", title="Gem shop prices", project="trailhead"
+        )
+        assert not error and "possible_duplicates" not in other
+
+
 async def test_reads_stay_in_the_chosen_project(database_url: str, tmp_path: Path) -> None:
     async with app_client(database_url) as client:
         world = await seed(client, tmp_path)
