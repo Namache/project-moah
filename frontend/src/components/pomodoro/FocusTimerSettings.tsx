@@ -24,7 +24,7 @@ const miniSizes: { value: PomodoroMiniSize; label: string }[] = [
   { value: "large", label: msg("Large") },
 ];
 
-const sounds: { kind: PomodoroSoundKind; name: string; builtIn: string; icon: LucideIcon; tone: Tone }[] = [
+const soundList: { kind: PomodoroSoundKind; name: string; builtIn: string; icon: LucideIcon; tone: Tone }[] = [
   { kind: "break", name: msg("Break starts"), builtIn: msg("Default: soft chime"), icon: Coffee, tone: "info" },
   { kind: "work", name: msg("Back to work"), builtIn: msg("Default: wooden knock"), icon: Timer, tone: "success" },
   { kind: "review", name: msg("New in Review"), builtIn: msg("Default: calm drop"), icon: ClipboardCheck, tone: "special" },
@@ -68,23 +68,13 @@ function clampMinutes(value: string, max: number): number | null {
 /** Settings > Focus timer. Only in the desktop app, which runs the timer. */
 export function FocusTimerSettings() {
   const state = usePomodoro();
-  const [volume, setVolume] = useState<number | null>(null);
   const [custom, setCustom] = useState<{ work: string; rest: string } | null>(null);
-  const [unsupported, setUnsupported] = useState(false);
-  const later = useTimeout();
   const bridge = pomodoroBridge();
   if (!bridge || !state) return null;
   const s = state.settings;
-  const shownVolume = volume ?? s.volume;
 
   const save = (partial: Partial<Omit<PomodoroSettings, "sounds">>) => {
     void bridge.update(partial).then(applyPomodoroState).catch(() => {});
-  };
-
-  const changeVolume = (value: number) => {
-    setVolume(value);
-    // Saved once the slider rests, not on every step of a drag.
-    later(() => { save({ volume: value }); setVolume(null); }, 300);
   };
 
   const saveCustom = (next: { work: string; rest: string }) => {
@@ -92,18 +82,6 @@ export function FocusTimerSettings() {
     const rest = clampMinutes(next.rest, 60);
     if (work !== null && rest !== null) save({ customWork: work, customBreak: rest });
   };
-
-  async function choose(kind: PomodoroSoundKind) {
-    const result = await bridge!.chooseSound(kind, { title: t("Choose a sound"), filter: t("Sounds") }).catch(() => null);
-    if (!result) return;
-    applyPomodoroState(result.state);
-    if (result.error) { setUnsupported(true); return; }
-    // The copy is saved; make sure it really plays before keeping it.
-    if (result.state.settings.sounds[kind] && !(await canPlay(kind, result.state.settings))) {
-      applyPomodoroState(await bridge!.resetSound(kind).catch(() => null));
-      setUnsupported(true);
-    }
-  }
 
   const customWork = custom?.work ?? String(s.customWork);
   const customRest = custom?.rest ?? String(s.customBreak);
@@ -152,41 +130,85 @@ export function FocusTimerSettings() {
 
           <Choice name="pomodoro-mini-size" legend={t("Desktop timer size")} value={s.miniSize} onChange={(miniSize) => save({ miniSize })} choices={miniSizes.map((c) => ({ ...c, label: t(c.label) }))} />
 
-          <div className="space-y-3">
-            <label className="flex items-start gap-3 text-sm text-ink">
-              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" checked={s.soundsOn} onChange={(event) => save({ soundsOn: event.target.checked })} />
-              <strong>{t("Play sounds")}</strong>
-            </label>
-            <fieldset disabled={!s.soundsOn} className="space-y-3.5 disabled:opacity-55">
-              <div>
-                <label htmlFor="pomodoro-volume" className="field-label">{t("Volume")}</label>
-                <div className="flex items-center gap-3">
-                  <Volume2 size={16} className="flex-none text-ink-subtle" aria-hidden="true" />
-                  <input id="pomodoro-volume" type="range" min={0} max={100} step={1} value={shownVolume} onChange={(event) => changeVolume(Number(event.target.value))} className="w-full max-w-xs accent-primary" />
-                  <output htmlFor="pomodoro-volume" className="min-w-11 text-sm tabular-nums text-ink-muted">{shownVolume}%</output>
-                </div>
-              </div>
-              <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
-                {sounds.map(({ kind, name, builtIn, icon: Icon, tone }) => {
-                  const own = s.sounds[kind];
-                  return (
-                    <li key={kind} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-                      <span className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg ${tileTone[tone]}`}><Icon size={16} aria-hidden="true" /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-ink">{t(name)}</span>
-                        <span className="block truncate text-xs text-ink-subtle">{own ? own.name : t(builtIn)}</span>
-                      </span>
-                      <span className="flex flex-none items-center gap-1">
-                        <Button size="sm" onClick={() => void playTimerSound(kind, { ...s, volume: shownVolume })}><Play size={15} aria-hidden="true" />{t("Play")}</Button>
-                        <IconButton label={t("Choose your own sound for {name}", { name: t(name) })} icon={Upload} onClick={() => void choose(kind)} />
-                        {own && <IconButton label={t("Use the default sound for {name}", { name: t(name) })} icon={RotateCcw} onClick={() => void bridge.resetSound(kind).then(applyPomodoroState).catch(() => {})} />}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </fieldset>
+        </fieldset>
+      </div>
+    </section>
+  );
+}
+
+/** Settings > Sounds: on by default, and separate from the focus timer, so Review can chime with the timer off. */
+export function SoundSettings() {
+  const state = usePomodoro();
+  const [volume, setVolume] = useState<number | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
+  const later = useTimeout();
+  const bridge = pomodoroBridge();
+  if (!bridge || !state) return null;
+  const s = state.settings;
+  const shownVolume = volume ?? s.volume;
+
+  const save = (partial: Partial<Omit<PomodoroSettings, "sounds">>) => {
+    void bridge.update(partial).then(applyPomodoroState).catch(() => {});
+  };
+
+  const changeVolume = (value: number) => {
+    setVolume(value);
+    // Saved once the slider rests, not on every step of a drag.
+    later(() => { save({ volume: value }); setVolume(null); }, 300);
+  };
+
+  async function choose(kind: PomodoroSoundKind) {
+    const result = await bridge!.chooseSound(kind, { title: t("Choose a sound"), filter: t("Sounds") }).catch(() => null);
+    if (!result) return;
+    applyPomodoroState(result.state);
+    if (result.error) { setUnsupported(true); return; }
+    // The copy is saved; make sure it really plays before keeping it.
+    if (result.state.settings.sounds[kind] && !(await canPlay(kind, result.state.settings))) {
+      applyPomodoroState(await bridge!.resetSound(kind).catch(() => null));
+      setUnsupported(true);
+    }
+  }
+
+  return (
+    <section aria-labelledby="settings-sounds" className="rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
+      <h2 id="settings-sounds" className="text-base font-semibold tracking-tight">{t("Sounds")}</h2>
+      <div className="mt-3 space-y-3">
+        <div>
+          <label className="flex items-start gap-3 text-sm text-ink">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" checked={s.soundsOn} aria-describedby="settings-sounds-note" onChange={(event) => save({ soundsOn: event.target.checked })} />
+            <strong>{t("Play sounds")}</strong>
+          </label>
+          <p id="settings-sounds-note" className="ml-7 text-sm text-ink-muted">{t("Works whether the focus timer is on or off.")}</p>
+        </div>
+        <fieldset disabled={!s.soundsOn} className="space-y-3.5 disabled:opacity-55">
+          <div>
+            <label htmlFor="pomodoro-volume" className="field-label">{t("Volume")}</label>
+            <div className="flex items-center gap-3">
+              <Volume2 size={16} className="flex-none text-ink-subtle" aria-hidden="true" />
+              <input id="pomodoro-volume" type="range" min={0} max={100} step={1} value={shownVolume} onChange={(event) => changeVolume(Number(event.target.value))} className="w-full max-w-xs accent-primary" />
+              <output htmlFor="pomodoro-volume" className="min-w-11 text-sm tabular-nums text-ink-muted">{shownVolume}%</output>
+            </div>
           </div>
+          <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+            {soundList.map(({ kind, name, builtIn, icon: Icon, tone }) => {
+              const own = s.sounds[kind];
+              return (
+                <li key={kind} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                  <span className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg ${tileTone[tone]}`}><Icon size={16} aria-hidden="true" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-ink">{t(name)}</span>
+                    <span className="block truncate text-xs text-ink-subtle">{own ? own.name : t(builtIn)}</span>
+                    {kind !== "review" && !s.enabled && <span className="block text-xs text-ink-subtle">{t("Plays while the focus timer is on")}</span>}
+                  </span>
+                  <span className="flex flex-none items-center gap-1">
+                    <Button size="sm" onClick={() => void playTimerSound(kind, { ...s, volume: shownVolume })}><Play size={15} aria-hidden="true" />{t("Play")}</Button>
+                    <IconButton label={t("Choose your own sound for {name}", { name: t(name) })} icon={Upload} onClick={() => void choose(kind)} />
+                    {own && <IconButton label={t("Use the default sound for {name}", { name: t(name) })} icon={RotateCcw} onClick={() => void bridge.resetSound(kind).then(applyPomodoroState).catch(() => {})} />}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         </fieldset>
       </div>
       {unsupported && <UnsupportedFileDialog onClose={() => setUnsupported(false)} />}

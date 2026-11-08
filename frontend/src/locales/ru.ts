@@ -1733,6 +1733,8 @@ export const ru: Record<string, Translation> = {
   "Focus, minutes": "Фокус, минут",
   "Break, minutes": "Перерыв, минут",
   "Play sounds": "Проигрывать звуки",
+  "Works whether the focus timer is on or off.": "Работает и с включённым, и с выключенным таймером фокуса.",
+  "Plays while the focus timer is on": "Звучит, когда включён таймер фокуса",
   "Volume": "Громкость",
   "Play": "Прослушать",
   "Choose your own sound for {name}": "Выбрать свой звук: «{name}»",

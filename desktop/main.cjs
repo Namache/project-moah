@@ -546,7 +546,7 @@ async function checkReviews(port) {
       writeLog(`[review listener] ${error.message}`);
     }
   }
-  // The focus timer's corner shows how much waits in Review, and chimes once per new arrival.
+  // The focus timer's corner shows how much waits in Review; Moah chimes once per new arrival, timer on or off.
   pomodoro?.setPending(pending.total, fresh);
   if (!Notification.isSupported()) return;
   const many = (count) => say("{count} items wait for your review", { count });
