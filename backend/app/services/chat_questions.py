@@ -11,9 +11,11 @@ once). Claude Code and Codex run two hooks that Connect installs:
   to. While the session has no task yet, a message that names a task by ID, or plainly matches
   one task's title, gives the session that task: agents often ask before they pick a task.
 
-Nothing is caught without a task, or once the task is in Review or closed ("Want me to add
-tests too?" after a hand-over is an offer, not a question for Review). Only ids and times are
-stored for the session; the question and the reply are stored on the review, like any other.
+Nothing is caught without a task, or once the task is in Review ("Want me to add tests too?"
+after a hand-over is an offer, not a question for Review). Once the person closed the task (they
+accepted it, and the agent still asks: push it? release it?), the question waits in a follow-up
+task Moah starts for it, and the session goes on in that task. Only ids and times are stored for
+the session; the question and the reply are stored on the review, like any other.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ from app.schemas.review import (
 from app.services.activity import acting_as
 from app.services.agent_sessions import TASK
 from app.services.hook_text import asks, question_parts, stop_message, valid_id
-from app.services.reviews import ANSWERED_IN_CHAT, QUESTION_STATUS, ReviewService
+from app.services.reviews import ANSWERED_IN_CHAT, CLOSED, QUESTION_STATUS, ReviewService
 
 PROMPT = "prompt"  # agent_session_events.source for a message the person wrote
 ASKABLE = ("backlog", "todo", "in_progress", "blocked")
@@ -177,9 +179,24 @@ def record_stop(
         return None
     question, context, options = found
     task = session_task(session, agent, session_id)
+    reviews = ReviewService(session)
+    if task is not None and task.status in CLOSED:
+        with acting_as(*_actor(agent)):
+            task, _ = reviews.follow_up(task, agent)
+        # The session goes on in the follow-up: the person's reply settles the question there.
+        session.add(
+            AgentSessionEvent(
+                agent=agent,
+                session_id=session_id,
+                project_id=task.project_id,
+                task_id=task.id,
+                source=TASK,
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
     if task is None or task.status not in ASKABLE:
         return None
-    reviews = ReviewService(session)
     waiting = reviews.asked_question(task.id)
     if waiting is not None:
         started = _turn_started(session, agent, session_id)

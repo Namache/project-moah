@@ -255,6 +255,54 @@ async def test_offers_after_a_hand_over_and_questions_the_tool_asked_are_left_al
     ]
 
 
+async def test_a_question_after_the_person_accepted_the_task_waits_in_a_follow_up(
+    database_url: str, tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """The person accepted the badge in Review while the chat went on; the agent's next turn
+    ends on a question. Review shows nothing for a Done task, so it waits in a follow-up."""
+    from app.models.agent_session import AgentSessionEvent
+    from app.models.task import Task
+
+    async with app_client(database_url) as client:
+        w = await world(client, tmp_path)
+    pid, badge = w["pid"], w["task"]
+    with database(database_url) as session:
+        task = session.query(Task).filter(Task.human_id == badge).one()
+        session.add(
+            AgentSessionEvent(
+                agent="claude", session_id=SESSION, project_id=pid, task_id=task.id, source="task"
+            )
+        )
+        session.commit()
+    submit_review(database_url, pid, badge)
+    async with app_client(database_url) as client:
+        url = f"/api/projects/{pid}/tasks/{badge}/review/decision"
+        assert (await client.post(url, json={"verdict": "accept"})).status_code == 200
+        before = len((await client.get(f"/api/projects/{pid}/tasks")).json())
+
+    run_hook(monkeypatch, capsys, database_url, "prompt", {"prompt": "Make the badge bolder."})
+    message = "The badge number is bold now and the tests pass.\n\nShould I push it to GitHub?"
+    run_hook(monkeypatch, capsys, database_url, "stop", {"last_assistant_message": message})
+    run_hook(monkeypatch, capsys, database_url, "stop", {"last_assistant_message": message})
+    async with app_client(database_url) as client:
+        tasks = (await client.get(f"/api/projects/{pid}/tasks")).json()
+        assert len(tasks) == before + 1  # the second run of the same turn added nothing
+        [item] = (await client.get("/api/reviews")).json()["waiting"]
+        follow_up = item["ref"]
+        assert follow_up != badge and item["question"] is True
+        made = (await client.get(f"/api/projects/{pid}/tasks/{follow_up}")).json()
+        assert made["title"] == f"Follow-up to {badge}: Camp capacity badge"
+    status, rounds = reviews_of(database_url, follow_up)
+    assert status == "blocked" and rounds[0][2] == "Should I push it to GitHub?"
+    assert reviews_of(database_url, badge)[0] == "completed"
+
+    # The person answers in the chat: the follow-up's question is settled there.
+    run_hook(monkeypatch, capsys, database_url, "prompt", {"prompt": "Yes, push it."})
+    status, rounds = reviews_of(database_url, follow_up)
+    assert status == "in_progress"
+    assert (rounds[0][1], rounds[0][5], rounds[0][6]) == ("answered", "Yes, push it.", "chat")
+
+
 @pytest.mark.parametrize(
     "payload",
     [

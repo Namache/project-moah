@@ -23,6 +23,7 @@ the comment reaches the next agent like a send-back.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -41,7 +42,7 @@ from app.models.review import (
     ReviewFile,
     TaskReview,
 )
-from app.models.task import AcceptanceCriterion, Task
+from app.models.task import AcceptanceCriterion, Tag, Task, TaskRelationship, TaskTag
 from app.schemas.review import (
     AskPerson,
     CheckpointNote,
@@ -83,6 +84,16 @@ NOTES_LIMIT = 6  # checkpoints a drafted review is picked from, newest first
 NEXT_STEPS = "**Next steps**\n\n"  # how a drafted review stores the agent's next steps
 # The answer "Approve and continue" sends: the agent goes on as it planned.
 APPROVED = "Approved. Go on as planned."
+# Tasks Moah starts itself, so that work waiting for the person always has a place in Review:
+# for an agent that worked without a task, or that asks after its task was closed.
+STARTED_TAG = "started-by-moah"
+FOLLOW_UP_TAG = "follow-up"
+FOLLOW_UP = (
+    "Started by Project Moah: {agent} asked you something after {ref} “{title}” was {state}, so "
+    "the question waits here. {ref} stays as you left it. Rename this task, merge it into "
+    "another one, or archive it if it was nothing."
+)
+_FOLLOW_UP_TITLE = re.compile(r"^Follow-up to [A-Z][A-Z0-9]*-\d+: ")
 
 
 @dataclass
@@ -204,10 +215,11 @@ class ReviewService:
 
     def ask(self, project_id: str, task_ref: str, payload: AskPerson, agent: str) -> TaskReview:
         """Store an agent's question for the person and move the task to Blocked, where it
-        waits in Review until they answer."""
+        waits in Review until they answer. A question about a closed task waits in its
+        follow-up (see follow_up): the review's task_id says where it went."""
         task = self.tasks.get(project_id, task_ref)
         if task.status in CLOSED:
-            raise conflict(f"{task.human_id} is {task.status}. Ask about an open task.")
+            task, _ = self.follow_up(task, agent)
         self._replace_pending(task)
         review = TaskReview(
             project_id=project_id,
@@ -290,6 +302,59 @@ class ReviewService:
         else:
             self.session.commit()
         return review
+
+    def follow_up(self, task: Task, agent: str) -> tuple[Task, bool]:
+        """Where an agent's question goes once its task is closed (the person accepted or
+        archived it, and the agent still asks: push it? release it?): the follow-up Moah
+        started for that task earlier and that is still open, or a new one in progress, related
+        to it. The closed task stays as the person left it. Returns the task and whether it is
+        new."""
+        if (found := self.open_follow_up(task)) is not None:
+            return found, False
+        state = "done" if task.status == "completed" else "archived"
+        base = _FOLLOW_UP_TITLE.sub("", task.title)
+        created = self.tasks.create(
+            task.project_id,
+            TaskCreate(
+                title=_one_line(f"Follow-up to {task.human_id}: {base}", TITLE_LIMIT),
+                description=FOLLOW_UP.format(
+                    agent=agent, ref=task.human_id, title=task.title, state=state
+                ),
+                status="in_progress",
+                tags=[STARTED_TAG, FOLLOW_UP_TAG],
+            ),
+        )
+        self.tasks.add_relationship(
+            task.project_id, created.id, RelationshipCreate(type="related_to", target=task.id)
+        )
+        return self.session.get(Task, created.id), True
+
+    def open_follow_up(self, task: Task) -> Task | None:
+        """The open follow-up Moah started for a task, if any: one at a time per task."""
+        related = (
+            select(TaskRelationship.source_task_id)
+            .where(
+                TaskRelationship.target_task_id == task.id, TaskRelationship.type == "related_to"
+            )
+            .union(
+                select(TaskRelationship.target_task_id).where(
+                    TaskRelationship.source_task_id == task.id,
+                    TaskRelationship.type == "related_to",
+                )
+            )
+        )
+        return self.session.scalars(
+            select(Task)
+            .join(TaskTag, TaskTag.task_id == Task.id)
+            .join(Tag, Tag.id == TaskTag.tag_id)
+            .where(
+                Task.id.in_(related),
+                Tag.name_key == FOLLOW_UP_TAG,
+                Task.status.not_in(CLOSED),
+            )
+            .order_by(Task.created_at.desc())
+            .limit(1)
+        ).first()
 
     def waiting_note(self, task_id: str) -> TaskReview | None:
         """The question a checkpoint opened for the task, still waiting for the person."""

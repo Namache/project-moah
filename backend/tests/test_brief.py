@@ -352,12 +352,16 @@ def test_how_to_says_to_look_before_asking_and_to_write_back() -> None:
     assert "brain_submit_review" in HOW_TO and "screenshots" in HOW_TO
     assert "follow-ups on the same work" not in HOW_TO
     assert "this session's task" not in HOW_TO  # mechanics agents do not need up front
+    # One task per request, however small: work done on a request inside another task never
+    # reached Review, so the person never saw it.
+    assert "One task per request" in HOW_TO and "brain_create_task" in HOW_TO
     # The October-to-November HOW_TO cost (287), plus 13 for handing finished tasks to review
-    # and saying where changes to global and locked records go. Asking the person through
+    # and saying where changes to global and locked records go, plus 15 for one task per
+    # request. Asking the person through
     # Review (brain_ask_person) is not here: in three real runs, a brief line, the server's
     # instructions and a line under every pack did not make Claude Code use it instead of the
     # chat, so it would only cost tokens. The tool and the hint after status blocked remain.
-    assert base_tokens(HOW_TO) <= 300
+    assert base_tokens(HOW_TO) <= 315
 
 
 def test_server_instructions_stay_short_and_defer_to_the_brief() -> None:
@@ -370,3 +374,4 @@ def test_server_instructions_stay_short_and_defer_to_the_brief() -> None:
     assert "needs no" in INSTRUCTIONS and "permission" in INSTRUCTIONS
     assert "global rules, global decisions" in " ".join(INSTRUCTIONS.split()).casefold()
     assert "brain_submit_review" in INSTRUCTIONS and "finishing a task go" not in INSTRUCTIONS
+    assert "however small, is a task of its own" in INSTRUCTIONS

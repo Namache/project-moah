@@ -57,7 +57,13 @@ from app.services.projects import ProjectService
 from app.services.proposals import ProposalService, actor_for
 from app.services.retrieval import RetrievalService
 from app.services.review_waits import waits_on_person
-from app.services.reviews import ANSWERED_IN_CHAT, ReviewService, Screenshot
+from app.services.reviews import (
+    ANSWERED_IN_CHAT,
+    CLOSED,
+    STARTED_TAG,
+    ReviewService,
+    Screenshot,
+)
 from app.services.search import SearchService
 from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
@@ -69,12 +75,13 @@ from app.services.update_check import install_steps, take_daily_check
 INSTRUCTIONS = """\
 Project Moah is the person's shared memory for Claude Code and Codex: rules, decisions, tasks
 and checkpoints for every project. At the start of a session, call brain_brief with your working
-folder as cwd, unless a Project Moah brief is already in your context, and follow it. The
-person's earlier answers are recorded here, so check Moah (brain_context_pack or brain_search)
-before you ask them anything. Writing records and checkpoints is part of the work and needs no
-permission. Global rules, global decisions and locked records go to the person as proposals
-(brain_create_proposal). Hand a finished task to the person with brain_submit_review; if you
-cannot go on without their answer, ask with brain_ask_person."""
+folder as cwd, unless its brief is already in your context, and follow it. Their earlier answers
+are here, so check Moah (brain_context_pack or brain_search) before you ask them anything.
+Writing records and checkpoints is part of the work and needs no permission. Global rules,
+global decisions and locked records go to the person as proposals (brain_create_proposal). Each
+request, however small, is a task of its own (brain_create_task unless an open one covers it):
+hand it over with brain_submit_review when done, and ask with brain_ask_person when you stop for
+an answer."""
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 WRITE = ToolAnnotations(
@@ -96,8 +103,12 @@ STARTED_BY_MOAH = (
     "Started by Project Moah: an agent worked without a task and stopped to wait for you. "
     "Rename it, merge it into the task it belongs to, or archive it if it was nothing."
 )
-STARTED_TAG = "started-by-moah"
 TASK_TITLE_LIMIT = 200
+# Said when an agent waits on a task the person already closed (ReviewService.follow_up).
+FOLLOW_UP_NOTE = (
+    "{closed} is already closed, so this waits in {task}, the follow-up Moah keeps for it. Go "
+    "on in {task}; this session's next notes land there."
+)
 
 # Finished work always reaches the person: a task moved to review without the agent's report
 # gets one Moah drafts from its checkpoints, and the agent is asked for a better one. (Refusing
@@ -1216,15 +1227,20 @@ def build_server(
         mean. options: up to 6 short answers to pick from. Then stop; don't guess the answer."""
         found, _ = pick(session, project, write=True)
         payload = AskPerson(question=question, context=context, options=options or [])
-        review = ReviewService(session).ask(found.id, task, payload, agent)
+        about = TaskService(session).get(found.id, task)
+        closed = about.human_id if about.status in CLOSED else None
+        review = ReviewService(session).ask(found.id, about.id, payload, agent)
         row = session.get(Task, review.task_id)
         working.set(found.id, row.id)
-        return {
+        result = {
             "asked": row.human_id,
             "status": row.status,
             "message": "It waits in the person's Review screen. Stop work on this task and tell "
             "them you asked; the brief shows their answer when it comes.",
         }
+        if closed is not None and row.human_id != closed:
+            result["task_started"] = FOLLOW_UP_NOTE.format(closed=closed, task=row.human_id)
+        return result
 
     def brain_submit_review(
         session: Session,
@@ -1319,7 +1335,13 @@ def build_server(
             guessed = checkpoint_task(session, found, texts)
             task = guessed.id if guessed is not None else None
         waits = waits_on_person(title, waiting_for_person)
-        started = None
+        started = followed = None
+        if waits and task is not None:
+            about = TaskService(session).get(found.id, task)
+            if about.status in CLOSED:
+                # The person already accepted (or archived) it: the wait goes to its follow-up.
+                row, _ = ReviewService(session).follow_up(about, agent)
+                followed, task = (about.human_id, row.human_id), row.id
         if waits and task is None and found.id != GLOBAL_PROJECT_ID:
             # Work that waits for the person needs a task to wait in Review with. The session
             # keeps it, so its later notes land on it too: one task per session, not per note.
@@ -1365,6 +1387,8 @@ def build_server(
                 for label in discover_checkpoint_quietly(session, found.id, cp.id, agent)
             ],
         }
+        if followed is not None:
+            result["task_started"] = FOLLOW_UP_NOTE.format(closed=followed[0], task=followed[1])
         if started is not None:
             result["task_started"] = (
                 f"No task was set, so Moah started {started.human_id} for this work. Pass "
