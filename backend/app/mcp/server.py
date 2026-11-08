@@ -910,11 +910,13 @@ def build_server(
     def brain_list_tasks(
         session: Session,
         project: str | None = None,
-        status: list[str] | None = None,
+        status: list[str] | str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """List tasks compactly. status can be backlog, todo, in_progress, blocked, review, completed."""
         found, _ = pick(session, project)
+        if isinstance(status, str):  # one status, as the agent naturally writes it
+            status = [part.strip() for part in status.split(",") if part.strip()]
         rows = TaskService(session).list(found.id, statuses=status)[: max(1, min(limit, 200))]
         return [
             {

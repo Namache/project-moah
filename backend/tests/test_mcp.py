@@ -357,6 +357,24 @@ async def test_a_task_update_may_add_links_alone(database_url: str, tmp_path: Pa
         assert error and "at least one field" in text
 
 
+async def test_task_lists_take_one_status_as_text(database_url: str, tmp_path: Path) -> None:
+    """status="todo" was refused with "Input should be a valid list"."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        await client.post(f"/api/projects/{a}/tasks", json={"title": "Gem shop", "status": "todo"})
+    async with agent(database_url) as session:
+        error, one = await call(session, "brain_list_tasks", status="todo", project="trailhead")
+        assert not error and [r["title"] for r in one] == ["Gem shop"], one
+        error, two = await call(
+            session, "brain_list_tasks", status="todo, in_progress", project="trailhead"
+        )
+        assert not error and {r["status"] for r in two} == {"todo", "in_progress"}
+        error, rows = await call(
+            session, "brain_list_tasks", status=["in_progress"], project="trailhead"
+        )
+        assert not error and [r["id"] for r in rows] == ["CAMP-001"]
+
+
 async def test_reads_stay_in_the_chosen_project(database_url: str, tmp_path: Path) -> None:
     async with app_client(database_url) as client:
         world = await seed(client, tmp_path)
