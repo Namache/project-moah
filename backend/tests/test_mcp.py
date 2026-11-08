@@ -178,6 +178,203 @@ async def test_project_detection_never_guesses(database_url: str, tmp_path: Path
         assert not error and text["project"]["found_by"] == "server setting"
 
 
+async def test_after_the_brief_calls_without_a_project_use_the_briefed_one(
+    database_url: str, tmp_path: Path
+) -> None:
+    """A desktop app runs one server for every folder, in none of them. The brief matched the
+    agent's folder and tells it to call brain_context_pack(task=...): that call, and the writes
+    after it, must reach the same project instead of failing to find one."""
+    async with app_client(database_url) as client:
+        world = await seed(client, tmp_path)
+    async with agent(database_url) as session:
+        error, text = await call(session, "brain_get_task", task="CAMP-001")
+        assert error and "Specify project explicitly" in text  # no brief yet: never a guess
+        error, text = await call(session, "brain_brief", cwd=str(world["root_a"] / "src"))
+        assert not error and "PROJECT: Trailhead" in text
+        error, text = await call(session, "brain_context_pack", task="CAMP-001")
+        assert not error and "CAMP-001" in text, text
+        error, made = await call(
+            session, "brain_create_memory", type="note", title="Tents hold two"
+        )
+        assert not error and made["created"].startswith("NOTE-")
+        # A folder or project the agent names still decides, and a folder no project owns
+        # still says so instead of falling back to the brief.
+        error, text = await call(session, "brain_project_state", project="starling")
+        assert not error and text["project"]["name"] == "Starling"
+        error, text = await call(session, "brain_project_state", cwd=str(tmp_path))
+        assert error and "Specify project explicitly" in text
+        # A brief that matched no project leaves nothing to fall back to.
+        error, _ = await call(session, "brain_brief", cwd=str(tmp_path))
+        assert not error
+        error, text = await call(session, "brain_get_task", task="CAMP-001")
+        assert error and "Specify project explicitly" in text
+    async with app_client(database_url) as client:
+        notes = (await client.get(f"/api/projects/{world['a']}/memory?type=note")).json()
+    assert [n["title"] for n in notes] == ["Tents hold two"]
+
+
+async def test_one_weak_match_does_not_hide_the_record_that_answers(
+    database_url: str, tmp_path: Path
+) -> None:
+    """A checkpoint quoting every word of "offline gold cap" used to be the only result, and the
+    decision that answers it was never shown, because loose matches ran only for no result."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        for body in (
+            {
+                "type": "decision",
+                "title": "Offline gains: at most 8 hours",
+                "content": "Offline gold is paid at half rate.",
+            },
+            {"type": "fact", "title": "Gold is a float", "content": "Shown rounded down."},
+        ):
+            assert (await client.post(f"/api/projects/{a}/memory", json=body)).status_code == 201
+        await client.post(
+            f"/api/projects/{a}/checkpoints",
+            json={
+                "title": "Offline gold started",
+                "summary": "The cap comes next.",
+                "agent": "claude",
+            },
+        )
+    async with agent(database_url) as session:
+        error, found = await call(
+            session, "brain_search", query="offline gold cap", project="trailhead"
+        )
+        titles = [r["title"] for r in found["results"]]
+        assert not error and titles[0] == "Offline gold started", found
+        assert "Offline gains: at most 8 hours" in titles and "Gold is a float" not in titles
+        near = found["results"][titles.index("Offline gains: at most 8 hours")]
+        assert near["match"] == "all words but one" and found["total"] == len(titles)
+        # Two words: one of them is too loose, so nothing is added.
+        error, found = await call(session, "brain_search", query="gold float", project="trailhead")
+        assert not error and [r["title"] for r in found["results"]] == ["Gold is a float"]
+
+
+async def test_a_new_task_warns_about_an_unfinished_task_with_the_same_title(
+    database_url: str, tmp_path: Path
+) -> None:
+    """Every request gets its own task now, so asking twice made two tasks without a word."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        for title, status in (("Welcome back popup", "todo"), ("Welcome back screen", "completed")):
+            made = await client.post(
+                f"/api/projects/{a}/tasks", json={"title": title, "status": status}
+            )
+            assert made.status_code == 201
+            if status == "todo":
+                first = made.json()["human_id"]
+    async with agent(database_url) as session:
+        error, made = await call(
+            session, "brain_create_task", title="Welcome-back popup", project="trailhead"
+        )
+        assert not error and made["created"] != first
+        # A finished task with similar words is history, not a duplicate.
+        assert [d["id"] for d in made["possible_duplicates"]] == [first]
+        assert "brain_update_task" in made["duplicates_hint"]
+        error, other = await call(
+            session, "brain_create_task", title="Gem shop prices", project="trailhead"
+        )
+        assert not error and "possible_duplicates" not in other
+
+
+async def test_a_task_blocked_by_another_waits_for_it_and_loops_are_refused(
+    database_url: str, tmp_path: Path
+) -> None:
+    """ "blocked_by" between two tasks was only a link: the board never showed the task as
+    waiting, and two tasks could each wait for the other."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        ids = [
+            (await client.post(f"/api/projects/{a}/tasks", json={"title": t})).json()["human_id"]
+            for t in ("Welcome back popup", "Prestige reset", "Gem shop")
+        ]
+    popup, prestige, gems = ids
+    async with agent(database_url) as session:
+        error, _ = await call(
+            session,
+            "brain_link",
+            source=popup,
+            relationship="blocked_by",
+            target="CAMP-001",
+            project="trailhead",
+        )
+        assert not error
+        error, made = await call(
+            session,
+            "brain_create_task",
+            title="Prestige shop",
+            links=[f"blocked_by {prestige}"],
+            project="trailhead",
+        )
+        assert not error and made["links"] == [f"blocked_by {prestige}"]
+        error, rows = await call(session, "brain_list_tasks", project="trailhead")
+        waiting = {r["id"]: r["waiting_on_dependency"] for r in rows}
+        assert waiting[popup] and waiting[made["created"]] and not waiting[gems]
+        # "blocks" is the same thing seen from the other side, and a loop is refused.
+        error, _ = await call(
+            session,
+            "brain_link",
+            source=gems,
+            relationship="blocks",
+            target=prestige,
+            project="trailhead",
+        )
+        assert not error
+        error, text = await call(
+            session,
+            "brain_link",
+            source=gems,
+            relationship="blocked_by",
+            target=prestige,
+            project="trailhead",
+        )
+        assert error and "loop" in text
+        error, task = await call(session, "brain_get_task", task=prestige, project="trailhead")
+        assert sorted((r["type"], r["task"]["human_id"]) for r in task["relationships"]) == sorted(
+            [("depends_on", gems), ("blocks", made["created"])]
+        )
+
+
+async def test_a_task_update_may_add_links_alone(database_url: str, tmp_path: Path) -> None:
+    """The tool's own example, links=["blocked_by PROJ-4"] with no other field, failed with
+    "at least one task field is required"."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        popup = (
+            await client.post(f"/api/projects/{a}/tasks", json={"title": "Welcome back popup"})
+        ).json()["human_id"]
+    async with agent(database_url) as session:
+        error, done = await call(
+            session,
+            "brain_update_task",
+            task=popup,
+            links=["relates_to CAMP-001"],
+            project="trailhead",
+        )
+        assert not error and done["applied"] and done["links"] == ["relates_to CAMP-001"], done
+        error, text = await call(session, "brain_update_task", task=popup, project="trailhead")
+        assert error and "at least one field" in text
+
+
+async def test_task_lists_take_one_status_as_text(database_url: str, tmp_path: Path) -> None:
+    """status="todo" was refused with "Input should be a valid list"."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        await client.post(f"/api/projects/{a}/tasks", json={"title": "Gem shop", "status": "todo"})
+    async with agent(database_url) as session:
+        error, one = await call(session, "brain_list_tasks", status="todo", project="trailhead")
+        assert not error and [r["title"] for r in one] == ["Gem shop"], one
+        error, two = await call(
+            session, "brain_list_tasks", status="todo, in_progress", project="trailhead"
+        )
+        assert not error and {r["status"] for r in two} == {"todo", "in_progress"}
+        error, rows = await call(
+            session, "brain_list_tasks", status=["in_progress"], project="trailhead"
+        )
+        assert not error and [r["id"] for r in rows] == ["CAMP-001"]
+
+
 async def test_reads_stay_in_the_chosen_project(database_url: str, tmp_path: Path) -> None:
     async with app_client(database_url) as client:
         world = await seed(client, tmp_path)
@@ -564,6 +761,11 @@ async def test_projects_file_records_on_one_shared_tree(database_url: str) -> No
         assert [m.split(" ", 1)[1] for m in theirs["members"]] == ["Dragon fights"]
         _, tree = await call(session, "brain_shelves", project=a)
         assert {"shelf": path, "records": 1, "keywords": ["boss", "fight"]} in tree["shared_tree"]
+        # The tree reads top down: every shelf after the one it sits on, siblings A to Z.
+        paths = [row["shelf"] for row in tree["shared_tree"]]
+        assert len(paths) > 3 and paths == sorted(
+            paths, key=lambda p: [part.casefold() for part in p.split(" > ")]
+        )
 
         # Work that names the domain wakes the shared shelf, and its records come along.
         failed, text = await call(

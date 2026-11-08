@@ -44,7 +44,7 @@ from app.services.activity import acting_as
 from app.services.agent_prompts import second_opinion
 from app.services.agent_sessions import SessionTracker
 from app.services.agent_sync import sync_quietly
-from app.services.brief import build_brief, checkpoint_task
+from app.services.brief import build_brief, checkpoint_task, headline_tasks
 from app.services.builds import UpdateWatch
 from app.services.checkpoints import CheckpointService
 from app.services.context import ContextService
@@ -259,6 +259,41 @@ GLOBAL_RULE_MESSAGE = (
 )
 
 
+TASK_DUPLICATE_HINT = (
+    "If one of these is the same work, use it (brain_update_task) instead of keeping two tasks."
+)
+DONE_TASK_STATUSES = ("completed", "archived")
+
+
+def possible_duplicate_tasks(session: Session, project_id: str, task_id: str, title: str) -> dict:
+    """Up to three unfinished tasks whose titles share at least two meaningful words with
+    ``title`` (its only one, for a one-word title): every request gets a task now, so the same
+    request asked twice must not quietly become two. Empty when none match."""
+    from app.services.context import match_keys
+
+    def words(text: str) -> set[str]:
+        return {k for k in match_keys(text) if len(k) > 2}
+
+    own = words(title)
+    if not own:
+        return {}
+    try:
+        hits = SearchService(session).search(
+            title, project_id=project_id, entity_types=["task"], any_word=True, limit=20
+        )
+    except Exception:  # noqa: BLE001 - the task is saved; a hint must never fail the write
+        session.rollback()
+        return {}
+    same = [
+        {"id": h["human_id"], "title": h["title"], "status": h["status"]}
+        for h in hits["items"]
+        if h["entity_id"] != task_id
+        and h["status"] not in DONE_TASK_STATUSES
+        and len(own & words(h["title"])) >= min(DUPLICATE_SHARED, len(own))
+    ][:3]
+    return {"possible_duplicates": same, "duplicates_hint": TASK_DUPLICATE_HINT} if same else {}
+
+
 def refuse_global_rule(project: Project, memory: Memory) -> None:
     """Agents may not change a global rule or decision directly; it must be proposed."""
     if project.kind == "global" and memory.type in GLOBAL_PERSON_TYPES:
@@ -300,6 +335,34 @@ def possible_duplicates(
         and len(own & words(h["title"])) >= min(DUPLICATE_SHARED, len(own))
     ][:3]
     return {"possible_duplicates": same, "duplicates_hint": DUPLICATE_HINT} if same else {}
+
+
+NEAR_MISS = "all words but one"
+
+
+def near_misses(
+    search: SearchService, query: str, found: list[dict], options: dict[str, Any], room: int
+) -> list[dict]:
+    """Records with every meaningful word of the query but one, best first, that ``found``
+    does not hold yet. Only for three words or more: of two, one word is too loose a match."""
+    from app.services.search import STOPWORDS, TERM_PATTERN
+
+    terms = list(
+        dict.fromkeys(t for t in TERM_PATTERN.findall(query) if t.casefold() not in STOPWORDS)
+    )
+    if len(terms) < 3 or room <= 0:
+        return []
+    seen = {(h["entity_type"], h["entity_id"]) for h in found}
+    extra: list[dict] = []
+    for index in range(len(terms)):
+        rest = " ".join(terms[:index] + terms[index + 1 :])
+        for hit in search.search(rest, **{**options, "limit": room})["items"]:
+            key = (hit["entity_type"], hit["entity_id"])
+            if key not in seen:
+                seen.add(key)
+                extra.append(hit)
+    extra.sort(key=lambda h: -h["score"])
+    return extra[:room]
 
 
 def _message(error: Exception) -> str:
@@ -430,7 +493,16 @@ def build_server(
         return [*(TextContent(type="text", text=text) for text in notices.values()), *result]
 
     def pick(session: Session, project: str | None, cwd: str | None = None, *, write: bool = False):
-        found, how = resolve_project(session, project, cwd, default_project)
+        try:
+            found, how = resolve_project(session, project, cwd, default_project)
+        except ProjectChoiceError:
+            # A server shared by several folders (a desktop app) runs in none of them: the
+            # project this session's brief matched is the one the agent is working in, so a
+            # call that names neither a project nor a folder goes there, as the brief says.
+            remembered = briefed.get("project")
+            if (project or "").strip() or cwd is not None or remembered is None:
+                raise
+            found, how = resolve_project(session, remembered, None)[0], "this session's brief"
         if write and found.status == "archived":
             raise ValueError(f"{found.name} is archived. Ask a person to restore it first.")
         return found, how
@@ -838,11 +910,13 @@ def build_server(
     def brain_list_tasks(
         session: Session,
         project: str | None = None,
-        status: list[str] | None = None,
+        status: list[str] | str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """List tasks compactly. status can be backlog, todo, in_progress, blocked, review, completed."""
         found, _ = pick(session, project)
+        if isinstance(status, str):  # one status, as the agent naturally writes it
+            status = [part.strip() for part in status.split(",") if part.strip()]
         rows = TaskService(session).list(found.id, statuses=status)[: max(1, min(limit, 200))]
         return [
             {
@@ -893,10 +967,21 @@ def build_server(
         keys = ["entity_type", "human_id", "title", "snippet"]
         keys += [] if loose else ["status"]
         keys += ["project_name"] if scope == "all" else []
+        rows = [{k: h[k] for k in keys} for h in result["items"]]
+        total = result["total"]
+        if not loose and 0 < total < ANY_WORD_LIMIT:
+            # One weak record with every word (a checkpoint quoting the query) must not hide
+            # the decision that has all but one of them: "offline gold cap" finds "Offline gold
+            # started" and "Offline gains: at most 8 hours" ("offline", "gold" in its text).
+            extra = near_misses(search, query, result["items"], options, ANY_WORD_LIMIT - total)
+            rows += [
+                {**{k: h[k] for k in keys if k != "status"}, "match": NEAR_MISS} for h in extra
+            ]
+            total += len(extra)
         return {
             **({"matched": ANY_WORD_NOTE} if loose else {}),
-            "total": result["total"],
-            "results": [{k: h[k] for k in keys} for h in result["items"]],
+            "total": total,
+            "results": rows,
         }
 
     @tool(READ)
@@ -1015,6 +1100,7 @@ def build_server(
                 session, found.id, task.id, f"{title} {description or ''}", None, kind="task"
             ),
             **linked,
+            **possible_duplicate_tasks(session, found.id, task.id, task.title),
         }
 
     @tool(WRITE)
@@ -1060,7 +1146,8 @@ def build_server(
                 )
             drafted = ReviewService(session).submitted_review(current.id) is None
             changes["status"] = status = "review"
-        TaskUpdate.model_validate(changes)
+        if changes:  # links alone change no field: nothing to check
+            TaskUpdate.model_validate(changes)
         proposals = ProposalService(session)
         if status == "archived":
             p = proposals.create(
@@ -1361,8 +1448,18 @@ def build_server(
         title then waits in their Review screen as your question, and your next checkpoint
         settles it."""
         found, _ = pick(session, project, write=True)
-        guessed = None
-        if task is None and (current := working.current(session, found.id)) is not None:
+        guessed = moved = None
+        current = working.current(session, found.id) if task is None else None
+        if task is None:
+            # A note about another task belongs to it, not to the one the session last touched:
+            # "IDLE-006 popup laid out" while the session's task is IDLE-005. Only when the
+            # note's headline (its title, or the ref opening its summary) names exactly one
+            # task, not as an aside ("unblocked by IDLE-005"), and not the session's own.
+            named = headline_tasks(session, found, title, summary)
+            if len(named) == 1 and (current is None or named[0].id != current.id):
+                moved = named[0]
+                task = moved.id
+        if task is None and current is not None:
             task = current.id
         elif task is None:
             # Worked from the brief alone, with no pack: the brief's unfinished task, when the
@@ -1434,6 +1531,12 @@ def build_server(
             result["review"] = (
                 f"{cp.task.human_id} waits for the person in their Review screen. Stop and ask "
                 "them; when you go on, your next checkpoint settles it."
+            )
+        if moved is not None:
+            result["task_note"] = (
+                f"Filed under {moved.human_id}, the task this checkpoint names"
+                + (f", not this session's task {current.human_id}" if current else "")
+                + f". {moved.human_id} is now this session's task; pass task= for another."
             )
         if guessed is not None:
             result["task_note"] = (
@@ -1654,20 +1757,28 @@ def build_server(
             }
         own = service.list(found.id)
         shelves, members = service.shared(found.id)
+        # In path order, so each shelf comes right after the one it sits on and the list reads
+        # as the tree it is.
         return {
-            "shared_tree": [
-                {"shelf": service.path(s), "records": len(members.get(s.id, ())), "keywords": k}
-                for s in shelves
-                for k in [[w for w in s.keywords.split(",") if w]]
-            ],
-            "project_shelves": [
-                {
-                    "shelf": service.path(service.get(found.id, s.id)),
-                    "keywords": s.keywords,
-                    "records": s.member_count,
-                }
-                for s in own
-            ],
+            "shared_tree": sorted(
+                (
+                    {"shelf": service.path(s), "records": len(members.get(s.id, ())), "keywords": k}
+                    for s in shelves
+                    for k in [[w for w in s.keywords.split(",") if w]]
+                ),
+                key=lambda row: [part.casefold() for part in row["shelf"].split(" > ")],
+            ),
+            "project_shelves": sorted(
+                (
+                    {
+                        "shelf": service.path(service.get(found.id, s.id)),
+                        "keywords": s.keywords,
+                        "records": s.member_count,
+                    }
+                    for s in own
+                ),
+                key=lambda row: [part.casefold() for part in row["shelf"].split(" > ")],
+            ),
         }
 
     @tool(WRITE)
