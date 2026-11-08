@@ -278,6 +278,64 @@ async def test_a_new_task_warns_about_an_unfinished_task_with_the_same_title(
         assert not error and "possible_duplicates" not in other
 
 
+async def test_a_task_blocked_by_another_waits_for_it_and_loops_are_refused(
+    database_url: str, tmp_path: Path
+) -> None:
+    """ "blocked_by" between two tasks was only a link: the board never showed the task as
+    waiting, and two tasks could each wait for the other."""
+    async with app_client(database_url) as client:
+        a = (await seed(client, tmp_path))["a"]
+        ids = [
+            (await client.post(f"/api/projects/{a}/tasks", json={"title": t})).json()["human_id"]
+            for t in ("Welcome back popup", "Prestige reset", "Gem shop")
+        ]
+    popup, prestige, gems = ids
+    async with agent(database_url) as session:
+        error, _ = await call(
+            session,
+            "brain_link",
+            source=popup,
+            relationship="blocked_by",
+            target="CAMP-001",
+            project="trailhead",
+        )
+        assert not error
+        error, made = await call(
+            session,
+            "brain_create_task",
+            title="Prestige shop",
+            links=[f"blocked_by {prestige}"],
+            project="trailhead",
+        )
+        assert not error and made["links"] == [f"blocked_by {prestige}"]
+        error, rows = await call(session, "brain_list_tasks", project="trailhead")
+        waiting = {r["id"]: r["waiting_on_dependency"] for r in rows}
+        assert waiting[popup] and waiting[made["created"]] and not waiting[gems]
+        # "blocks" is the same thing seen from the other side, and a loop is refused.
+        error, _ = await call(
+            session,
+            "brain_link",
+            source=gems,
+            relationship="blocks",
+            target=prestige,
+            project="trailhead",
+        )
+        assert not error
+        error, text = await call(
+            session,
+            "brain_link",
+            source=gems,
+            relationship="blocked_by",
+            target=prestige,
+            project="trailhead",
+        )
+        assert error and "loop" in text
+        error, task = await call(session, "brain_get_task", task=prestige, project="trailhead")
+        assert sorted((r["type"], r["task"]["human_id"]) for r in task["relationships"]) == sorted(
+            [("depends_on", gems), ("blocks", made["created"])]
+        )
+
+
 async def test_reads_stay_in_the_chosen_project(database_url: str, tmp_path: Path) -> None:
     async with app_client(database_url) as client:
         world = await seed(client, tmp_path)

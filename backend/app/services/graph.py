@@ -189,6 +189,10 @@ def normalize_relationship(name: str) -> tuple[str, bool]:
     raise invalid(f"{name!r} is not a known relationship")
 
 
+# Links between two tasks that mean "waits for": stored as a task dependency too.
+TASK_WAITS = ("blocked_by", "depends_on")
+
+
 class GraphService:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -609,6 +613,8 @@ class GraphService:
             a, b = b, a
         if a == b:
             raise conflict("A record cannot be linked to itself")
+        if a.kind == b.kind == "task" and stored in TASK_WAITS:
+            self._task_dependency(project_id, a.id, b.id)
         scopes = self.describe(project_id, [a, b])
         if all(scopes[n].scope == "global" for n in (a, b) if n in scopes):
             raise invalid("Both records are Global; link them in the Global scope instead")
@@ -652,6 +658,25 @@ class GraphService:
         if builtin is not None:
             edge.origin = builtin.origin
         return edge
+
+    def _task_dependency(self, project_id: str, task_id: str, other_id: str) -> None:
+        """ "PROJ-7 blocked_by PROJ-4" between two tasks is a dependency: the board shows PROJ-7
+        as waiting until PROJ-4 is done, and a loop of tasks waiting on each other is refused.
+        Kept as the tasks' own relationship, beside the link."""
+        from app.schemas.task import RelationshipCreate
+        from app.services.tasks import TaskService
+
+        tasks = TaskService(self.session)
+        task, other = self.session.get(Task, task_id), self.session.get(Task, other_id)
+        if task is None or other is None or {task.project_id, other.project_id} != {project_id}:
+            return
+        try:
+            tasks.add_relationship(
+                project_id, task.id, RelationshipCreate(type="depends_on", target=other.id)
+            )
+        except HTTPException as error:
+            if error.status_code != 409:  # 409: they already have it
+                raise
 
     def link_many(
         self,
