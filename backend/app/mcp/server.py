@@ -1583,7 +1583,7 @@ def build_server(
         shelf: str | None = None,
     ) -> dict:
         """Record a decision, rule, fact, idea, bug, note or warning as soon as it is settled, without
-        being asked. shelf files it on the shelf of knowledge it belongs to (a name or path,
+        being asked. A rule's title is at most 120 characters, its text 1,200. shelf files it on the shelf of knowledge it belongs to (a name or path,
         project shelf or shared tree); without one, a likely shelf is suggested. related names records it relates to (DEC-003, a task, file:src/a.gd); tasks
         names the tasks it applies to; links adds typed links, each written "relationship
         target" ("caused_by DEC-002", "resolved_by PROJ-6"). Without tasks, it is linked to this

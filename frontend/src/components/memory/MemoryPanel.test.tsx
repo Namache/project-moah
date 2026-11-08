@@ -128,6 +128,32 @@ describe("memory panel", () => {
     expect(calls.find((call) => call.method === "PATCH")?.body).toEqual({ title: "Maximum party size is 6", ai_visibility: "always" });
   });
 
+  it("counts a rule's characters and blocks saving past the cap, but lets an older long rule stay", async () => {
+    const longBody = "b".repeat(1300);
+    mockApi(memory({ type: "rule", human_id: "RULE-001", title: "Peel fruit first", content: longBody }));
+    const user = userEvent.setup();
+    renderPanel("DEC-001");
+    const panel = await screen.findByRole("dialog", { name: /Peel fruit first/ });
+    expect(within(panel).getByText(/16 of 120 characters/)).toBeInTheDocument();
+    expect(document.getElementById("memory-content-count")).toHaveTextContent(/1,300 of 1,200 characters Written before the limit/);
+    const save = within(panel).getByRole("button", { name: "Save changes" });
+    fireEvent.change(within(panel).getByLabelText(/Details/), { target: { value: longBody.slice(1) } });
+    expect(save).toBeEnabled();
+    fireEvent.change(within(panel).getByLabelText(/Details/), { target: { value: longBody + "b" } });
+    expect(within(panel).getByText(/Too long for a rule/)).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    fireEvent.change(within(panel).getByLabelText(/Details/), { target: { value: "Short." } });
+    await user.type(within(panel).getByLabelText(/Title/), "x".repeat(110));
+    expect(save).toBeDisabled();
+  });
+
+  it("shows no character count for memory that is not a rule", async () => {
+    mockApi();
+    renderPanel("DEC-001");
+    const panel = await screen.findByRole("dialog", { name: /Maximum party size is 4/ });
+    expect(within(panel).queryByText(/of 120 characters/)).not.toBeInTheDocument();
+  });
+
   it("supersedes an active record and keeps the prior record available in history", async () => {
     const calls = mockApi();
     const user = userEvent.setup();

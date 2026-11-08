@@ -33,7 +33,7 @@ from app.schemas.memory import (
 )
 from app.schemas.task import TaskRef
 from app.services.activity import ActivityService
-from app.services.errors import conflict, locked, not_found
+from app.services.errors import conflict, invalid, locked, not_found
 from app.services.images import ImageService
 from app.services.projects import ProjectService
 from app.services.tasks import TaskService
@@ -45,6 +45,38 @@ IMPORTANCE_RANK = {"critical": 0, "high": 1, "normal": 2, "low": 3}
 # Critical rules (privacy, approvals, anything that must hold) are locked from the moment they
 # are critical. Only a person unlocks one, and only a person locks it again after that.
 LOCKED_BY_DEFAULT_TYPES = ("rule",)
+
+
+# Rules are read in every session's brief, so each one stays short: a title that says the rule
+# in one line, and a body that fits a short paragraph. Longer guidance belongs in decisions or
+# facts that a rule points to. Only new text is held to this: rules written before keep their
+# length, and an edit may keep or shorten an over-long title or body, never lengthen it.
+RULE_TITLE_MAX = 120
+RULE_BODY_MAX = 1200
+
+
+def check_rule_length(
+    title: str | None, content: str | None, *, was: tuple[str, str] | None = None
+) -> None:
+    """Refuse a rule title or body over its cap, unless it is no longer than it already was."""
+    for part, text, cap, before in (
+        ("title", title, RULE_TITLE_MAX, was[0] if was else None),
+        ("text", content, RULE_BODY_MAX, was[1] if was else None),
+    ):
+        used = len(text.strip()) if text is not None else 0  # counted as the app counts it
+        if used <= cap:
+            continue
+        if before is not None and used <= len(before.strip()):
+            continue  # an older rule, kept or shortened
+        advice = (
+            "Say the rule in one line and put the details in its text."
+            if part == "title"
+            else "Keep the rule itself here and move details into a decision or fact it names, "
+            "or split it into two rules."
+        )
+        raise invalid(
+            f"A rule's {part} can be at most {cap} characters; this one has {used}. {advice}"
+        )
 
 
 def locked_by_default(memory_type: str, importance: str | None) -> bool:
@@ -201,10 +233,21 @@ class MemoryService:
 
     # ---- writes -----------------------------------------------------------------------
 
-    def create(self, project_id: str, payload: MemoryCreate, actor: str = HUMAN) -> MemoryRead:
+    def create(
+        self,
+        project_id: str,
+        payload: MemoryCreate,
+        actor: str = HUMAN,
+        *,
+        copied_from: Memory | None = None,
+    ) -> MemoryRead:
+        """copied_from: an existing rule this one copies, so an older long rule can be shared."""
         self.projects.get(project_id)
         if payload.is_locked and actor != HUMAN:
             raise locked("Only a person can lock a memory")
+        if payload.type == "rule":
+            was = (copied_from.title, copied_from.content) if copied_from else None
+            check_rule_length(payload.title, payload.content, was=was)
         now = datetime.now(UTC)
         memory = Memory(
             project_id=project_id,
@@ -253,6 +296,10 @@ class MemoryService:
             raise self._locked_error(memory)
         if memory.status in ("superseded", "invalidated") and PROTECTED_FIELDS & requested_fields:
             raise conflict(f"{memory.human_id} is {memory.status}; its text is kept as history")
+        if memory.type == "rule":
+            check_rule_length(
+                changes.get("title"), changes.get("content"), was=(memory.title, memory.content)
+            )
         becomes_critical = (
             changes.get("importance") == "critical" and memory.importance != "critical"
         )
@@ -289,6 +336,9 @@ class MemoryService:
             raise conflict(f"{old.human_id} is {old.status} and cannot be replaced")
         if payload.is_locked and actor != HUMAN:
             raise locked("Only a person can lock a memory")
+        if old.type == "rule":
+            # A newer version of a rule may keep an older rule's length, never grow past the cap.
+            check_rule_length(payload.title, payload.content, was=(old.title, old.content))
         now = datetime.now(UTC)
         new = Memory(
             project_id=project_id,
