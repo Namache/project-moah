@@ -75,7 +75,7 @@ function TaskPanel({ item, onDecided }: { item: ReviewItem; onDecided: (verdict:
       {waiting
         ? <ReviewComposer detail={detail} quote={quote} criteria={detail.criteria.map((c) => ({ id: c.id, met: !unticked[c.id] }))} onDecided={onDecided} />
         : handedBack
-          ? <div className="border-t border-line bg-surface px-5 py-3"><SendBackToAgent projectId={detail.project_id} taskRef={detail.task_ref} answered={round.status === "answered"} /></div>
+          ? <div data-keep-clear="" className="border-t border-line bg-surface px-5 py-3"><SendBackToAgent projectId={detail.project_id} taskRef={detail.task_ref} answered={round.status === "answered"} /></div>
           : reopenable
             ? <ReopenBox key={detail.task_id} detail={detail} />
             : null}
