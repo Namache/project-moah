@@ -10,10 +10,10 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "pack:linux": "electron-builder --linux dir --x64",
+    "pack:linux": "install-electron && electron-builder --linux dir --x64",
     "build:linux": "npm run pack:linux && bash ../scripts/build-flatpak.sh",
-    "build:deb": "electron-builder --linux deb --x64",
-    "build:windows": "electron-builder --win nsis --x64"
+    "build:deb": "install-electron && electron-builder --linux deb --x64",
+    "build:windows": "install-electron && electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "44.7.0",
