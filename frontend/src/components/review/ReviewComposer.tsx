@@ -222,7 +222,7 @@ export function ReviewComposer({ detail, quote, criteria, onDecided }: { detail:
   }
 
   return (
-    <div onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}
+    <div data-keep-clear="" onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}
       className={`border-t bg-surface px-5 pb-4 pt-3 transition-colors ${dragging ? "border-forest bg-sage-pale" : "border-line"}`}>
       <label htmlFor="review-comment" className="sr-only">{question ? t("Your answer for the agent") : t("Your comment for the agent")}</label>
       <div className={`rounded-xl border bg-canvas shadow-card focus-within:border-forest ${listening ? "border-danger" : "border-line-strong"}`}>
@@ -301,13 +301,13 @@ export function ReopenBox({ detail }: { detail: ReviewDetail }) {
 
   if (!open) {
     return (
-      <div className="flex justify-end border-t border-line bg-surface px-5 py-3">
+      <div data-keep-clear="" className="flex justify-end border-t border-line bg-surface px-5 py-3">
         <Button variant="secondary" onClick={() => setOpen(true)} title={t("The task goes back to In progress, and the next agent reads your comment first.")}><RotateCcw size={15} aria-hidden="true" />{t("Reopen with a comment")}</Button>
       </div>
     );
   }
   return (
-    <div className="border-t border-line bg-surface px-5 pb-4 pt-3">
+    <div data-keep-clear="" className="border-t border-line bg-surface px-5 pb-4 pt-3">
       <label htmlFor="reopen-comment" className="mb-1.5 block text-sm font-semibold text-ink">{t("What is wrong with {task}?", { task: detail.task_ref })}</label>
       <div className={`rounded-xl border bg-canvas shadow-card focus-within:border-forest ${listening ? "border-danger" : "border-line-strong"}`}>
         <textarea id="reopen-comment" ref={field} rows={2} value={comment} maxLength={20000} onChange={(event) => setComment(event.target.value)}

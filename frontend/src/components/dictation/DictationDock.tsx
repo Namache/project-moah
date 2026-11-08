@@ -167,7 +167,7 @@ export function DictationDock({ inline = false }: { inline?: boolean }) {
   const status = phase === "recording" ? t("Listening…") : phase === "transcribing" ? t("Finishing the text…") : "";
 
   const dock = (
-    <div data-dictation-dock="" className="fixed bottom-5 right-5 z-50 flex items-center gap-2">
+    <div data-dictation-dock="" data-keep-clear="" className="fixed bottom-5 right-5 z-50 flex items-center gap-2">
       {(message || status) && <p role={message ? "alert" : "status"} className={`max-w-72 rounded-lg border px-3 py-1.5 text-xs shadow-card ${message ? "border-danger bg-surface text-danger-ink" : "border-line bg-surface text-ink-muted"}`}>{message || status}</p>}
       <button
         type="button"
