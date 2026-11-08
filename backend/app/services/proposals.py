@@ -34,7 +34,7 @@ from app.schemas.task import CriterionCreate, TaskUpdate
 from app.services.activity import ActivityService
 from app.services.errors import conflict, invalid, not_found
 from app.services.files import FileService
-from app.services.memory import MemoryService
+from app.services.memory import MemoryService, check_rule_length
 from app.services.projects import ProjectService
 from app.services.tasks import CLOSED_STATUSES, TaskService
 
@@ -317,6 +317,8 @@ class ProposalService:
             if kind == "create_bug":
                 raw["type"] = "bug"
             data = MemoryCreate.model_validate(raw)
+            if data.type == "rule":  # refused now, not when a person accepts it
+                check_rule_length(data.title, data.content)
             self.tasks_exist(project_id, data.task_ids)
             for ref in data.related:  # found now, not when a person accepts it
                 self.memory.get(project_id, ref)
@@ -327,6 +329,10 @@ class ProposalService:
                 raise conflict(f"{memory.human_id} is {memory.status} and can no longer be changed")
             model = MemoryUpdate if kind == "update_memory" else MemorySupersede
             data = model.model_validate(raw)
+            if memory.type == "rule":
+                check_rule_length(
+                    getattr(data, "title", None), data.content, was=(memory.title, memory.content)
+                )
             if kind == "update_memory":
                 self.tasks_exist(project_id, data.task_ids or [])
             return "memory", memory.id, data.model_dump(exclude_unset=True, mode="json")

@@ -348,7 +348,7 @@ async def test_agent_packs_carry_only_what_the_agent_acts_on(
         assert "ACTIVE SHELVES" in explained.text
 
 
-async def test_the_brief_lists_rules_by_title_and_the_pack_sends_them_in_full(
+async def test_the_brief_lists_every_rule_by_title_and_the_pack_sends_them_in_full(
     client: AsyncClient, database_url: str
 ) -> None:
     pid = (await post(client, "/api/projects", name="Rulebook"))["id"]
@@ -374,22 +374,22 @@ async def test_the_brief_lists_rules_by_title_and_the_pack_sends_them_in_full(
     with factory() as session:
         brief = build_brief(session, session.get(Project, pid))
         chosen = brief_project_rules(MemoryService(session), pid)
-        assert len(chosen) == 12
+        assert len(chosen) == 14  # every rule the agent may see, no cap
         everything = MemoryService(session).list(pid, statuses=["active"], limit=300)
         for m in everything:
             assert (f"\n- {m.human_id} {m.title}\n" in brief) == (m in chosen), m.title
+        assert "Only when asked" not in brief
         assert "Peel every" not in brief  # titles only
-    # A task whose words match one rule the brief lists and one it does not.
-    listed = chosen[1].id
-    [unlisted] = [m.id for m in everything if m.id in word_of and m not in chosen][:1]
-    title = f"{word_of[listed].title()} {word_of[unlisted]}"
+    # A task whose words match two listed rules gets both in full.
+    first, second = chosen[1].id, chosen[13].id
+    title = f"{word_of[first].title()} {word_of[second]}"
     work = await post(client, f"/api/projects/{pid}/tasks", title=title)
     with factory() as session:
         mine = ContextService(session).build(
             pid, task=work["human_id"], record_for="claude", global_rules=False
         )
-        assert {listed, unlisted} <= {i.ref for i in mine.items}
-        assert f"Peel every {word_of[listed]} first." in mine.text
+        assert {first, second} <= {i.ref for i in mine.items}
+        assert f"Peel every {word_of[first]} first." in mine.text
         assert "already in your brief" not in mine.omitted
 
 

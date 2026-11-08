@@ -66,9 +66,9 @@ CLOSED_TASK = ("completed", "archived")
 # A checkpoint's task counts as unfinished only while work on it goes on: not parked in the
 # backlog or todo, and not finished and waiting in review.
 UNFINISHED_STATUSES = ("in_progress", "blocked")
-# How many project rules and standing decisions the brief lists. Project rules are listed by
-# title only, so context packs still send their full text when the work needs it.
-BRIEF_PROJECT_RULES = 12
+# How many standing decisions the brief lists. Every project rule is listed, by title only:
+# a title is one line (new rule titles are capped, memory.RULE_TITLE_MAX), and context packs
+# still send a rule's full text when the work needs it.
 BRIEF_STANDING = 10
 # What counts as already decided for a task: settled guidance first, then what is known.
 DECIDED_FIRST = ("decision", "rule", "warning")
@@ -106,11 +106,16 @@ def global_rules(session: Session) -> list[MemoryRead]:
     return sorted(rules, key=lambda m: m.human_id)
 
 
-def listed_rules(project_id: str, visible: list[MemoryRead]) -> list[MemoryRead]:
-    """The project rules the brief lists, from the project's visible active records. In the
-    Global project every rule is a global rule, and the brief lists all of them."""
-    rules = [m for m in visible if m.type == "rule"]
-    return rules if project_id == GLOBAL_PROJECT_ID else rules[:BRIEF_PROJECT_RULES]
+RULES_AT_MOST = 1000  # a safety bound for one query, far above any real project
+
+
+def listed_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
+    """The project rules the brief lists: every visible active rule, in priority order. They
+    are read on their own, so a project with many other records still has all of them listed.
+    In the Global project every rule is a global rule."""
+    return _visible(
+        memory.list(project_id, types=["rule"], statuses=["active"], limit=RULES_AT_MOST)
+    )
 
 
 def standing_records(visible: list[MemoryRead]) -> list[MemoryRead]:
@@ -122,9 +127,7 @@ def standing_records(visible: list[MemoryRead]) -> list[MemoryRead]:
 
 def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
     """The project rules the session brief lists by title."""
-    return listed_rules(
-        project_id, _visible(memory.list(project_id, statuses=["active"], limit=300))
-    )
+    return listed_rules(memory, project_id)
 
 
 def unfinished_task(session: Session, project: Project) -> Task | None:
@@ -246,7 +249,8 @@ def brief_decided(session: Session, project: Project, task: Task) -> list[Memory
     """The records the brief lists as already decided for ``task``, chosen exactly as
     build_brief does. Context packs keep every one of them, whatever their detail level."""
     records = _visible(MemoryService(session).list(project.id, statuses=["active"], limit=300))
-    shown = {m.human_id for m in listed_rules(project.id, records) + standing_records(records)}
+    rules = listed_rules(MemoryService(session), project.id)
+    shown = {m.human_id for m in rules + standing_records(records)}
     own = latest_checkpoint(session, project.id, task.id)
     return decided_for(session, project, task, own, shown)
 
@@ -407,7 +411,7 @@ def build_brief(
         if note:
             lines.append(note)
         records = _visible(MemoryService(session).list(project.id, statuses=["active"], limit=300))
-        project_rules = listed_rules(project.id, records)
+        project_rules = listed_rules(MemoryService(session), project.id)
         standing = standing_records(records)
         if project_rules:
             lines += ["PROJECT RULES (titles; brain_context_pack gives the full text)"]

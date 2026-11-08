@@ -752,6 +752,7 @@ class HealthService:
                 source_type="shared",
                 source_reference=f"{a.human_id} and {b.human_id}",
             ),
+            copied_from=a,
         )
         for m in (a, b):
             Graph(self.session).link(
