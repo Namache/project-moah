@@ -6,6 +6,7 @@ import { agentsApi, type AgentName, type WorkPrompt } from "../../api/agents";
 import { useReopenReview, useReviewDecision } from "../../hooks/useReviews";
 import { useDictationAvailable } from "../dictation/useDictationAvailable";
 import { toggleDictation, useDictationState } from "../../lib/dictationState";
+import { shortcutAria, shortcutLabel, useDictationShortcut } from "../../lib/dictationShortcut";
 import { queryKeys } from "../../lib/queries";
 import { notify } from "../../lib/notify";
 import { t } from "../../lib/i18n";
@@ -93,13 +94,14 @@ export interface Quoted { text: string; n: number; answer?: boolean }
 function RecordButton({ field }: { field: RefObject<HTMLTextAreaElement | null> }) {
   const dictation = useDictationState();
   const canDictate = useDictationAvailable();
+  const shortcut = useDictationShortcut();
   if (!canDictate) return null;
   const listening = dictation.phase === "recording";
   const finishing = dictation.phase === "transcribing" || dictation.phase === "starting";
   return (
     <Button size="sm" variant={listening ? "danger" : "secondary"} onMouseDown={(event) => event.preventDefault()} disabled={finishing}
-      onClick={() => { field.current?.focus(); toggleDictation(); }} aria-pressed={listening} aria-keyshortcuts="Control+Shift+Space"
-      title={`${listening ? t("Stop dictating") : t("Dictate your comment")} (Ctrl+Shift+Space)`}>
+      onClick={() => { field.current?.focus(); toggleDictation(); }} aria-pressed={listening} aria-keyshortcuts={shortcutAria(shortcut)}
+      title={`${listening ? t("Stop dictating") : t("Dictate your comment")} (${shortcutLabel(shortcut)})`}>
       {listening ? <Square size={14} aria-hidden="true" /> : finishing ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Mic size={15} aria-hidden="true" />}
       {listening ? t("Stop") : t("Record")}
     </Button>

@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Check, CircleAlert, Mic, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { dictationApi, serverText } from "../../api/dictation";
 import { microphoneProblem, openMicrophone, useDictationInput, useMicrophones, type DictationInput } from "../../lib/dictationInput";
 import { dictationLanguages, useDictationLanguage } from "../../lib/dictationLanguage";
+import { DEFAULT_SHORTCUT, parseShortcut, saveDictationShortcut, shortcutFromEvent, shortcutLabel, shortcutProblem, shortcutText, useDictationShortcut } from "../../lib/dictationShortcut";
 import { t } from "../../lib/i18n";
 import type { Recording } from "../../lib/recorder";
 import { Button, HelpTip } from "../ui";
@@ -81,6 +82,46 @@ function useMicrophoneTest(input: DictationInput, onDone: () => void) {
   return { listening, level, peak, result, start, stop };
 }
 
+/** The keys that start and stop dictation: press Change, then the new keys. Esc keeps the old ones. */
+function ShortcutPicker() {
+  const shortcut = useDictationShortcut();
+  const [choosing, setChoosing] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const isDefault = shortcutText(shortcut) === DEFAULT_SHORTCUT;
+
+  function onKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (!choosing) return;
+    const plain = !event.ctrlKey && !event.altKey && !event.metaKey;
+    if (plain && event.key === "Tab") return;  // moving on: the blur ends choosing
+    // Also keeps the floating microphone from taking the press for its shortcut.
+    event.preventDefault();
+    if (plain && !event.shiftKey && event.key === "Escape") { setChoosing(false); setProblem(null); return; }
+    const pressed = shortcutFromEvent(event.nativeEvent);
+    if (!pressed) return;  // a modifier on its own: wait for the key
+    const why = shortcutProblem(pressed);
+    if (why) { setProblem(t("{keys} can't be used. {reason}", { keys: shortcutLabel(pressed), reason: t(why) })); return; }
+    saveDictationShortcut(pressed);
+    setChoosing(false);
+    setProblem(null);
+  }
+
+  return (
+    <div>
+      <span className="field-label">{t("Dictation shortcut")}</span>
+      <div className="flex flex-wrap items-center gap-3">
+        <kbd className="rounded-md border border-line bg-surface px-2.5 py-1 font-mono text-sm text-ink">{shortcutLabel(shortcut)}</kbd>
+        <Button onClick={() => { setChoosing(!choosing); setProblem(null); }} onKeyDown={onKeyDown} onBlur={() => { setChoosing(false); setProblem(null); }} aria-pressed={choosing} aria-label={choosing ? t("Press the new keys…") : t("Change the dictation shortcut")}>
+          {choosing ? t("Press the new keys…") : t("Change")}
+        </Button>
+        {!isDefault && !choosing && <button type="button" onClick={() => saveDictationShortcut(parseShortcut(DEFAULT_SHORTCUT)!)} className="text-sm font-semibold text-forest hover:underline">{t("Back to {keys}", { keys: shortcutLabel(parseShortcut(DEFAULT_SHORTCUT)!) })}</button>}
+      </div>
+      <p role={problem ? "alert" : undefined} className={`mt-1 text-xs ${problem ? "text-danger-ink" : "text-ink-muted"}`}>
+        {problem ?? (choosing ? t("Hold Ctrl or Alt and press a key. Esc keeps the current keys.") : t("Starts and stops dictation in the text field you are in. Cmd works as Ctrl on a Mac."))}
+      </p>
+    </div>
+  );
+}
+
 function Switch({ checked, onChange, label, help }: { checked: boolean; onChange: (value: boolean) => void; label: string; help: string }) {
   return (
     <label className="flex items-start gap-3 text-sm">
@@ -96,6 +137,7 @@ export function DictationSettings() {
   const status = useQuery({ queryKey: ["dictation-status"], queryFn: ({ signal }) => dictationApi.status(signal), retry: false, enabled: supported });
   const [language, setLanguage] = useDictationLanguage();
   const [input, setInput] = useDictationInput();
+  const shortcut = useDictationShortcut();
   // Device names show once the microphone has been used, so the list is read again after a test.
   const [listed, setListed] = useState(0);
   const devices = useMicrophones(listed);
@@ -110,12 +152,14 @@ export function DictationSettings() {
         : status.data && !status.data.available && <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning-ink"><CircleAlert size={16} className="mt-0.5 shrink-0" aria-hidden="true" />{t("Dictation is off: {reason}", { reason: serverText(status.data.reason ?? "") })}</p>}
 
       <div>
-        <span className="flex items-center gap-2"><label htmlFor="dictation-language" className="field-label" style={{ marginBottom: 0 }}>{t("Dictation language")}</label><HelpTip label={t("Dictation language")}>{t("Click any text field, then press the microphone in the corner or Ctrl+Shift+Space, and speak. Automatic works for any language but takes about a second longer.")}</HelpTip></span>
+        <span className="flex items-center gap-2"><label htmlFor="dictation-language" className="field-label" style={{ marginBottom: 0 }}>{t("Dictation language")}</label><HelpTip label={t("Dictation language")}>{t("Click any text field, then press the microphone in the corner or {keys}, and speak. Automatic works for any language but takes about a second longer.", { keys: shortcutLabel(shortcut) })}</HelpTip></span>
         <select id="dictation-language" className="field-input mt-2 max-w-xs" value={language} onChange={(event) => setLanguage(event.target.value)}>
           <option value="auto">{t("Automatic")}</option>
           {dictationLanguages.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
+
+      <ShortcutPicker />
 
       <div className="space-y-3">
         <div>

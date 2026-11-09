@@ -74,17 +74,63 @@ describe("dictation", () => {
     expect(calls.every((call) => call.url.startsWith("/api/"))).toBe(true);
   });
 
-  it("works in a title field and starts and stops with Ctrl+Shift+Space", async () => {
+  it("works in a title field and starts and stops with Ctrl+T", async () => {
     setup({ text: "Welcome back popup" });
     renderApp();
     const title = screen.getByLabelText("Title *");
     await userEvent.click(title);
-    expect(await screen.findByRole("button", { name: "Dictate into Title" })).toBeInTheDocument();
-    fireEvent.keyDown(window, { code: "Space", key: " ", ctrlKey: true, shiftKey: true });
+    const button = await screen.findByRole("button", { name: "Dictate into Title" });
+    expect(button).toHaveAttribute("aria-keyshortcuts", "Control+T");
+    expect(button).toHaveAttribute("title", "Dictate into Title (Ctrl+T)");
+    // A plain t is typing, not the shortcut.
+    fireEvent.keyDown(window, { code: "KeyT", key: "t" });
+    expect(screen.queryByRole("button", { name: "Stop dictating into Title" })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { code: "KeyT", key: "t", ctrlKey: true });
     expect(await screen.findByRole("button", { name: "Stop dictating into Title" })).toBeInTheDocument();
     recorder.samples = 16_000;
-    fireEvent.keyDown(window, { code: "Space", key: " ", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { code: "KeyT", key: "t", metaKey: true });  // Cmd+T on a Mac
     await waitFor(() => expect(title).toHaveValue("Welcome back popup"));
+  });
+
+  it("uses the shortcut chosen in Settings, refuses keys that would stop typing, and goes back to Ctrl+T", async () => {
+    setup({ text: "Picked keys" });
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><DictationSettings /><Form /><DictationDock /></QueryClientProvider>);
+    const change = screen.getByRole("button", { name: "Change the dictation shortcut" });
+    expect(screen.getByText("Ctrl+T", { selector: "kbd" })).toBeInTheDocument();
+
+    await userEvent.click(change);
+    const choosing = screen.getByRole("button", { name: "Press the new keys…" });
+    fireEvent.keyDown(choosing, { code: "KeyT", key: "t" });
+    expect(screen.getByRole("alert")).toHaveTextContent("T can't be used. Hold Ctrl or Alt with the key");
+    fireEvent.keyDown(choosing, { code: "KeyC", key: "c", ctrlKey: true });
+    expect(screen.getByRole("alert")).toHaveTextContent("Ctrl+C can't be used. These keys already do something else.");
+    fireEvent.keyDown(choosing, { code: "KeyK", key: "k", ctrlKey: true });  // search
+    expect(screen.getByRole("alert")).toHaveTextContent("Ctrl+K can't be used.");
+    fireEvent.keyDown(choosing, { code: "ControlLeft", key: "Control", ctrlKey: true });  // waits for the key
+    fireEvent.keyDown(choosing, { code: "KeyD", key: "d", altKey: true, shiftKey: true });
+    expect(screen.getByText("Alt+Shift+D", { selector: "kbd" })).toBeInTheDocument();
+    expect(localStorage.getItem("moah.dictationShortcut")).toBe("Alt+Shift+KeyD");
+
+    // Esc while choosing keeps the keys.
+    await userEvent.click(screen.getByRole("button", { name: "Change the dictation shortcut" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Press the new keys…" }), { code: "Escape", key: "Escape" });
+    expect(screen.getByText("Alt+Shift+D", { selector: "kbd" })).toBeInTheDocument();
+
+    // The microphone follows at once: the old keys do nothing, the new ones dictate.
+    const title = screen.getByLabelText("Title *");
+    await userEvent.click(title);
+    expect(await screen.findByRole("button", { name: "Dictate into Title" })).toHaveAttribute("aria-keyshortcuts", "Alt+Shift+D");
+    fireEvent.keyDown(window, { code: "KeyT", key: "t", ctrlKey: true });
+    expect(screen.queryByRole("button", { name: "Stop dictating into Title" })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { code: "KeyD", key: "D", altKey: true, shiftKey: true });
+    expect(await screen.findByRole("button", { name: "Stop dictating into Title" })).toBeInTheDocument();
+    recorder.samples = 16_000;
+    fireEvent.keyDown(window, { code: "KeyD", key: "D", altKey: true, shiftKey: true });
+    await waitFor(() => expect(title).toHaveValue("Picked keys"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to Ctrl+T" }));
+    expect(screen.getByText("Ctrl+T", { selector: "kbd" })).toBeInTheDocument();
+    expect(localStorage.getItem("moah.dictationShortcut")).toBeNull();
   });
 
   it("asks for a field first when none is selected", async () => {
