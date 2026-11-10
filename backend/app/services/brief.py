@@ -125,11 +125,6 @@ def standing_records(visible: list[MemoryRead]) -> list[MemoryRead]:
     ][:BRIEF_STANDING]
 
 
-def brief_project_rules(memory: MemoryService, project_id: str) -> list[MemoryRead]:
-    """The project rules the session brief lists by title."""
-    return listed_rules(memory, project_id)
-
-
 def unfinished_task(session: Session, project: Project) -> Task | None:
     """The task the person is most likely in the middle of: the focus task, else the task of
     the latest checkpoint that has one, while work on it goes on (in progress or blocked),

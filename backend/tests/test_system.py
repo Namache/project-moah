@@ -31,6 +31,20 @@ async def test_diagnostics_report_health_without_leaking_content(
     assert "Secret" not in str(report) and "secret plan" not in str(report)  # counts, never content
 
 
+async def test_the_copied_report_shows_the_database_under_the_home_folder_as_tilde(
+    client: AsyncClient, monkeypatch, tmp_path: Path
+) -> None:
+    home = tmp_path.resolve() / "someone"  # resolved: Windows runners have short 8.3 names
+    (home / "data").mkdir(parents=True)
+    url = f"sqlite:///{(home / 'data' / 'project-brain.db').as_posix()}"
+    monkeypatch.setenv("PROJECT_BRAIN_DATABASE_URL", url)
+    monkeypatch.setattr(Path, "home", lambda: home)
+    async with app_client(url) as own:
+        database = (await own.get("/api/system/diagnostics")).json()["database"]
+    assert database["path"] == str((home / "data" / "project-brain.db").resolve())
+    assert database["report_path"] == str(Path("~") / "data" / "project-brain.db")
+
+
 async def test_export_is_a_consistent_copy_that_opens_on_its_own(
     client: AsyncClient, database_url: str, monkeypatch, tmp_path: Path
 ) -> None:
@@ -54,6 +68,27 @@ async def test_export_is_a_consistent_copy_that_opens_on_its_own(
     # A restored backup is a normal database: the app opens it and finds the same project.
     async with app_client(f"sqlite:///{backup}") as restored:
         assert [p["name"] for p in (await restored.get("/api/projects")).json()] == ["Trailhead"]
+
+
+@pytest.mark.parametrize("folder", ["Saves #2", "What?", "100% done"])
+async def test_export_copies_the_database_from_a_folder_with_an_unusual_name(
+    folder: str, monkeypatch, tmp_path: Path
+) -> None:
+    data = tmp_path / folder
+    data.mkdir()
+    url = f"sqlite:///{(data / 'project-brain.db').as_posix()}"
+    monkeypatch.setenv("PROJECT_BRAIN_DATABASE_URL", url)
+    async with app_client(url) as client:
+        await client.post("/api/projects", json={"name": "Trailhead"})
+        response = await client.get("/api/system/export")
+    assert response.status_code == 200
+    backup = tmp_path / "restored.db"
+    backup.write_bytes(response.content)
+    db = sqlite3.connect(backup)
+    assert db.execute("SELECT name FROM projects WHERE kind = 'project'").fetchall() == [
+        ("Trailhead",)
+    ]
+    db.close()
 
 
 async def test_agent_command_matches_how_the_app_was_installed(

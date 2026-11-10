@@ -46,7 +46,7 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostic report
-      description: In the app, go to Settings → Diagnostics → Copy diagnostic report, and paste it here. Replace your user name in the database path if you like.
+      description: In the app, go to Settings → Diagnostics → Copy diagnostic report, and paste it here.
       render: text
   - type: textarea
     id: extra

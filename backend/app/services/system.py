@@ -182,6 +182,8 @@ def diagnostics(session: Session) -> dict:
         "sqlite_version": sqlite3.sqlite_version,
         "database": {
             "path": str(path) if path else None,
+            # For the copied report, which people paste into public bug reports.
+            "report_path": error_log.hide_home(str(path)) if path else None,
             "size_bytes": path.stat().st_size if path and path.exists() else None,
             "migration": migration,
             "integrity": integrity,
@@ -210,7 +212,9 @@ def export_backup() -> tuple[Path, str]:
     target = (
         Path(tempfile.mkdtemp(prefix="project-moah-backup-")) / f"project-moah-backup-{stamp}.db"
     )
-    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    # A file URI, so a folder named with "#", "?" or "%" still opens this database: spelled raw,
+    # SQLite cuts the path there and backs up an empty database instead.
+    src = sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True)
     dst = sqlite3.connect(target)
     try:
         src.backup(dst)

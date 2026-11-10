@@ -60,12 +60,29 @@ def _files(database_url: str | None = None) -> list[Path]:
     return found
 
 
+def hide_home(text: str) -> str:
+    """Write the home folder as ~, so a copied report does not show the user name.
+
+    The folder turns up spelled several ways: with forward slashes on Windows (database URLs),
+    in any letter case there, and as /var/home/... on Fedora Atomic systems such as Bazzite.
+    """
+    home = str(Path.home())
+    if len(home) <= 1:
+        return text
+    spellings = {home, home.replace("\\", "/")}
+    if home.startswith("/home/"):
+        spellings.add(f"/var{home}")
+    elif home.startswith("/var/home/"):
+        spellings.add(home.removeprefix("/var"))
+    flags = re.IGNORECASE if sys.platform == "win32" else 0
+    # Longest first, so /var/home/name is not left as /var~. Never inside a longer name.
+    names = "|".join(re.escape(s) for s in sorted(spellings, key=len, reverse=True))
+    return re.sub(rf"(?:{names})(?![^\\/\s\"':;,)\]])", "~", text, flags=flags)
+
+
 def clean(text: str, limit: int) -> str:
     """Drop statement values, shorten the home folder, and cap the length."""
-    text = _PARAMETERS.sub("[parameters hidden]", text)
-    home = str(Path.home())
-    if len(home) > 1:
-        text = text.replace(home, "~")
+    text = hide_home(_PARAMETERS.sub("[parameters hidden]", text))
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
 
 

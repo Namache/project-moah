@@ -7,7 +7,7 @@ export interface Diagnostics {
   python: string;
   platform: string;
   sqlite_version: string;
-  database: { path: string | null; size_bytes: number | null; migration: string | null; integrity: string; foreign_key_problems: number; search_index_ready: boolean };
+  database: { path: string | null; report_path?: string | null; size_bytes: number | null; migration: string | null; integrity: string; foreign_key_problems: number; search_index_ready: boolean };
   counts: Record<string, number>;
   git: { available: boolean; version: string | null };
   mcp: { command: string; tools: number };
