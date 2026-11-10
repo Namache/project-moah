@@ -107,7 +107,7 @@ async def test_api_reads_records_and_clears_the_log(client: AsyncClient, logs: P
 
 
 def test_the_home_folder_is_hidden_however_it_is_spelled(monkeypatch) -> None:
-    from pathlib import PureWindowsPath
+    from pathlib import PurePosixPath, PureWindowsPath
 
     monkeypatch.setattr(Path, "home", lambda: PureWindowsPath("C:/Users/Someone"))
     monkeypatch.setattr(error_log.sys, "platform", "win32")
@@ -120,7 +120,7 @@ def test_the_home_folder_is_hidden_however_it_is_spelled(monkeypatch) -> None:
         r"~\AppData\Local\project-brain\project-brain.db, sqlite:///~/AppData/x.db, ~\repo, "
         r"C:\Users\Someone2\repo"
     )
-    monkeypatch.setattr(Path, "home", lambda: Path("/home/someone"))
+    monkeypatch.setattr(Path, "home", lambda: PurePosixPath("/home/someone"))
     monkeypatch.setattr(error_log.sys, "platform", "linux")
     assert error_log.hide_home("/var/home/someone/a, /home/someone, /home/Someone/b") == (
         "~/a, ~, /home/Someone/b"
