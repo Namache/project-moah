@@ -152,10 +152,10 @@ def _project(session: Session, agent: str, session_id: str, cwd: object) -> Proj
 
 def named_task(session: Session, project: Project, message: str) -> Task | None:
     """The open task the person's message names by ID, or the one task whose title and tags
-    plainly match it, as context packs choose (services/context.py _infer_task)."""
+    plainly match it, as context packs choose (services/context.py infer_task)."""
     from app.services.context import ContextService
 
-    inferred = ContextService(session)._infer_task(
+    inferred = ContextService(session).infer_task(
         project, message, statuses=PROMPT_STATUSES, brief_fallback=False
     )
     return session.get(Task, inferred[0]) if inferred else None
@@ -171,7 +171,7 @@ def id_named(session: Session, project: Project, message: str) -> Task | None:
     found = {
         task.id: task
         for ref in REF_PATTERN.findall(message)
-        if (task := finder._task_by_ref(project.id, ref)) is not None
+        if (task := finder.task_by_ref(project.id, ref)) is not None
         and task.status not in CLOSED_STATUSES
     }
     return next(iter(found.values())) if len(found) == 1 else None

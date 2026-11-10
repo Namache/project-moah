@@ -131,7 +131,7 @@ def unfinished_task(session: Session, project: Project) -> Task | None:
     else the only task in progress. Never a guess between several. A checkpoint with no task
     (a small edit) does not hide the task before it. Reading it changes nothing: the focus and
     the session's task stay as they are. A context pack asked to just "continue" uses the same
-    task (context._infer_task)."""
+    task (context.infer_task)."""
     if project.current_focus_task_id:
         focus = session.get(Task, project.current_focus_task_id)
         if focus is not None and focus.status not in CLOSED_TASK:
