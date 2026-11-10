@@ -1,4 +1,5 @@
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -70,7 +71,19 @@ async def test_export_is_a_consistent_copy_that_opens_on_its_own(
         assert [p["name"] for p in (await restored.get("/api/projects")).json()] == ["Trailhead"]
 
 
-@pytest.mark.parametrize("folder", ["Saves #2", "What?", "100% done"])
+@pytest.mark.parametrize(
+    "folder",
+    [
+        "Saves #2",
+        pytest.param(
+            "What?",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="Windows folder names cannot contain ?"
+            ),
+        ),
+        "100% done",
+    ],
+)
 async def test_export_copies_the_database_from_a_folder_with_an_unusual_name(
     folder: str, monkeypatch, tmp_path: Path
 ) -> None:
