@@ -104,7 +104,7 @@ def test_question_in_finds_the_question_a_turn_ends_on() -> None:
 async def test_a_question_asked_in_the_chat_waits_in_review_until_answered_there(
     database_url: str, tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    from app.mcp.server import review_for_agent
+    from app.mcp.reviews import review_for_agent
     from app.models.agent_session import AgentSessionEvent
     from app.models.task import Task
     from app.services.agent_sessions import session_tasks
