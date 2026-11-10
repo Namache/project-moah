@@ -56,6 +56,27 @@ async def test_export_is_a_consistent_copy_that_opens_on_its_own(
         assert [p["name"] for p in (await restored.get("/api/projects")).json()] == ["Trailhead"]
 
 
+@pytest.mark.parametrize("folder", ["Saves #2", "What?", "100% done"])
+async def test_export_copies_the_database_from_a_folder_with_an_unusual_name(
+    folder: str, monkeypatch, tmp_path: Path
+) -> None:
+    data = tmp_path / folder
+    data.mkdir()
+    url = f"sqlite:///{(data / 'project-brain.db').as_posix()}"
+    monkeypatch.setenv("PROJECT_BRAIN_DATABASE_URL", url)
+    async with app_client(url) as client:
+        await client.post("/api/projects", json={"name": "Trailhead"})
+        response = await client.get("/api/system/export")
+    assert response.status_code == 200
+    backup = tmp_path / "restored.db"
+    backup.write_bytes(response.content)
+    db = sqlite3.connect(backup)
+    assert db.execute("SELECT name FROM projects WHERE kind = 'project'").fetchall() == [
+        ("Trailhead",)
+    ]
+    db.close()
+
+
 async def test_agent_command_matches_how_the_app_was_installed(
     client: AsyncClient, monkeypatch, tmp_path: Path
 ) -> None:

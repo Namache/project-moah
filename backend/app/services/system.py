@@ -210,7 +210,9 @@ def export_backup() -> tuple[Path, str]:
     target = (
         Path(tempfile.mkdtemp(prefix="project-moah-backup-")) / f"project-moah-backup-{stamp}.db"
     )
-    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    # A file URI, so a folder named with "#", "?" or "%" still opens this database: spelled raw,
+    # SQLite cuts the path there and backs up an empty database instead.
+    src = sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True)
     dst = sqlite3.connect(target)
     try:
         src.backup(dst)
