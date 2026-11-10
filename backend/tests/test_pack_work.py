@@ -16,7 +16,7 @@ from httpx import AsyncClient
 from app.db.session import make_engine, make_session_factory
 from app.models.graph import RetrievalSession
 from app.models.project import Project
-from app.services.brief import brief_project_rules, build_brief, work_refs
+from app.services.brief import build_brief, listed_rules, work_refs
 from app.services.context import ContextService, match_keys
 from app.services.memory import MemoryService
 from tests.conftest import app_client
@@ -373,7 +373,7 @@ async def test_the_brief_lists_every_rule_by_title_and_the_pack_sends_them_in_fu
     factory = make_session_factory(make_engine(database_url))
     with factory() as session:
         brief = build_brief(session, session.get(Project, pid))
-        chosen = brief_project_rules(MemoryService(session), pid)
+        chosen = listed_rules(MemoryService(session), pid)
         assert len(chosen) == 14  # every rule the agent may see, no cap
         everything = MemoryService(session).list(pid, statuses=["active"], limit=300)
         for m in everything:

@@ -534,11 +534,6 @@ class ReviewService:
             earlier=[self._round(r, files) for r in earlier],
         )
 
-    def waits_for(self, task: Task) -> str | None:
-        """What the task waits for in Review: "work" to review, a "question" to answer, or
-        None."""
-        return self._waits_for(task)
-
     def latest(self, task_id: str) -> TaskReview | None:
         return self.session.scalar(
             select(TaskReview)
