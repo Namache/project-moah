@@ -66,3 +66,6 @@ export function useReviewFileUrl(projectId: string, fileId: string | null): stri
   }, [projectId, fileId]);
   return url;
 }
+
+/** Quotes a line of the review into the comment box. */
+export type Quote = (text: string) => void;
