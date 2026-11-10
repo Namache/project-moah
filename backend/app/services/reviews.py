@@ -32,7 +32,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, undefer
 
 from app.models.checkpoint import ActivityEvent, Checkpoint
-from app.models.project import Project, utc_now
+from app.models.project import utc_now
 from app.models.proposal import Proposal
 from app.models.review import (
     MAX_FILES_PER_KIND,
@@ -49,24 +49,20 @@ from app.schemas.review import (
     CriterionTick,
     FollowUp,
     FollowUpCreate,
-    PendingReviewItem,
-    PendingReviews,
     ReviewCriterion,
     ReviewDecision,
     ReviewDetail,
     ReviewFileRead,
-    ReviewItem,
     ReviewReopen,
     ReviewRound,
     ReviewSubmit,
-    ReviewTimeline,
 )
 from app.schemas.task import RelationshipCreate, TaskCreate, TaskUpdate
 from app.services.activity import ActivityService, current_actor
 from app.services.errors import conflict, invalid, not_found
 from app.services.images import clean_filename, sniff
 from app.services.projects import ProjectService
-from app.services.review_notes import HASH, TASK_REF, WORD, Note, Picked, lines, task_refs
+from app.services.review_notes import Note, Picked, lines, task_refs
 from app.services.review_notes import draft as draft_from_notes
 from app.services.tasks import TaskService
 
@@ -77,17 +73,12 @@ QUESTION_STATUS = "blocked"  # where a task waits while an agent's question wait
 ANSWERED_IN_CHAT = "chat"
 CLOSED = ("completed", "archived")
 TITLE_LIMIT = 200
-REVIEWED_LIMIT = 80
-NEWEST_PENDING = 5
 SUMMARY_LINE = 240
 NOTES_LIMIT = 6  # checkpoints a drafted review is picked from, newest first
 ENTERED_EVENTS = 30  # recent activity read to find when a task last changed status
 NEXT_STEPS = "**Next steps**\n\n"  # how a drafted review stores the agent's next steps
 # The answer "Approve and continue" sends: the agent goes on as it planned.
 APPROVED = "Approved. Go on as planned."
-# How far before the oldest waiting work a note may be to batch it, and how many notes count.
-BATCH_LOOKBACK = timedelta(days=3)
-BATCH_NOTES = 200
 # How long an Accept can be taken back with Undo; after that, Reopen with a comment.
 UNDO_WINDOW = timedelta(minutes=10)
 # Tasks Moah starts itself, so that work waiting for the person always has a place in Review:
@@ -126,7 +117,7 @@ def _wait_context(checkpoint) -> str | None:
     return text or None
 
 
-def _one_line(text: str, limit: int = SUMMARY_LINE) -> str:
+def one_line(text: str, limit: int = SUMMARY_LINE) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
@@ -277,7 +268,7 @@ class ReviewService:
         pending = self._pending(task.id)
         if pending is not None and pending.checkpoint_id is None:
             return None  # the agent's own question or report already waits
-        question, context = _one_line(checkpoint.title, TITLE_LIMIT), _wait_context(checkpoint)
+        question, context = one_line(checkpoint.title, TITLE_LIMIT), _wait_context(checkpoint)
         if pending is not None:
             pending.summary, pending.details = question, context
             pending.checkpoint_id, pending.agent = checkpoint.id, agent
@@ -323,7 +314,7 @@ class ReviewService:
         created = self.tasks.create(
             task.project_id,
             TaskCreate(
-                title=_one_line(f"Follow-up to {task.human_id}: {base}", TITLE_LIMIT),
+                title=one_line(f"Follow-up to {task.human_id}: {base}", TITLE_LIMIT),
                 description=FOLLOW_UP.format(
                     agent=agent, ref=task.human_id, title=task.title, state=state
                 ),
@@ -386,84 +377,6 @@ class ReviewService:
         return review
 
     # ---- reading -----------------------------------------------------------------------
-
-    def timeline(self, project_id: str | None = None, reviewed_limit: int = REVIEWED_LIMIT):
-        projects = self._projects()
-        waiting = self._waiting_tasks(project_id, projects) + self._waiting_suggestions(
-            project_id, projects
-        )
-        # Questions first: work is stuck until the person answers them.
-        waiting.sort(key=lambda item: (item.question, item.done_at), reverse=True)
-        self._mark_batches(waiting)
-        waiting_ids = {item.key.removeprefix("task:") for item in waiting if item.kind == "task"}
-        reviewed = self._reviewed_tasks(project_id, projects, reviewed_limit, waiting_ids)
-        reviewed += self._reviewed_suggestions(project_id, projects, reviewed_limit)
-        reviewed.sort(key=lambda item: item.reviewed_at or item.done_at, reverse=True)
-        return ReviewTimeline(waiting=waiting, reviewed=reviewed[:reviewed_limit])
-
-    def _mark_batches(self, waiting: list[ReviewItem]) -> None:
-        """Mark finished work that one agent note covered together. Each task goes with the
-        most specific recent note that names it and at least one other waiting task (in its
-        title, else in its completed work); a note whose tasks went elsewhere, leaving it one,
-        makes no batch."""
-        work = [i for i in waiting if i.kind == "task" and not i.question]
-        by_project: dict[str, dict[str, ReviewItem]] = {}
-        for item in work:
-            by_project.setdefault(item.project_id, {})[item.ref] = item
-        for project_id, items in by_project.items():
-            if len(items) < 2:
-                continue
-            prefixes = {ref.rsplit("-", 1)[0] for ref in items}
-            since = min(i.done_at for i in items.values()) - BATCH_LOOKBACK
-            notes = self.session.scalars(
-                select(Checkpoint)
-                .where(Checkpoint.project_id == project_id, Checkpoint.created_at >= since)
-                .order_by(Checkpoint.created_at.desc())
-                .limit(BATCH_NOTES)
-            )
-            best: dict[str, tuple[int, int, Checkpoint]] = {}
-            for order, note in enumerate(notes):
-                named: set[str] = set()
-                for text in (note.title, note.completed_work):
-                    named = {r for p in prefixes for r in task_refs(text, p)} & items.keys()
-                    if len(named) >= 2:
-                        break
-                if len(named) < 2:
-                    continue
-                for ref in named:
-                    rank = (len(named), order)
-                    if ref not in best or rank < best[ref][:2]:
-                        best[ref] = (*rank, note)
-            groups: dict[str, list[str]] = {}
-            for ref, (_, _, note) in best.items():
-                groups.setdefault(note.id, []).append(ref)
-            for note_id, refs in groups.items():
-                if len(refs) < 2:
-                    continue
-                title = _batch_title(best[refs[0]][2].title)
-                for ref in refs:
-                    items[ref].batch, items[ref].batch_title = f"batch:{note_id}", title
-
-    def pending(self) -> PendingReviews:
-        items = self.timeline(reviewed_limit=1).waiting
-        by_project: dict[str, int] = {}
-        for item in items:
-            by_project[item.project_id] = by_project.get(item.project_id, 0) + 1
-        return PendingReviews(
-            total=len(items),
-            by_project=by_project,
-            newest=[
-                PendingReviewItem(
-                    key=item.key,
-                    kind=item.kind,
-                    project_name=item.project_name,
-                    agent=item.agent,
-                    title=item.title,
-                    question=item.question,
-                )
-                for item in items[:NEWEST_PENDING]
-            ],
-        )
 
     def waiting_count(self, project_id: str) -> int:
         return self.session.scalar(
@@ -709,7 +622,7 @@ class ReviewService:
             review.moved_to = answered_in
         event = "QUESTION_ANSWERED" if answering else f"REVIEW_{review.status.upper()}"
         extra = {"answered_in": answered_in} if answering and answered_in else {}
-        self._log(task, event, review, comment=_one_line(comment or "", 200), **extra)
+        self._log(task, event, review, comment=one_line(comment or "", 200), **extra)
         if not answering:
             self._tick(task, decision.criteria, only_unmet=decision.verdict == "reject", now=now)
         if decision.verdict == "accept":
@@ -751,9 +664,9 @@ class ReviewService:
             task,
             "REVIEW_REOPENED",
             review,
-            comment=_one_line(payload.comment, 200),
+            comment=one_line(payload.comment, 200),
             accepted_at=accepted_at.isoformat() if accepted_at else None,
-            **({"accepted_comment": _one_line(earlier, 200)} if earlier else {}),
+            **({"accepted_comment": one_line(earlier, 200)} if earlier else {}),
         )
         self.session.flush()
         self.tasks.update(project_id, task.id, TaskUpdate(status="in_progress"))
@@ -809,9 +722,6 @@ class ReviewService:
         return self.detail(project_id, task.id)
 
     # ---- internals ---------------------------------------------------------------------
-
-    def _projects(self) -> dict[str, Project]:
-        return {p.id: p for p in self.session.scalars(select(Project))}
 
     def _waiting(self, project_id: str, task_ref: str) -> tuple[Task, str]:
         task = self.tasks.get(project_id, task_ref)
@@ -936,81 +846,7 @@ class ReviewService:
             .order_by(ActivityEvent.timestamp.desc(), ActivityEvent.id.desc())
             .limit(ENTERED_EVENTS)
         )
-        return _entered_from(task, events)
-
-    def _drafts(self, tasks: list[Task]) -> dict[str, TaskReview]:
-        """The timeline's drafts for many waiting tasks at once: the same as ``_draft(task,
-        named=False)`` for each, in five queries instead of four per task."""
-        if not tasks:
-            return {}
-        ids = [t.id for t in tasks]
-        last_any: dict[str, datetime] = {}
-        last_work: dict[str, datetime] = {}
-        last_round: dict[str, int] = {}
-        for at in range(0, len(ids), 500):
-            chunk = ids[at : at + 500]
-            for task_id, kind, reviewed_at, round_ in self.session.execute(
-                select(
-                    TaskReview.task_id,
-                    TaskReview.kind,
-                    func.max(TaskReview.reviewed_at),
-                    func.max(TaskReview.round),
-                )
-                .where(TaskReview.task_id.in_(chunk))
-                .group_by(TaskReview.task_id, TaskReview.kind)
-            ):
-                last_round[task_id] = max(last_round.get(task_id, 0), round_ or 0)
-                if reviewed_at is not None:
-                    if task_id not in last_any or reviewed_at > last_any[task_id]:
-                        last_any[task_id] = reviewed_at
-                    if kind == "work":
-                        last_work[task_id] = reviewed_at
-        events: dict[str, list[ActivityEvent]] = {}
-        notes: dict[str, list[Checkpoint]] = {}
-        for at in range(0, len(ids), 500):
-            chunk = ids[at : at + 500]
-            ranked = (
-                select(
-                    ActivityEvent.id,
-                    func.row_number()
-                    .over(
-                        partition_by=ActivityEvent.task_id,
-                        order_by=(ActivityEvent.timestamp.desc(), ActivityEvent.id.desc()),
-                    )
-                    .label("n"),
-                )
-                .where(ActivityEvent.task_id.in_(chunk))
-                .subquery()
-            )
-            for event in self.session.scalars(
-                select(ActivityEvent)
-                .join(ranked, ranked.c.id == ActivityEvent.id)
-                .where(ranked.c.n <= ENTERED_EVENTS)
-                .order_by(ActivityEvent.timestamp.desc(), ActivityEvent.id.desc())
-            ):
-                events.setdefault(event.task_id, []).append(event)
-            for checkpoint in self.session.scalars(
-                select(Checkpoint)
-                .where(Checkpoint.task_id.in_(chunk))
-                .order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc())
-            ):
-                notes.setdefault(checkpoint.task_id, []).append(checkpoint)
-        out = {}
-        for task in tasks:
-            question = task.status == QUESTION_STATUS
-            after = last_any.get(task.id) if question else last_work.get(task.id)
-            picked_notes = [
-                _note(c)
-                for c in notes.get(task.id, [])
-                if c.project_id == task.project_id and (after is None or c.created_at > after)
-            ][:NOTES_LIMIT]
-            out[task.id] = self._draft_from(
-                task,
-                picked_notes,
-                _entered_from(task, events.get(task.id, [])),
-                last_round.get(task.id, 0) + 1,
-            )
-        return out
+        return entered_from(task, events)
 
     def _notes(
         self,
@@ -1059,7 +895,7 @@ class ReviewService:
         for checkpoint in self.session.scalars(
             statement.order_by(Checkpoint.created_at.desc(), Checkpoint.id.desc())
         ):
-            note = _note(checkpoint)
+            note = note_from(checkpoint)
             # LIKE also finds CAMP-4520 for CAMP-452, and any note with the number in it.
             if checkpoint.task_id == task.id or ref in task_refs(note.text(), prefix):
                 notes.append(note)
@@ -1085,42 +921,7 @@ class ReviewService:
         Not stored until the person acts on it."""
         question = task.status == QUESTION_STATUS
         notes = self._notes(task, self._since(task, work=not question), named=named)
-        return self._draft_from(task, notes, self._entered(task), self._next_round(task.id))
-
-    def _draft_from(
-        self,
-        task: Task,
-        notes: list[Note],
-        entered: tuple[datetime, str | None, bool],
-        round_: int,
-    ) -> TaskReview:
-        question = task.status == QUESTION_STATUS
-        picked = draft_from_notes(notes, task.id, task.human_id)
-        entered, mover, _ = entered
-        draft = TaskReview(
-            id=None,
-            project_id=task.project_id,
-            task_id=task.id,
-            round=round_,
-            agent=picked.agent or mover or "agent",
-            kind="question" if question else "work",
-            status="pending",
-            summary=picked.summary,
-            done=picked.done,
-            not_done=picked.not_done,
-            how_to_check=None,
-            details=NEXT_STEPS + "\n".join(f"- {s}" for s in picked.next_steps)
-            if picked.next_steps
-            else None,
-            options=None,
-            follow_ups=[],
-            generated=True,
-            created_at=entered,
-            reviewed_at=None,
-            comment=None,
-        )
-        draft.panel_notes = (notes, picked)  # shown with it, never stored
-        return draft
+        return draft_from(task, notes, self._entered(task), self._next_round(task.id))
 
     def _files(self, review_ids: list[str]) -> dict[str, list[ReviewFileRead]]:
         found: dict[str, list[ReviewFileRead]] = {}
@@ -1224,188 +1025,6 @@ class ReviewService:
             )
         )
 
-    @staticmethod
-    def _project_fields(project: Project) -> dict:
-        return {
-            "project_id": project.id,
-            "project_name": project.name,
-            "project_icon": project.icon,
-            "project_accent": project.accent,
-        }
-
-    def _waiting_tasks(self, project_id: str | None, projects: dict[str, Project]):
-        statement = (
-            select(Task)
-            .join(Project, Project.id == Task.project_id)
-            .where(Task.status.in_((WAITING_STATUS, QUESTION_STATUS)), Project.status != "archived")
-        )
-        if project_id:
-            statement = statement.where(Task.project_id == project_id)
-        tasks = list(self.session.scalars(statement))
-        pending = {
-            r.task_id: r
-            for r in self.session.scalars(
-                select(TaskReview).where(
-                    TaskReview.task_id.in_([t.id for t in tasks]), TaskReview.status == "pending"
-                )
-            )
-        }
-        # A blocked task waits for the person only while an agent's question waits for an
-        # answer. Blocked alone (on a supplier, a date, another task) is not for Review.
-        tasks = [
-            t
-            for t in tasks
-            if t.status == WAITING_STATUS
-            or (pending.get(t.id) is not None and pending[t.id].kind == "question")
-        ]
-        counts = dict(
-            self.session.execute(
-                select(ReviewFile.review_id, func.count(ReviewFile.id))
-                .where(
-                    ReviewFile.review_id.in_([r.id for r in pending.values()]),
-                    ReviewFile.kind == "screenshot",
-                )
-                .group_by(ReviewFile.review_id)
-            ).all()
-        )
-        drafts = self._drafts([t for t in tasks if t.id not in pending])
-        items = []
-        for task in tasks:
-            review = pending.get(task.id) or drafts[task.id]
-            items.append(
-                ReviewItem(
-                    kind="task",
-                    key=f"task:{task.id}",
-                    **self._project_fields(projects[task.project_id]),
-                    ref=task.human_id,
-                    title=task.title,
-                    summary=_one_line(review.summary),
-                    agent=review.agent,
-                    done_at=review.created_at,
-                    reviewed_at=None,
-                    verdict=None,
-                    question=task.status == QUESTION_STATUS,
-                    task_status=task.status,
-                    round=review.round,
-                    screenshots=counts.get(review.id, 0) if review.id else 0,
-                    generated=review.generated,
-                )
-            )
-        return items
-
-    def _reviewed_tasks(
-        self,
-        project_id: str | None,
-        projects: dict[str, Project],
-        limit: int,
-        waiting: Iterable[str] = (),
-    ):
-        """One line per task: your latest decision on it. A task waiting for you again is in the
-        waiting list instead, so it is never listed twice."""
-        statement = (
-            select(TaskReview, Task)
-            .join(Task, Task.id == TaskReview.task_id)
-            .where(TaskReview.status.in_(("accepted", "rejected", "answered")))
-        )
-        if project_id:
-            statement = statement.where(TaskReview.project_id == project_id)
-        rows = []
-        seen: set[str] = set(waiting)
-        for review, task in self.session.execute(
-            statement.order_by(TaskReview.reviewed_at.desc(), TaskReview.round.desc())
-        ):
-            if task.id in seen:
-                continue
-            seen.add(task.id)
-            rows.append((review, task))
-            if len(rows) >= limit:
-                break
-        counts = dict(
-            self.session.execute(
-                select(ReviewFile.review_id, func.count(ReviewFile.id))
-                .where(
-                    ReviewFile.review_id.in_([r.id for r, _ in rows]),
-                    ReviewFile.kind == "screenshot",
-                )
-                .group_by(ReviewFile.review_id)
-            ).all()
-        )
-        return [
-            ReviewItem(
-                kind="task",
-                key=f"review:{review.id}",
-                **self._project_fields(projects[task.project_id]),
-                ref=task.human_id,
-                title=task.title,
-                summary=_one_line(review.summary),
-                agent=review.agent,
-                done_at=review.created_at,
-                reviewed_at=review.reviewed_at,
-                verdict=review.status,  # type: ignore[arg-type]
-                question=review.kind == "question",
-                task_status=task.status,
-                moved_to=review.moved_to,
-                round=review.round,
-                screenshots=counts.get(review.id, 0),
-                generated=review.generated,
-            )
-            for review, task in rows
-        ]
-
-    def _suggestions(self, project_id: str | None, statuses: tuple[str, ...], limit: int | None):
-        from app.services.proposals import ProposalService
-
-        statement = select(Proposal).where(Proposal.status.in_(statuses))
-        if project_id:
-            statement = statement.where(Proposal.project_id == project_id)
-        order = (
-            Proposal.created_at.desc() if statuses == ("pending",) else Proposal.reviewed_at.desc()
-        )
-        statement = statement.order_by(order)
-        if limit:
-            statement = statement.limit(limit)
-        service = ProposalService(self.session)
-        return [(p, service._read(p)) for p in self.session.scalars(statement)]
-
-    def _suggestion_item(
-        self, proposal: Proposal, read, projects: dict[str, Project]
-    ) -> ReviewItem:
-        from app.services.proposals import _summary
-
-        return ReviewItem(
-            kind="suggestion",
-            key=f"proposal:{proposal.id}",
-            **self._project_fields(projects[proposal.project_id]),
-            ref=proposal.human_id,
-            title=_one_line(_summary(proposal), 200),
-            summary=_one_line(proposal.reason or "; ".join(read.changes)),
-            agent=proposal.agent,
-            done_at=proposal.created_at,
-            reviewed_at=proposal.reviewed_at,
-            verdict=proposal.status if proposal.status != "pending" else None,  # type: ignore[arg-type]
-        )
-
-    def _waiting_suggestions(self, project_id: str | None, projects: dict[str, Project]):
-        in_review = set(self.session.scalars(select(Task.id).where(Task.status == WAITING_STATUS)))
-        items = []
-        for proposal, read in self._suggestions(project_id, ("pending",), None):
-            project = projects.get(proposal.project_id)
-            if project is None or project.status == "archived":
-                continue
-            if proposal.proposal_type == "complete_task" and proposal.target_entity_id in in_review:
-                continue  # the task's own review covers it
-            items.append(self._suggestion_item(proposal, read, projects))
-        return items
-
-    def _reviewed_suggestions(
-        self, project_id: str | None, projects: dict[str, Project], limit: int
-    ):
-        return [
-            self._suggestion_item(proposal, read, projects)
-            for proposal, read in self._suggestions(project_id, ("accepted", "rejected"), limit)
-            if proposal.project_id in projects
-        ]
-
     def _log(self, task: Task, event: str, review: TaskReview, **extra) -> None:
         ActivityService(self.session).record(
             task.project_id,
@@ -1428,17 +1047,7 @@ def _aware(moment: datetime) -> datetime:
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
-def _batch_title(title: str) -> str:
-    """A batch note's title as the batch's name: the words before its colon when they say
-    something ("Camp helper batch: CAMP-1 3784f03b, …"), without commit hashes."""
-    head, colon, _ = title.partition(":")
-    if colon and len(WORD.findall(TASK_REF.sub(" ", head))) >= 2:
-        title = head
-    title = re.sub(r"\s{2,}", " ", HASH.sub(" ", title)).strip(" ,;")
-    return _one_line(title, 120)
-
-
-def _note(checkpoint: Checkpoint) -> Note:
+def note_from(checkpoint: Checkpoint) -> Note:
     return Note(
         title=checkpoint.title,
         created_at=checkpoint.created_at,
@@ -1452,7 +1061,7 @@ def _note(checkpoint: Checkpoint) -> Note:
     )
 
 
-def _entered_from(task: Task, events: Iterable[ActivityEvent]) -> tuple[datetime, str | None, bool]:
+def entered_from(task: Task, events: Iterable[ActivityEvent]) -> tuple[datetime, str | None, bool]:
     """When the task last moved to its current status, who moved it, and whether that was an
     agent, from its recent activity, newest first."""
     for event in events:
@@ -1464,3 +1073,38 @@ def _entered_from(task: Task, events: Iterable[ActivityEvent]) -> tuple[datetime
             )
             return event.timestamp, who, by_agent
     return task.updated_at, None, False
+
+
+def draft_from(
+    task: Task,
+    notes: list[Note],
+    entered: tuple[datetime, str | None, bool],
+    round_: int,
+) -> TaskReview:
+    question = task.status == QUESTION_STATUS
+    picked = draft_from_notes(notes, task.id, task.human_id)
+    entered, mover, _ = entered
+    draft = TaskReview(
+        id=None,
+        project_id=task.project_id,
+        task_id=task.id,
+        round=round_,
+        agent=picked.agent or mover or "agent",
+        kind="question" if question else "work",
+        status="pending",
+        summary=picked.summary,
+        done=picked.done,
+        not_done=picked.not_done,
+        how_to_check=None,
+        details=NEXT_STEPS + "\n".join(f"- {s}" for s in picked.next_steps)
+        if picked.next_steps
+        else None,
+        options=None,
+        follow_ups=[],
+        generated=True,
+        created_at=entered,
+        reviewed_at=None,
+        comment=None,
+    )
+    draft.panel_notes = (notes, picked)  # shown with it, never stored
+    return draft
