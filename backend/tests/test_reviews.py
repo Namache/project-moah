@@ -885,6 +885,7 @@ async def test_the_timeline_reads_many_waiting_tasks_in_a_fixed_number_of_querie
 
     from app.db.session import make_engine, make_session_factory
     from app.models.task import Task
+    from app.services.review_list import ReviewList
     from app.services.reviews import ReviewService
 
     async with app_client(database_url) as client:
@@ -944,7 +945,7 @@ async def test_the_timeline_reads_many_waiting_tasks_in_a_fixed_number_of_querie
             event.listen(engine, "before_cursor_execute", counted)
             try:
                 with make_session_factory(engine)() as session:
-                    items = ReviewService(session).timeline().waiting
+                    items = ReviewList(session).timeline().waiting
             finally:
                 event.remove(engine, "before_cursor_execute", counted)
             return count["n"], items

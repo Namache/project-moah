@@ -271,7 +271,7 @@ async def test_related_memory_is_found_when_only_some_words_match(client) -> Non
 
 
 def test_budget_takes_the_best_set_and_skips_repeats() -> None:
-    from app.services.context import ContextService, Item
+    from app.services.pack_layout import Item, fit
 
     def record(title: str, text: str, score: float, tier: int = 3) -> Item:
         return Item("decisions", "memory:decision", title, title, text, tier, score)
@@ -280,7 +280,7 @@ def test_budget_takes_the_best_set_and_skips_repeats() -> None:
     short_a = record("Short A", "Recruitment checks party capacity first.", 50)
     short_b = record("Short B", "Tents add two camp slots each.", 50)
     omitted: Counter[str] = Counter()
-    kept, _ = ContextService._fit([long, short_a, short_b], 100, "balanced", omitted)
+    kept, _ = fit([long, short_a, short_b], 100, "balanced", omitted)
     # In line, the long record came first and would have blocked both short ones.
     assert short_a in kept and short_b in kept and long not in kept
     assert omitted["budget"] == 1
@@ -288,7 +288,7 @@ def test_budget_takes_the_best_set_and_skips_repeats() -> None:
     first = record("Camp capacity", "Camp capacity limits recruited folk to six", 50)
     again = record("Camp capacity again", "Camp capacity limits recruited folk to six", 40)
     omitted = Counter()
-    kept, _ = ContextService._fit([first, again], 1500, "balanced", omitted)
+    kept, _ = fit([first, again], 1500, "balanced", omitted)
     assert kept == [first] and omitted["repeats"] == 1
 
 

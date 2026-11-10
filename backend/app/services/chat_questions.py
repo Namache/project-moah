@@ -44,6 +44,7 @@ from app.services.activity import acting_as
 from app.services.agent_sessions import PROMPT, TASK
 from app.services.hook_text import asks, question_parts, stop_message, valid_id
 from app.services.reviews import ANSWERED_IN_CHAT, CLOSED, QUESTION_STATUS, ReviewService
+from app.services.words import REF_PATTERN
 
 ASKABLE = ("backlog", "todo", "in_progress", "blocked")
 # Where a message the person wrote may find its task: open work, not what is waiting or done.
@@ -151,10 +152,10 @@ def _project(session: Session, agent: str, session_id: str, cwd: object) -> Proj
 
 def named_task(session: Session, project: Project, message: str) -> Task | None:
     """The open task the person's message names by ID, or the one task whose title and tags
-    plainly match it, as context packs choose (services/context.py _infer_task)."""
+    plainly match it, as context packs choose (services/context.py infer_task)."""
     from app.services.context import ContextService
 
-    inferred = ContextService(session)._infer_task(
+    inferred = ContextService(session).infer_task(
         project, message, statuses=PROMPT_STATUSES, brief_fallback=False
     )
     return session.get(Task, inferred[0]) if inferred else None
@@ -163,14 +164,14 @@ def named_task(session: Session, project: Project, message: str) -> Task | None:
 def id_named(session: Session, project: Project, message: str) -> Task | None:
     """The one open task of ``project`` the message names by ID, or None when it names none or
     several (a message comparing two tasks says nothing about which one comes next)."""
-    from app.services.context import REF_PATTERN, ContextService
+    from app.services.context import ContextService
     from app.services.tasks import CLOSED_STATUSES
 
     finder = ContextService(session)
     found = {
         task.id: task
         for ref in REF_PATTERN.findall(message)
-        if (task := finder._task_by_ref(project.id, ref)) is not None
+        if (task := finder.task_by_ref(project.id, ref)) is not None
         and task.status not in CLOSED_STATUSES
     }
     return next(iter(found.values())) if len(found) == 1 else None

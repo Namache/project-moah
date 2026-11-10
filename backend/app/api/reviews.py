@@ -19,6 +19,7 @@ from app.schemas.review import (
 from app.services.agent_prompts import fix_prompt
 from app.services.errors import invalid
 from app.services.projects import ProjectService
+from app.services.review_list import ReviewList
 from app.services.reviews import ReviewService
 from app.services.settings import get_agent_settings
 
@@ -34,12 +35,12 @@ def review_timeline(
     project_id: Annotated[str | None, Query(max_length=36)] = None,
     reviewed_limit: Annotated[int, Query(ge=1, le=300)] = 80,
 ) -> ReviewTimeline:
-    return ReviewService(session).timeline(project_id, reviewed_limit)
+    return ReviewList(session).timeline(project_id, reviewed_limit)
 
 
 @router.get("/reviews/pending", response_model=PendingReviews)
 def pending_reviews(session: DatabaseSession) -> PendingReviews:
-    return ReviewService(session).pending()
+    return ReviewList(session).pending()
 
 
 @router.get(TASK, response_model=ReviewDetail)

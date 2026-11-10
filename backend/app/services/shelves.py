@@ -46,8 +46,8 @@ from app.services.activity import ActivityService
 from app.services.errors import conflict, invalid, not_found
 from app.services.graph import GraphService, Node
 from app.services.projects import ProjectService
-from app.services.search import STOPWORDS
 from app.services.text import name_key
+from app.services.words import STOPWORDS, WORD, stem, stems
 
 ACTIVATION_THRESHOLD = 0.3
 WORD_EVIDENCE = "shelf_word_evidence"  # {shelf id: {word: [retrieval ids]}}
@@ -58,21 +58,6 @@ FILE_EVIDENCE = 1.5
 # A project with this many records filed is settled: a branch it has never used weighs half.
 SETTLED = 5
 LEARNABLE = re.compile(r"[a-z][a-z']{3,}")
-WORD = re.compile(r"[\w']+")
-
-
-@lru_cache(maxsize=16384)
-def stem(word: str) -> str:
-    """A light stem so 'inventories', 'saving' and 'saved' meet 'inventory' and 'save'."""
-    w = word.casefold().strip("'")
-    for suffix, replacement in (("ies", "y"), ("ing", ""), ("ed", ""), ("es", ""), ("s", "")):
-        if len(w) > len(suffix) + 2 and w.endswith(suffix):
-            return w[: -len(suffix)] + replacement
-    return w
-
-
-def stems(text: str) -> set[str]:
-    return {stem(w) for w in WORD.findall(text)}
 
 
 @lru_cache(maxsize=4096)

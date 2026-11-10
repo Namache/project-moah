@@ -13,7 +13,6 @@ Ranking, in order:
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 
 from sqlalchemy import text
@@ -21,19 +20,11 @@ from sqlalchemy.orm import Session
 
 from app.models.memory import MEMORY_STATUSES
 from app.services.projects import ProjectService
+from app.services.words import STOPWORDS, TERM_PATTERN
 
 MAX_TERMS = 12
 AGENT_HIDDEN_VISIBILITY = ("hidden", "manual_only")
-TERM_PATTERN = re.compile(r"\w+", re.UNICODE)
 SNIPPET_TOKENS = 24
-
-
-# Words too common to say whether a record is related; only dropped when any word may match.
-STOPWORDS = frozenset(
-    "a an and are as at be but by do for from has have how if in into is it its of on or so"
-    " that the their then there these this to was we were what when which while who why will"
-    " with without you your add fix make use update set get".split()
-)
 
 
 def without_trailing_tags(snippet: str, tags: Iterable[str]) -> str:

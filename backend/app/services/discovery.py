@@ -47,8 +47,8 @@ from app.models.memory import Memory
 from app.models.project import GLOBAL_PROJECT_ID, Project
 from app.models.task import Task
 from app.services.graph import MENTION_PATTERN, GraphService, Node
-from app.services.search import STOPWORDS, SearchService
-from app.services.shelves import stem
+from app.services.search import SearchService
+from app.services.words import STOPWORDS, stem
 
 log = logging.getLogger(__name__)
 

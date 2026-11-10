@@ -40,10 +40,10 @@ from app.schemas.memory import HUMAN, MemoryCreate
 from app.services.discovery import DiscoveryService, in_every_pack
 from app.services.errors import invalid, not_found
 from app.services.graph import GraphService, Node
-from app.services.search import STOPWORDS
 from app.services.shelves import WORD_EVIDENCE, ShelfService, is_common
 from app.services.text import name_key
 from app.services.upkeep import DECAY_SETTING, _aware
+from app.services.words import STOPWORDS, stem
 
 STRONG_FROM = 0.7
 CLUSTER_MIN = 4  # smaller groups are just a few linked records
@@ -673,8 +673,6 @@ class HealthService:
 
     def share_suggestions(self) -> list[dict]:
         """The same lesson written in two projects, worth one Global record."""
-        from app.services.shelves import stem
-
         rows = list(
             self.session.scalars(
                 select(Memory).where(

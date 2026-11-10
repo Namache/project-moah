@@ -35,6 +35,7 @@ from app.models.project import utc_now
 from app.services.builds import current_build
 from app.services.errors import invalid, not_found
 from app.services.graph import LEARNED_CONFIDENCE, GraphService, Node
+from app.services.words import REF_PATTERN
 
 USEFUL_DELTA = 0.08
 NOT_USEFUL_DELTA = -0.08
@@ -338,7 +339,6 @@ class RetrievalService:
         as if the agent had sent it as useful, unless the session already gave a verdict on it
         in any of those packs. Returns each retrieval's short id with the IDs counted, or None.
         Never raises: learning never fails a checkpoint."""
-        from app.services.context import REF_PATTERN
         from app.services.memory import MemoryService
 
         if not refs:
