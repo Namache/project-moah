@@ -44,6 +44,7 @@ from app.services.activity import acting_as
 from app.services.agent_sessions import PROMPT, TASK
 from app.services.hook_text import asks, question_parts, stop_message, valid_id
 from app.services.reviews import ANSWERED_IN_CHAT, CLOSED, QUESTION_STATUS, ReviewService
+from app.services.words import REF_PATTERN
 
 ASKABLE = ("backlog", "todo", "in_progress", "blocked")
 # Where a message the person wrote may find its task: open work, not what is waiting or done.
@@ -163,7 +164,7 @@ def named_task(session: Session, project: Project, message: str) -> Task | None:
 def id_named(session: Session, project: Project, message: str) -> Task | None:
     """The one open task of ``project`` the message names by ID, or None when it names none or
     several (a message comparing two tasks says nothing about which one comes next)."""
-    from app.services.context import REF_PATTERN, ContextService
+    from app.services.context import ContextService
     from app.services.tasks import CLOSED_STATUSES
 
     finder = ContextService(session)

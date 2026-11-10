@@ -70,6 +70,7 @@ from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
 from app.services.tasks import TaskService
 from app.services.update_check import install_steps, take_daily_check
+from app.services.words import STOPWORDS, TERM_PATTERN, title_words
 
 # In the system prompt of every session, next to the brief, so it says only what a client
 # without the start-up hook needs to get the brief. The brief itself says when to fetch more.
@@ -267,31 +268,40 @@ TASK_DUPLICATE_HINT = (
 DONE_TASK_STATUSES = ("completed", "archived")
 
 
-def possible_duplicate_tasks(session: Session, project_id: str, task_id: str, title: str) -> dict:
-    """Up to three unfinished tasks whose titles share at least two meaningful words with
-    ``title`` (its only one, for a one-word title): every request gets a task now, so the same
-    request asked twice must not quietly become two. Empty when none match."""
-    from app.services.context import match_keys
-
-    def words(text: str) -> set[str]:
-        return {k for k in match_keys(text) if len(k) > 2}
-
-    own = words(title)
+def same_titles(
+    session: Session, title: str, own_id: str, search: dict[str, Any]
+) -> list[dict] | None:
+    """Up to three search hits other than ``own_id`` whose titles share at least two meaningful
+    words with ``title`` (its only one, for a one-word title). Words in a record's body do not
+    count: a shared word there says little about the same thing being said twice. None when
+    the search fails: the record is saved, and a hint must never fail the write."""
+    own = title_words(title)
     if not own:
-        return {}
+        return []
     try:
-        hits = SearchService(session).search(
-            title, project_id=project_id, entity_types=["task"], any_word=True, limit=20
-        )
-    except Exception:  # noqa: BLE001 - the task is saved; a hint must never fail the write
+        hits = SearchService(session).search(title, any_word=True, limit=20, **search)
+    except Exception:  # noqa: BLE001 - the record is saved; a hint must never fail the write
         session.rollback()
-        return {}
+        return None
+    return [
+        h
+        for h in hits["items"]
+        if h["entity_id"] != own_id
+        and len(own & title_words(h["title"])) >= min(DUPLICATE_SHARED, len(own))
+    ]
+
+
+def possible_duplicate_tasks(session: Session, project_id: str, task_id: str, title: str) -> dict:
+    """Up to three unfinished tasks with nearly the same title (see same_titles): every request
+    gets a task now, so the same request asked twice must not quietly become two. Empty when
+    none match."""
+    hits = same_titles(
+        session, title, task_id, {"project_id": project_id, "entity_types": ["task"]}
+    )
     same = [
         {"id": h["human_id"], "title": h["title"], "status": h["status"]}
-        for h in hits["items"]
-        if h["entity_id"] != task_id
-        and h["status"] not in DONE_TASK_STATUSES
-        and len(own & words(h["title"])) >= min(DUPLICATE_SHARED, len(own))
+        for h in hits or []
+        if h["status"] not in DONE_TASK_STATUSES
     ][:3]
     return {"possible_duplicates": same, "duplicates_hint": TASK_DUPLICATE_HINT} if same else {}
 
@@ -305,37 +315,17 @@ def refuse_global_rule(project: Project, memory: Memory) -> None:
 def possible_duplicates(
     session: Session, project_id: str, memory_id: str, memory_type: str, title: str
 ) -> dict:
-    """Up to three active records of the same type whose titles share at least two meaningful
-    words with ``title`` (its only one, for a one-word title), so an agent recording an answer
-    can see whether Moah already said it. Words in a record's content do not count: a shared
-    word there says little about the same thing being said twice. Empty when none match."""
-    from app.services.context import match_keys
-
-    def words(text: str) -> set[str]:
-        return {k for k in match_keys(text) if len(k) > 2}  # "no", "up": no topic of their own
-
-    own = words(title)
-    if not own:
-        return {}
-    try:
-        hits = SearchService(session).search(
-            title,
-            project_id=project_id,
-            entity_types=["memory"],
-            memory_types=[memory_type],
-            for_agent=True,
-            any_word=True,
-            limit=20,
-        )
-    except Exception:  # noqa: BLE001 - the record is saved; a hint must never fail the write
-        session.rollback()
-        return {}
-    same = [
-        {"id": h["human_id"], "title": h["title"]}
-        for h in hits["items"]
-        if h["entity_id"] != memory_id
-        and len(own & words(h["title"])) >= min(DUPLICATE_SHARED, len(own))
-    ][:3]
+    """Up to three active records of the same type with nearly the same title (see
+    same_titles), so an agent recording an answer can see whether Moah already said it. Empty
+    when none match."""
+    search = {
+        "project_id": project_id,
+        "entity_types": ["memory"],
+        "memory_types": [memory_type],
+        "for_agent": True,
+    }
+    hits = same_titles(session, title, memory_id, search)
+    same = [{"id": h["human_id"], "title": h["title"]} for h in hits or []][:3]
     return {"possible_duplicates": same, "duplicates_hint": DUPLICATE_HINT} if same else {}
 
 
@@ -347,8 +337,6 @@ def near_misses(
 ) -> list[dict]:
     """Records with every meaningful word of the query but one, best first, that ``found``
     does not hold yet. Only for three words or more: of two, one word is too loose a match."""
-    from app.services.search import STOPWORDS, TERM_PATTERN
-
     terms = list(
         dict.fromkeys(t for t in TERM_PATTERN.findall(query) if t.casefold() not in STOPWORDS)
     )

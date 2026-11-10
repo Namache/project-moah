@@ -17,8 +17,9 @@ from app.db.session import make_engine, make_session_factory
 from app.models.graph import RetrievalSession
 from app.models.project import Project
 from app.services.brief import build_brief, listed_rules, work_refs
-from app.services.context import ContextService, match_keys
+from app.services.context import ContextService
 from app.services.memory import MemoryService
+from app.services.words import match_keys
 from tests.conftest import app_client
 from tests.test_mcp import agent, call
 

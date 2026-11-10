@@ -91,6 +91,7 @@ from app.services.settings import get_agent_settings
 from app.services.shelves import ShelfService
 from app.services.tasks import CLOSED_STATUSES, TaskService
 from app.services.tokens import base_tokens, count_tokens, factor
+from app.services.words import REF_PATTERN, match_keys, stems
 
 DEFAULT_BUDGETS: dict[str, int] = {"minimal": 750, "balanced": 1500, "detailed": 3000}
 # Task inference, for a request with no task and no focus set (see _infer_task). These words say
@@ -130,18 +131,11 @@ MIN_COVERAGE = 0.4
 BODY_WEIGHT = 0.6
 # An idea, or a non-decision when the request asks what was decided, needs every word.
 FULL_COVERAGE = 0.99
-# Chat filler that says nothing about which records matter.
-FILLER = frozenset(
-    "about again also any can could did does done just know let lets look need now please"
-    " should show still tell think want would".split()
-)
 # Words that ask what was decided: decisions and rules rank first.
 DECISION_WORDS = frozenset(
     "agreed choice chose chosen decide decided decision decisions settle settled".split()
 )
 DECISION_BOOST = 1.25
-# Record IDs typed in a request ("check AUDIO-1"): an exact match beats any word match.
-REF_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9]*-\d+\b")
 # A record reached over a link nobody verified (a guess, or a weak inferred link) counts this
 # much of one reached over verified links (made or confirmed by a person, or built in).
 VERIFIED_CONFIDENCE = 0.8
@@ -238,23 +232,6 @@ CAPS: dict[str, dict[str, int]] = {
 def estimate_tokens(text: str, provider: str | None = None) -> int:
     """Tokens of ``text`` for the asking agent's provider, counted locally (services/tokens)."""
     return count_tokens(text, provider)
-
-
-def match_keys(text: str) -> set[str]:
-    """The meaningful words of a text, lightly stemmed, for comparing work with records."""
-    from app.services.search import STOPWORDS
-    from app.services.shelves import WORD, stem
-
-    keys = set()
-    for word in WORD.findall(text.replace("\u2019", "'")):
-        low = word.casefold().strip("'")
-        if low.endswith("'s"):
-            low = low[:-2]  # possessives and "let's": the word itself
-        if low in STOPWORDS or low in FILLER or low.isdigit() or REF_PATTERN.fullmatch(word):
-            continue
-        key = stem(low)
-        keys.add(key[:-1] if len(key) > 3 and key.endswith("e") else key)  # save, saves: sav
-    return keys
 
 
 WORK_KEYS = frozenset(match_keys(WORK_WORDS))
@@ -1140,7 +1117,6 @@ class ContextService:
         from sqlalchemy import select
 
         from app.models.graph import RetrievalSession
-        from app.services.shelves import stems
 
         sessions = [
             r
@@ -1999,8 +1975,6 @@ class ContextService:
         """Drop a record that says nearly the same as a higher-ranked one in its section, so the
         budget is not spent twice on one point. Only memory records: tasks and files are never
         repeats of each other."""
-        from app.services.shelves import stems
-
         out: list[Item] = []
         words: list[tuple[str, set[str]]] = []
         for item in ranked:
