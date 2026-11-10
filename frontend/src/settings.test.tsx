@@ -90,6 +90,9 @@ describe("settings", () => {
     expect(report).toContain("Migration: 0007_proposals");
     expect(report).toContain("Records: projects 2, tasks 5, pending proposals 1");
     expect(report).not.toContain("Dictation");
+    expect(report).toContain("Database: /home/u/.var/app/x/data/project-brain/project-brain.db");
+    // Pasted into public bug reports: the service's version without the user name wins.
+    expect(diagnosticReport({ ...diag, database: { ...diag.database, report_path: "~/.var/app/x/data/project-brain/project-brain.db" } })).toContain("Database: ~/.var/app/x/data/project-brain/project-brain.db (");
   });
 
   it("puts how dictation did into the report and the card, with times and never words", async () => {

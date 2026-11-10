@@ -25,7 +25,7 @@ export function diagnosticReport(d: Diagnostics): string {
   const size = d.database.size_bytes === null ? "unknown" : `${(d.database.size_bytes / 1_048_576).toFixed(d.database.size_bytes < 10_485_760 ? 2 : 1)} MB`;
   return [
     `Project Moah ${d.app_version}`, `Platform: ${d.platform}`, `Python ${d.python}, SQLite ${d.sqlite_version}`,
-    `Database: ${d.database.path ?? "unknown"} (${size})`,
+    `Database: ${d.database.report_path ?? d.database.path ?? "unknown"} (${size})`,
     `Migration: ${d.database.migration}`, `Integrity: ${d.database.integrity}, foreign key problems: ${d.database.foreign_key_problems}`,
     `Search index: ${d.database.search_index_ready ? "ready" : "unavailable"}`, `Git: ${d.git.available ? d.git.version ?? "available" : "not available"}`,
     `Records: ${Object.entries(d.counts).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(", ")}`,

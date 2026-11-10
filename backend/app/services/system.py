@@ -182,6 +182,8 @@ def diagnostics(session: Session) -> dict:
         "sqlite_version": sqlite3.sqlite_version,
         "database": {
             "path": str(path) if path else None,
+            # For the copied report, which people paste into public bug reports.
+            "report_path": error_log.hide_home(str(path)) if path else None,
             "size_bytes": path.stat().st_size if path and path.exists() else None,
             "migration": migration,
             "integrity": integrity,

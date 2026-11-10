@@ -31,6 +31,20 @@ async def test_diagnostics_report_health_without_leaking_content(
     assert "Secret" not in str(report) and "secret plan" not in str(report)  # counts, never content
 
 
+async def test_the_copied_report_shows_the_database_under_the_home_folder_as_tilde(
+    client: AsyncClient, monkeypatch, tmp_path: Path
+) -> None:
+    home = tmp_path.resolve() / "someone"  # resolved: Windows runners have short 8.3 names
+    (home / "data").mkdir(parents=True)
+    url = f"sqlite:///{(home / 'data' / 'project-brain.db').as_posix()}"
+    monkeypatch.setenv("PROJECT_BRAIN_DATABASE_URL", url)
+    monkeypatch.setattr(Path, "home", lambda: home)
+    async with app_client(url) as own:
+        database = (await own.get("/api/system/diagnostics")).json()["database"]
+    assert database["path"] == str((home / "data" / "project-brain.db").resolve())
+    assert database["report_path"] == str(Path("~") / "data" / "project-brain.db")
+
+
 async def test_export_is_a_consistent_copy_that_opens_on_its_own(
     client: AsyncClient, database_url: str, monkeypatch, tmp_path: Path
 ) -> None:

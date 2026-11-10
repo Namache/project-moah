@@ -104,3 +104,24 @@ async def test_api_reads_records_and_clears_the_log(client: AsyncClient, logs: P
     assert "TypeError" not in json.dumps(report)  # the report counts errors, it never quotes them
     assert (await client.delete("/api/system/errors")).status_code == 204
     assert (await client.get("/api/system/errors")).json()["total"] == 0
+
+
+def test_the_home_folder_is_hidden_however_it_is_spelled(monkeypatch) -> None:
+    from pathlib import PureWindowsPath
+
+    monkeypatch.setattr(Path, "home", lambda: PureWindowsPath("C:/Users/Someone"))
+    monkeypatch.setattr(error_log.sys, "platform", "win32")
+    text = (
+        r"C:\Users\Someone\AppData\Local\project-brain\project-brain.db, "
+        "sqlite:///C:/Users/Someone/AppData/x.db, c:\\users\\someone\\repo, "
+        r"C:\Users\Someone2\repo"
+    )
+    assert error_log.hide_home(text) == (
+        r"~\AppData\Local\project-brain\project-brain.db, sqlite:///~/AppData/x.db, ~\repo, "
+        r"C:\Users\Someone2\repo"
+    )
+    monkeypatch.setattr(Path, "home", lambda: Path("/home/someone"))
+    monkeypatch.setattr(error_log.sys, "platform", "linux")
+    assert error_log.hide_home("/var/home/someone/a, /home/someone, /home/Someone/b") == (
+        "~/a, ~, /home/Someone/b"
+    )
