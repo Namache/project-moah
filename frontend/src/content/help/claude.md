@@ -19,10 +19,12 @@ Project Moah gives agents a local MCP server. It runs on your computer and needs
 
 **Why load your rules at the start?** The second snippet hands Claude your Global rules, the project's rules and its unfinished task, with what is already decided for it, before your first message, every session. Without it, Claude gets them only if it decides to ask, and it often does not. If your rules already load on their own, this step is set up.
 
-The same file gets two more hooks. When Claude ends its turn on a question for you, the first puts it into [Review](/review), so it waits there if you are away. When you reply in the chat, the second settles it. They print nothing and never stop Claude.
+The same file gets more hooks, so [Review](/review) and the chat stay in step. When Claude ends its turn on a question for you, one of them puts it into Review, so it waits there if you are away, and your reply in the chat settles it. When you answer in Review instead, the answer goes back to the chat that asked, and wakes it if it is idle. A chat you closed gets the answer the next time you write in it. They never stop Claude.
 
 {{only flatpak}}
 Running your agent inside a container such as distrobox? The connection works as shown, because the `flatpak` command is forwarded to the host. To let Project Moah read your repository for Files and Git, see [[troubleshooting-container]].
+
+Project Moah keeps these hooks up to date itself. When it starts, it checks `~/.claude/settings.json`, the one Claude Code file it may change, and updates its own hooks there. Nothing to run after an update.
 {{end}}
 {{only deb}}
 The `project-moah-mcp` command was installed with the app, so these commands work from any folder.

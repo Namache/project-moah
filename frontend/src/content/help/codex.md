@@ -19,10 +19,12 @@ Project Moah gives agents a local MCP server. It runs on your computer and needs
 
 Codex has no start-up hook, so the line in `~/.codex/AGENTS.md` asks it to call `brain_brief` first. The server's own instructions say the same.
 
-The two hooks in `~/.codex/hooks.json` put a question Codex asks in the chat into [Review](/review), and settle it when you reply there. Codex runs new hooks only after you trust them: type `/hooks` in Codex once and trust both. They print nothing and never stop Codex.
+The hooks in `~/.codex/hooks.json` put a question Codex asks in the chat into [Review](/review), settle it when you reply there, and send your answer from Review back to the chat that asked. Codex asks once to trust Moah's new hook: run `/hooks` in Codex, or Settings > Hooks in the Codex app. That check is Codex's own, so Moah can't skip it. Hooks Moah doesn't change stay trusted. They never stop Codex.
 
 {{only flatpak}}
 Running your agent inside a container such as distrobox? The connection works as shown, because the `flatpak` command is forwarded to the host. To let Project Moah read your repository for Files and Git, see [[troubleshooting-container]].
+
+Project Moah keeps its hooks in `~/.codex/hooks.json` up to date itself when it starts. When an update changes one, Codex asks you to trust it again: run `/hooks`.
 {{end}}
 {{only deb}}
 The `project-moah-mcp` command was installed with the app, so these commands work from any folder.

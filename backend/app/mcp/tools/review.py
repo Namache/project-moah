@@ -46,6 +46,7 @@ def register(kit: ToolKit) -> None:
     actor = kit.actor
     working = kit.working
     packs = kit.packs
+    chat_session = kit.chat_session
     session_factory = kit.session_factory
 
     @tool(WRITE)
@@ -69,7 +70,9 @@ def register(kit: ToolKit) -> None:
         payload = AskPerson(question=question, context=context, options=options or [])
         about = TaskService(session).get(found.id, task)
         closed = about.human_id if about.status in CLOSED else None
-        review = ReviewService(session).ask(found.id, about.id, payload, agent)
+        review = ReviewService(session).ask(
+            found.id, about.id, payload, agent, session_id=chat_session()
+        )
         row = session.get(Task, review.task_id)
         working.set(found.id, row.id)
         result = {
@@ -116,7 +119,9 @@ def register(kit: ToolKit) -> None:
         )
         drop = review_drop_folder(session)
         shots = read_screenshots(screenshots or [], captions, drop)
-        review = ReviewService(session).submit(found.id, task, payload, agent, shots)
+        review = ReviewService(session).submit(
+            found.id, task, payload, agent, shots, session_id=chat_session()
+        )
         clear_dropped(screenshots or [], drop)
         row = session.get(Task, review.task_id)
         working.set(found.id, row.id)
@@ -224,7 +229,11 @@ def register(kit: ToolKit) -> None:
         if cp.task_id:
             working.set(found.id, cp.task_id)
         reviews, row = ReviewService(session), session.get(Task, cp.task_id) if cp.task_id else None
-        waiting = reviews.wait_from_checkpoint(row, cp, agent) if waits and row else None
+        waiting = (
+            reviews.wait_from_checkpoint(row, cp, agent, session_id=chat_session())
+            if waits and row
+            else None
+        )
         if row is not None and not waits:
             reviews.moved_on(row)
         anchor = cp.task.human_id if cp.task else "this checkpoint"

@@ -158,4 +158,25 @@ describe("help pages", () => {
     expect(deb.setup[0].text).toBe("codex mcp add project-moah -- project-moah-mcp --agent codex");
     expect(snippetsFor("claude", { install: "deb", command: ["project-moah-mcp"] }).setup[1].text).toContain('project-moah-mcp --brief --cwd \\"$CLAUDE_PROJECT_DIR\\"');
   });
+
+  it("lists the hooks that keep the chat and Review in step, as Connect writes them", () => {
+    const exe = "C:\\Program Files\\Moah\\project-brain-backend.exe";
+    const launch = { install: "windows" as const, command: [exe, "--mcp"] };
+    const matcher = "mcp__project[-_](moah|brain)__brain_.*";
+    const claude = JSON.parse(snippetsFor("claude", launch).setup[1].text).hooks;
+    expect(claude.Stop[0].hooks).toEqual([
+      { type: "command", command: `"${exe}" --mcp --agent claude --hook stop --settle`, async: true, timeout: 60 },
+      { type: "command", command: `"${exe}" --mcp --agent claude --hook wait`, asyncRewake: true, timeout: 86400 },
+    ]);
+    expect(claude.UserPromptSubmit[0].hooks).toEqual([
+      { type: "command", command: `"${exe}" --mcp --agent claude --hook prompt --deliver`, asyncRewake: true, timeout: 60 },
+    ]);
+    expect(claude.PostToolUse).toEqual([{ matcher, hooks: [{ type: "command", command: `"${exe}" --mcp --agent claude --hook tool`, async: true, timeout: 30 }] }]);
+    // Codex waits for every hook, so none of its hooks is async.
+    const codex = JSON.parse(snippetsFor("codex", launch).setup[3].text).hooks;
+    expect(Object.keys(codex)).toEqual(["Stop", "UserPromptSubmit", "PostToolUse"]);
+    expect(codex.Stop[0].hooks).toEqual([{ type: "command", command: `"${exe}" --mcp --agent codex --hook stop`, timeout: 15 }]);
+    expect(codex.PostToolUse).toEqual([{ matcher, hooks: [{ type: "command", command: `"${exe}" --mcp --agent codex --hook tool`, timeout: 30 }] }]);
+    expect(JSON.stringify(codex)).not.toMatch(/async/i);
+  });
 });

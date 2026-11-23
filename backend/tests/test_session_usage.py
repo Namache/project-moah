@@ -136,6 +136,77 @@ async def test_a_server_without_a_session_id_adopts_the_one_that_started_with_it
         assert stale.adopt(session, None, now=born + timedelta(hours=1)) is False
 
 
+async def test_a_task_the_tool_hook_recorded_does_not_stop_a_server_adopting_its_chat(
+    client: AsyncClient, database_url: str
+) -> None:
+    """The chat's first Moah call names a task within the first seconds, so the tool hook records
+    it before the server (which has no session id) may adopt: a hook's record is not another
+    server's claim, so the server still takes over its chat."""
+    from app.services.agent_sessions import CLAIM, HOOK_TASK
+    from app.services.chat_questions import record_tool
+
+    game = (await client.post("/api/projects", json={"name": "Game"})).json()
+    task = (await client.post(f"/api/projects/{game['id']}/tasks", json={"title": "A"})).json()
+    born = datetime.now(UTC)
+    settled = born + timedelta(seconds=20)
+    with factory(database_url)() as session:
+        record_start(session, "claude", {"session_id": "mine", "source": "startup"}, game["id"], {})
+        tracker = SessionTracker("claude", {}, now=born)
+        assert tracker.refresh(session, game["id"]) is False and tracker.current is None  # early
+        record_tool(
+            session,
+            "claude",
+            {
+                "session_id": "mine",
+                "tool_name": "mcp__project-moah__brain_context_pack",
+                "tool_input": {"task": task["human_id"], "project": game["id"]},
+                "tool_response": "PROJECT\nGame\n\nCURRENT TASK\nA",
+            },
+        )
+        rows = session.query(AgentSessionEvent).filter(AgentSessionEvent.task_id.is_not(None))
+        assert [(r.session_id, r.source) for r in rows] == [("mine", HOOK_TASK)]
+        assert tracker.refresh(session, game["id"], settled) is False and tracker.current == "mine"
+        sources = session.query(AgentSessionEvent.source).filter_by(session_id="mine")
+        assert sorted(source for (source,) in sources) == sorted(["startup", HOOK_TASK, CLAIM])
+        # The server is a claim of its own: no second server takes the chat now.
+        late = SessionTracker("claude", {}, now=born)
+        assert late.refresh(session, game["id"], settled) is False and late.current is None
+
+
+async def test_following_clear_ignores_the_tasks_hooks_recorded(
+    client: AsyncClient, database_url: str
+) -> None:
+    """A hook's task record carries no process id and is no new session: /clear is followed to
+    the session the start-up hook saw, never to one that only a task event names."""
+    from app.services.agent_sessions import HOOK_TASK
+
+    game = (await client.post("/api/projects", json={"name": "Game"})).json()
+    task = (await client.post(f"/api/projects/{game['id']}/tasks", json={"title": "A"})).json()
+    env = {"CLAUDE_CODE_SESSION_ID": "first", "CLAUDE_PID": "4242"}
+    with factory(database_url)() as session:
+        record_start(
+            session, "claude", {"session_id": "first", "source": "startup"}, game["id"], env
+        )
+        tracker = SessionTracker("claude", env)
+        assert tracker.refresh(session) is False
+        session.add(  # even one that carried the process id would not be a new session
+            AgentSessionEvent(
+                agent="claude",
+                session_id="ghost",
+                project_id=game["id"],
+                task_id=task["id"],
+                source=HOOK_TASK,
+                agent_pid="4242",
+            )
+        )
+        session.commit()
+        assert tracker.refresh(session) is False and tracker.current == "first"
+        record_start(
+            session, "claude", {"session_id": "second", "source": "clear"}, game["id"], env
+        )
+        assert tracker.refresh(session) is True and tracker.current == "second"
+
+
 async def test_a_flatpak_server_links_its_task_without_being_given_the_session(
     client: AsyncClient, database_url: str
 ) -> None:
@@ -372,10 +443,12 @@ def test_too_few_packs_keep_the_fixed_factor() -> None:
 # ---- matching by session id ------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("source", ["task", "hook_task"])  # the server's record, or a hook's
 async def test_usage_matches_tasks_by_session_id(
     client: AsyncClient,
     logs,  # noqa: F811
     database_url: str,
+    source: str,
 ) -> None:
     game = (await client.post("/api/projects", json={"name": "Game", "root_path": GAME})).json()
     base = f"/api/projects/{game['id']}/tasks"
@@ -389,7 +462,7 @@ async def test_usage_matches_tasks_by_session_id(
                 session_id="s1",
                 project_id=game["id"],
                 task_id=second["id"],
-                source="task",
+                source=source,
                 created_at=NOW - timedelta(minutes=25),
             )
         )

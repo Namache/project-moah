@@ -259,6 +259,7 @@ def build_server(
         working=working,
         packs=packs,
         briefed=briefed,
+        chat_session=lambda: sessions.current,
         session_task=session_task,
         in_brief=in_brief,
         file_on_shelf=file_on_shelf,

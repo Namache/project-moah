@@ -72,7 +72,10 @@ flatpak build-finish \
   --talk-name=org.kde.StatusNotifierWatcher \
   --talk-name=org.freedesktop.Notifications \
   --filesystem=~/.claude/projects:ro \
-  --filesystem=~/.codex/sessions:ro
+  --filesystem=~/.codex/sessions:ro \
+  --filesystem=~/.claude/settings.json \
+  --filesystem=~/.codex/hooks.json \
+  --filesystem=xdg-config/Claude/claude-code-sessions:ro
 flatpak build-export "$repo_output" "$build_dir" stable
 flatpak build-bundle \
   --arch=x86_64 \

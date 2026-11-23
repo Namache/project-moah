@@ -2,11 +2,15 @@
 
 import json
 import random
+import sqlite3
 import statistics
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 
+import pytest
+from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import text
@@ -71,6 +75,86 @@ def test_an_older_database_is_still_migrated(tmp_path: Path) -> None:
     with engine.connect() as connection:
         connection.execute(text("SELECT count(*) FROM agent_session_events"))
     engine.dispose()
+
+
+def test_reviews_and_chat_sessions_gain_their_chat_columns(tmp_path: Path) -> None:
+    """Migration 0020 adds the "which chat" columns beside rows that already exist, and takes
+    them away again. Going down rebuilds the reviews table, so its files, other indexes and
+    constraints must come through that too."""
+    path = tmp_path / "chat.db"
+    url = f"sqlite:///{path}"
+    config = Config(str(resource_path("backend/alembic.ini")))
+    config.attributes["database_url"] = url
+
+    def columns(table: str) -> set[str]:
+        with closing(sqlite3.connect(path)) as db:
+            return {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+
+    def indexes(table: str) -> set[str]:
+        with closing(sqlite3.connect(path)) as db:
+            return {row[1] for row in db.execute(f"PRAGMA index_list({table})")}
+
+    command.upgrade(config, "0019_review_waits")
+    assert not {"session_id", "delivered_at"} & columns("task_reviews")
+    assert "app_session" not in columns("agent_session_events")
+    now = "2026-01-01T00:00:00"
+    with closing(sqlite3.connect(path)) as db:
+        db.execute(
+            "INSERT INTO projects (id, name, name_key, slug, status, created_at, updated_at)"
+            f" VALUES ('p1', 'Trailhead', 'trailhead', 'trailhead', 'active', '{now}', '{now}')"
+        )
+        db.execute(
+            "INSERT INTO tasks (id, project_id, prefix, number, human_id, title, status, "
+            "priority, sort_order, created_at, updated_at) VALUES ('t1', 'p1', 'CAMP', 1, "
+            f"'CAMP-001', 'Camp capacity', 'todo', 'normal', 0, '{now}', '{now}')"
+        )
+        db.execute(
+            "INSERT INTO task_reviews (id, project_id, task_id, round, agent, kind, status, "
+            "summary, done, not_done, generated, created_at, follow_ups) VALUES ('r1', 'p1', "
+            f"'t1', 1, 'claude', 'question', 'pending', 'Six or eight?', '[]', '[]', 0, '{now}', "
+            "'[]')"
+        )
+        db.execute(
+            "INSERT INTO review_files (id, project_id, review_id, kind, filename, media_type, "
+            "size_bytes, sort_order, data, created_at) VALUES ('f1', 'p1', 'r1', 'screenshot', "
+            f"'note.txt', 'text/plain', 1, 0, X'61', '{now}')"
+        )
+        db.execute(
+            "INSERT INTO agent_session_events (agent, session_id, source, created_at) VALUES "
+            f"('claude', 'session-aaa', 'prompt', '{now}')"
+        )
+        db.commit()
+
+    command.upgrade(config, "0020_review_sessions")
+    assert {"session_id", "delivered_at"} <= columns("task_reviews")
+    assert "app_session" in columns("agent_session_events")
+    assert "ix_task_reviews_session" in indexes("task_reviews")
+    with closing(sqlite3.connect(path)) as db:  # what was there stays, with the new ones empty
+        assert db.execute("SELECT session_id, delivered_at FROM task_reviews").fetchall() == [
+            (None, None)
+        ]
+        assert db.execute("SELECT app_session FROM agent_session_events").fetchall() == [(None,)]
+
+    command.downgrade(config, "0019_review_waits")
+    assert not {"session_id", "delivered_at"} & columns("task_reviews")
+    assert "app_session" not in columns("agent_session_events")
+    assert {
+        "ix_task_reviews_status_created",
+        "ix_task_reviews_project_status",
+        "ix_task_reviews_reviewed",
+    } <= indexes("task_reviews")
+    assert "ix_task_reviews_session" not in indexes("task_reviews")
+    with closing(sqlite3.connect(path)) as db:
+        assert db.execute("SELECT id FROM task_reviews").fetchall() == [("r1",)]
+        assert db.execute("SELECT id FROM review_files").fetchall() == [("f1",)]
+        assert db.execute("SELECT session_id FROM agent_session_events").fetchall() == [
+            ("session-aaa",)
+        ]
+        with pytest.raises(sqlite3.IntegrityError):  # the status constraint survived the rebuild
+            db.execute("UPDATE task_reviews SET status = 'bogus'")
+
+    command.upgrade(config, "0020_review_sessions")  # and it can go up again
+    assert "ix_task_reviews_session" in indexes("task_reviews")
 
 
 def test_the_database_uses_write_ahead_logging(tmp_path: Path) -> None:

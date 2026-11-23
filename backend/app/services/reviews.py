@@ -59,6 +59,7 @@ from app.schemas.review import (
 )
 from app.schemas.task import RelationshipCreate, TaskCreate, TaskUpdate
 from app.services.activity import ActivityService, current_actor
+from app.services.agent_sessions import chat_working_on
 from app.services.errors import conflict, invalid, not_found
 from app.services.images import clean_filename, sniff
 from app.services.projects import ProjectService
@@ -157,8 +158,11 @@ class ReviewService:
         payload: ReviewSubmit,
         agent: str,
         screenshots: Iterable[Screenshot] = (),
+        *,
+        session_id: str | None = None,
     ) -> TaskReview:
-        """Store a new round of the task's review and move the task to review."""
+        """Store a new round of the task's review and move the task to review. session_id: the
+        agent's chat that wrote it, when known (see TaskReview.session_id)."""
         task = self.tasks.get(project_id, task_ref)
         if task.status == "archived":
             raise conflict(f"{task.human_id} is archived. Ask the person to restore it first.")
@@ -187,6 +191,7 @@ class ReviewService:
             how_to_check=payload.how_to_check,
             details=payload.details,
             generated=False,
+            session_id=session_id,
         )
         self.session.add(review)
         self.session.flush()
@@ -211,10 +216,19 @@ class ReviewService:
         self._to_review(task)
         return review
 
-    def ask(self, project_id: str, task_ref: str, payload: AskPerson, agent: str) -> TaskReview:
+    def ask(
+        self,
+        project_id: str,
+        task_ref: str,
+        payload: AskPerson,
+        agent: str,
+        *,
+        session_id: str | None = None,
+    ) -> TaskReview:
         """Store an agent's question for the person and move the task to Blocked, where it
         waits in Review until they answer. A question about a closed task waits in its
-        follow-up (see follow_up): the review's task_id says where it went."""
+        follow-up (see follow_up): the review's task_id says where it went. session_id: the
+        agent's chat that asked, when known (see TaskReview.session_id)."""
         task = self.tasks.get(project_id, task_ref)
         if task.status in CLOSED:
             task, _ = self.follow_up(task, agent)
@@ -233,6 +247,7 @@ class ReviewService:
             details=payload.context,
             options=payload.options or None,
             generated=False,
+            session_id=session_id,
         )
         self.session.add(review)
         self.session.flush()
@@ -258,11 +273,15 @@ class ReviewService:
             )
         )
 
-    def wait_from_checkpoint(self, task: Task, checkpoint, agent: str) -> TaskReview | None:
+    def wait_from_checkpoint(
+        self, task: Task, checkpoint, agent: str, *, session_id: str | None = None
+    ) -> TaskReview | None:
         """The checkpoint waits for the person: open a question for its task in Review, or
         bring the one an earlier note opened up to date (one waiting question per task, not one
         per note). Nothing opens for a task already waiting in Review, for one the agent asked
-        about itself, or for a closed one. checkpoint: the stored note (or its read model)."""
+        about itself, or for a closed one. checkpoint: the stored note (or its read model).
+        session_id: the agent's chat that wrote the note, when known (see TaskReview.session_id);
+        an updated question belongs to the chat of its newest note."""
         if task.status in CLOSED or task.status == WAITING_STATUS:
             return None
         pending = self._pending(task.id)
@@ -272,6 +291,7 @@ class ReviewService:
         if pending is not None:
             pending.summary, pending.details = question, context
             pending.checkpoint_id, pending.agent = checkpoint.id, agent
+            pending.session_id = session_id
             pending.created_at = utc_now()
             self._log(task, "WAIT_UPDATED", pending, checkpoint=checkpoint.id)
             self.session.commit()
@@ -291,6 +311,7 @@ class ReviewService:
             options=None,
             generated=False,
             checkpoint_id=checkpoint.id,
+            session_id=session_id,
         )
         self.session.add(review)
         self.session.flush()
@@ -600,18 +621,17 @@ class ReviewService:
             )
         comment = (decision.comment or "").strip() or None
         review = self._stored_pending(task)
-        if decision.verdict != "accept" and comment is None:
-            has_files = self.session.scalar(
-                select(func.count(ReviewFile.id)).where(
-                    ReviewFile.review_id == review.id, ReviewFile.kind == "feedback"
-                )
+        has_files = self.session.scalar(
+            select(func.count(ReviewFile.id)).where(
+                ReviewFile.review_id == review.id, ReviewFile.kind == "feedback"
             )
-            if not has_files:
-                raise invalid(
-                    "Write your answer for the agent"
-                    if answering
-                    else "Say what should change, so the agent knows what to fix"
-                )
+        )
+        if decision.verdict != "accept" and comment is None and not has_files:
+            raise invalid(
+                "Write your answer for the agent"
+                if answering
+                else "Say what should change, so the agent knows what to fix"
+            )
         now = utc_now()
         review.status = {"accept": "accepted", "reject": "rejected", "answer": "answered"}[
             decision.verdict
@@ -620,6 +640,11 @@ class ReviewService:
         review.reviewed_at = now
         if answering and answered_in:
             review.moved_to = answered_in
+        elif (decision.verdict != "accept" or comment or has_files) and review.session_id is None:
+            # A decision the agent needs to hear goes to the chat that worked on the task, when
+            # the round never learned its own chat (services/chat_delivery.py). An acceptance with
+            # no comment and no file tells it nothing: it stays unstamped and wakes nobody.
+            review.session_id = chat_working_on(self.session, task.id, now)
         event = "QUESTION_ANSWERED" if answering else f"REVIEW_{review.status.upper()}"
         extra = {"answered_in": answered_in} if answering and answered_in else {}
         self._log(task, event, review, comment=one_line(comment or "", 200), **extra)
@@ -660,6 +685,9 @@ class ReviewService:
         review.comment = payload.comment
         review.reviewed_at = now
         review.moved_to = None
+        review.delivered_at = None  # an acceptance with a comment may have been handed over
+        if review.session_id is None:
+            review.session_id = chat_working_on(self.session, task.id, now)
         self._log(
             task,
             "REVIEW_REOPENED",
@@ -704,6 +732,7 @@ class ReviewService:
         ):
             proposal.status, proposal.reviewed_at, proposal.review_note = "pending", None, None
         review.status, review.comment, review.reviewed_at = "pending", None, None
+        review.delivered_at = None  # the next decision on this round is a new one to hand over
         self._log(task, "REVIEW_UNDONE", review, accepted_at=accepted_at.isoformat())
         self.session.flush()
         self.tasks.update(project_id, task.id, TaskUpdate(status="review"))
@@ -1011,6 +1040,7 @@ class ReviewService:
             ],
             left_out=picked.left_out if picked else False,
             from_note=review.checkpoint_id is not None,
+            chat_known=review.session_id is not None,
         )
 
     def _completion_suggestions(self, task: Task) -> list[Proposal]:

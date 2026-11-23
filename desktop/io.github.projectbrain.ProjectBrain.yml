@@ -18,6 +18,15 @@ finish-args:
   # Read-only, for the Efficiency dashboard: only token counts, times and folder paths are read.
   - --filesystem=~/.claude/projects:ro
   - --filesystem=~/.codex/sessions:ro
+  # Moah keeps its own hooks in these two files up to date when it starts, so an update that
+  # changes them needs no command from the person. Read and write, that one file each, not its
+  # folder, and no other agent setting. A single file is shared only if it exists when the app
+  # starts; one that is missing is simply not there.
+  - --filesystem=~/.claude/settings.json
+  - --filesystem=~/.codex/hooks.json
+  # Review's "Go to the chat": the Claude app's own record of each Claude Code chat, to find the
+  # one to open. Read-only. Only the chat's id and whether it is archived are used.
+  - --filesystem=xdg-config/Claude/claude-code-sessions:ro
 modules:
   - name: zypak
     buildsystem: simple

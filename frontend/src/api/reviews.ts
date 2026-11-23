@@ -1,5 +1,5 @@
 import { t } from "../lib/i18n";
-import type { WorkPrompt, AgentName } from "./agents";
+import type { FixPrompt, AgentName } from "./agents";
 import type { FollowUpColumn, PendingReviews, ReviewDecisionInput, ReviewDetail, ReviewFile, ReviewTimeline } from "../types/review";
 import { ApiError, authHeaders, json, request } from "./client";
 
@@ -27,7 +27,7 @@ export const reviewsApi = {
       headers: { "Content-Type": file.type || "application/octet-stream" },
     }),
   remove: (projectId: string, fileId: string) => request<void>(`/projects/${encodeURIComponent(projectId)}/review-files/${encodeURIComponent(fileId)}`, json("DELETE")),
-  fixPrompt: (projectId: string, ref: string, agent?: AgentName) => request<WorkPrompt>(`${task(projectId, ref)}/fix-prompt${agent ? `?agent=${agent}` : ""}`),
+  fixPrompt: (projectId: string, ref: string, agent?: AgentName) => request<FixPrompt>(`${task(projectId, ref)}/fix-prompt${agent ? `?agent=${agent}` : ""}`),
   /** A screenshot or attached file as a blob: an <img> cannot send the desktop token. */
   async blob(projectId: string, fileId: string, signal?: AbortSignal): Promise<Blob> {
     const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/review-files/${encodeURIComponent(fileId)}`, { headers: authHeaders(), signal });

@@ -10,8 +10,8 @@ from app.models.project import utc_now
 class AgentSessionEvent(Base):
     """Which agent session (by the agent's own session id, the name of its log) worked on which
     project and task, and when. Written by Claude Code's SessionStart hook (task empty), by the
-    MCP server whenever the session's task changes, and by the prompt hook each time the person
-    writes. Only ids and times, never text."""
+    MCP server and the tool hook whenever the session's task changes, and by the prompt hook each
+    time the person writes. Only ids and times, never text."""
 
     __tablename__ = "agent_session_events"
     __table_args__ = (
@@ -28,12 +28,18 @@ class AgentSessionEvent(Base):
     task_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("tasks.id", ondelete="SET NULL")
     )
-    # startup, clear, compact or resume (the start-up hook), task (the MCP server), or prompt
-    # (the prompt hook: the person wrote, services/chat_questions.py).
+    # startup, clear, compact or resume (the start-up hook), task (the MCP server), hook_task (a
+    # hook saw the session's task: the tool hook, a Stop hook's follow-up), prompt
+    # (the prompt hook: the person wrote, services/chat_questions.py), waiting (a Stop hook is
+    # waiting for the person's answer in Review for this chat), or app (the Claude desktop app's
+    # id for this chat was found; app_session holds it).
     source: Mapped[str] = mapped_column(String(16), nullable=False)
     # Claude Code's process id, so an MCP server started for one session can follow it
     # through /clear, which starts a new session id in the same process.
     agent_pid: Mapped[str | None] = mapped_column(String(16))
+    # The Claude desktop app's own id for this chat (a ``local_<uuid>`` record id), when Moah
+    # found it. The app can open that chat from it; the agent's session id above cannot.
+    app_session: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

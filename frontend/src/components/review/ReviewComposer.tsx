@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bot, Check, FileText, LoaderCircle, Mic, Paperclip, RotateCcw, Send, Square, ThumbsUp, X } from "lucide-react";
+import { Bot, Check, Copy, FileText, LoaderCircle, Mic, Paperclip, RotateCcw, Send, Square, ThumbsUp, X } from "lucide-react";
 import { reviewsApi } from "../../api/reviews";
-import { agentsApi, type AgentName, type WorkPrompt } from "../../api/agents";
+import type { AgentName, FixPrompt, ReviewChat, WorkPrompt } from "../../api/agents";
 import { useReopenReview, useReviewDecision } from "../../hooks/useReviews";
 import { useDictationAvailable } from "../dictation/useDictationAvailable";
 import { toggleDictation, useDictationState } from "../../lib/dictationState";
@@ -39,47 +39,116 @@ function Attachment({ projectId, file, onRemove }: { projectId: string; file: Re
   );
 }
 
-/** After sending a review back (or answering a question): open the agent with your words typed in, ready to send. */
+// A chat that is waiting takes in the decision within about two seconds; one more look shortly
+// after the box shows is enough to say it arrived.
+const LOOK_AGAIN_MS = 4000;
+const UNKNOWN_CHAT: ReviewChat = { kind: "unknown", agent: null, url: null, delivered: false, resume: null };
+
+/**
+ * After sending a review back (or answering a question): go to the chat that asked, where the decision is delivered.
+ * A chat Moah cannot open says so; a new chat is only the main button when Moah does not know the chat at all.
+ */
 export function SendBackToAgent({ projectId, taskRef, answered = false, compact = false }: { projectId: string; taskRef: string; answered?: boolean; compact?: boolean }) {
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ prompt: WorkPrompt; opened: boolean; copied: boolean } | null>(null);
+  // prompt: null prompt means Go to the chat (nothing was typed in anywhere).
+  const [result, setResult] = useState<{ prompt: WorkPrompt | null; agent: AgentName; opened: boolean; copied: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [preferred, setPreferred] = useState<AgentName>("claude");
+  const [asked, setAsked] = useState<{ prompt: FixPrompt | null; failed: boolean }>({ prompt: null, failed: false });
+  const [resumeCopied, setResumeCopied] = useState(false);
+
+  // Fetched as the box shows, so the button knows the chat before it is pressed.
   useEffect(() => {
-    const controller = new AbortController();
-    agentsApi.settings(controller.signal).then((s) => setPreferred(s.default_agent === "codex" ? "codex" : "claude")).catch(() => undefined);
-    return () => controller.abort();
-  }, []);
+    let alive = true;
+    let timer: number | undefined;
+    setAsked({ prompt: null, failed: false }); setResult(null); setError(null);
+    const look = (first: boolean) => {
+      reviewsApi.fixPrompt(projectId, taskRef).then((prompt) => {
+        if (!alive) return;
+        setAsked({ prompt, failed: false });
+        if (first && prompt.chat && prompt.chat.kind !== "unknown" && !prompt.chat.delivered) timer = window.setTimeout(() => look(false), LOOK_AGAIN_MS);
+      }, () => { if (alive && first) setAsked({ prompt: null, failed: true }); });
+    };
+    look(true);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [projectId, taskRef, answered]);
+
+  const loading = asked.prompt === null && !asked.failed;
+  const chat = asked.prompt?.chat ?? UNKNOWN_CHAT;
+  const known = !loading && chat.kind !== "unknown";
+  const preferred: AgentName = asked.prompt?.agent ?? "claude";
   const other: AgentName = preferred === "claude" ? "codex" : "claude";
 
+  /** Start a new chat with the prompt typed in. */
   async function open(agent: AgentName) {
     setBusy(true); setError(null);
     try {
-      const prompt = await reviewsApi.fixPrompt(projectId, taskRef, agent);
+      const prompt = asked.prompt && asked.prompt.agent === agent ? asked.prompt : await reviewsApi.fixPrompt(projectId, taskRef, agent);
       let copied = false;
       try { await navigator.clipboard.writeText(prompt.prompt); copied = true; } catch { /* said below instead */ }
       const opener = window.projectBrainDesktop?.openAgent;
       const opened = opener ? await opener(prompt.url) : false;
-      setResult({ prompt, opened, copied });
+      setResult({ prompt, agent: prompt.agent, opened, copied });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("The prompt could not be prepared."));
     } finally { setBusy(false); }
   }
 
+  /** Open the chat that asked, in the app that runs it. */
+  async function goToChat() {
+    setBusy(true); setError(null);
+    let opened = false;
+    try {
+      const opener = window.projectBrainDesktop?.openAgent;
+      opened = chat.url && opener ? await opener(chat.url) : false;
+    } catch { /* said below: it could not be opened */ }
+    setResult({ prompt: null, agent: chat.agent ?? preferred, opened, copied: false });
+    setBusy(false);
+  }
+
+  async function copyResume() {
+    try { await navigator.clipboard.writeText(chat.resume ?? ""); } catch { return; }
+    setResumeCopied(true);
+    window.setTimeout(() => setResumeCopied(false), 2000);
+  }
+
+  const canOpen = chat.kind === "desktop" || chat.kind === "codex";
+  // One sentence says where the decision goes and whether it arrived; the chat that did the work is "the chat that asked" for an answer.
+  const intro = loading ? null
+    : known
+      ? (answered
+        ? (chat.delivered ? t("Your answer is already in the chat that asked.") : t("Your answer goes to the chat that asked as soon as it can take it."))
+        : (chat.delivered ? t("Your comments are already in the chat that did the work.") : t("Your comments go to the chat that did the work as soon as it can take them.")))
+      : (answered ? t("The next agent that opens this project sees your answer first. Or hand it over now:") : t("The next agent that opens this project sees your comments first. Or hand them over now:"));
+
   return (
     <div className={compact ? "" : `rounded-xl border p-3 ${answered ? "border-info/30 bg-info-soft/60" : "border-danger/30 bg-danger-soft/60"}`}>
-      {!compact && (answered
-        ? <p className="text-sm text-ink"><strong className="text-info-ink">{t("Answered.")}</strong> {t("The next agent that opens this project sees your answer first. Or hand it over now:")}</p>
-        : <p className="text-sm text-ink"><strong className="text-danger-ink">{t("Sent back.")}</strong> {t("The next agent that opens this project sees your comments first. Or hand them over now:")}</p>)}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button variant="primary" size="sm" disabled={busy} onClick={() => void open(preferred)}><Bot size={15} aria-hidden="true" />{busy ? t("Preparing…") : answered ? t("Open in {agent} with my answer", { agent: NAME[preferred] }) : t("Open in {agent} with my comments", { agent: NAME[preferred] })}</Button>
-        <button type="button" disabled={busy} onClick={() => void open(other)} className="text-sm font-semibold text-forest hover:underline disabled:opacity-50">{t("or in {agent}", { agent: NAME[other] })}</button>
-      </div>
-      {result && (
+      {(!compact || known) && (
+        <p role={known ? "status" : undefined} className="text-sm text-ink">
+          {!compact && <strong className={answered ? "text-info-ink" : "text-danger-ink"}>{answered ? t("Answered.") : t("Sent back.")}</strong>}
+          {intro && <>{!compact && " "}{intro}</>}
+        </p>
+      )}
+      {!loading && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+          {canOpen && <Button variant="primary" size="sm" disabled={busy} onClick={() => void goToChat()}><Bot size={15} aria-hidden="true" />{t("Go to the chat")}</Button>}
+          {!known && <Button variant="primary" size="sm" disabled={busy} onClick={() => void open(preferred)}><Bot size={15} aria-hidden="true" />{busy ? t("Preparing…") : answered ? t("Start a new chat in {agent} with my answer", { agent: NAME[preferred] }) : t("Start a new chat in {agent} with my comments", { agent: NAME[preferred] })}</Button>}
+          {!known && <button type="button" disabled={busy} onClick={() => void open(other)} className="text-sm font-semibold text-forest hover:underline disabled:opacity-50">{t("or in {agent}", { agent: NAME[other] })}</button>}
+          {known && <button type="button" disabled={busy} onClick={() => void open(chat.agent ?? preferred)} className="text-xs font-medium text-ink-muted underline hover:text-ink disabled:opacity-50">{t("Start a new chat instead")}</button>}
+        </div>
+      )}
+      {known && !canOpen && <p className="mt-2 text-xs text-ink-muted">{t("Moah can't open that chat from here: it runs in a terminal or outside the Claude app.")}</p>}
+      {known && chat.resume && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
+          <span>{t("Or in a terminal:")}</span>
+          <code className="select-all rounded bg-neutral-soft px-1.5 py-0.5 font-mono text-ink">{chat.resume}</code>
+          <button type="button" onClick={() => void copyResume()} aria-label={t("Copy command")} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium hover:bg-hover focus-visible:outline-2 focus-visible:outline-forest">{resumeCopied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{resumeCopied ? t("Copied") : t("Copy")}</button>
+        </p>
+      )}
+      {result && (result.prompt !== null || !result.opened) && (
         <p role="status" className="mt-2 text-xs text-ink-muted">
-          {result.opened ? t("{agent} opened with the prompt typed in. Read it, then press Enter to start.", { agent: NAME[result.prompt.agent] }) : t("{agent} could not be opened from here.", { agent: NAME[result.prompt.agent] })}
+          {result.opened ? t("{agent} opened with the prompt typed in. Read it, then press Enter to start.", { agent: NAME[result.agent] }) : t("{agent} could not be opened from here.", { agent: NAME[result.agent] })}
           {result.copied ? ` ${t("The prompt is also on your clipboard.")}` : ""}
-          {result.prompt.agent === "claude" && result.opened && result.prompt.folder ? ` ${t("Choose the folder {folder} in Claude before sending.", { folder: result.prompt.folder })}` : ""}
+          {result.prompt?.agent === "claude" && result.opened && result.prompt.folder ? ` ${t("Choose the folder {folder} in Claude before sending.", { folder: result.prompt.folder })}` : ""}
         </p>
       )}
       {error && <p role="alert" className="mt-2 text-xs text-danger-ink">{error}</p>}
@@ -130,9 +199,10 @@ function useGrowing(field: RefObject<HTMLTextAreaElement | null>, text: string) 
 
 /**
  * The comment box under the review: write or dictate, attach pictures or text files, then accept
- * (the task moves to Done, nothing else happens) or send it back (your comments go to the agent and
- * the task goes back to In progress). Sending back needs a comment or a file, so the agent knows
- * what to fix. For an agent's question, the box takes your answer instead.
+ * (the task moves to Done; a comment or a file goes to the chat that did the work, and accepting
+ * without one wakes nobody) or send it back (your comments go to the agent and the task goes back
+ * to In progress). Sending back needs a comment or a file, so the agent knows what to fix. For an
+ * agent's question, the box takes your answer instead.
  */
 export function ReviewComposer({ detail, quote, criteria, onDecided, onUndone }: { detail: ReviewDetail; quote: Quoted | null; criteria: { id: string; met: boolean }[]; onDecided: (verdict: ReviewDecisionInput["verdict"], result: ReviewDetail) => void; onUndone?: (detail: ReviewDetail) => void }) {
   const key = `${detail.project_id}:${detail.task_id}`;
@@ -229,8 +299,14 @@ export function ReviewComposer({ detail, quote, criteria, onDecided, onUndone }:
         drafts.delete(key);
         setComment("");
         if (verdict === "accept") {
-          // One notice for a run of accepts, each with a way to take it back.
-          notify(t("Accepted. {task} is in Done.", { task: detail.task_ref }), "success", {
+          // One notice for a run of accepts, each with a way to take it back. A comment (or a file)
+          // goes to the chat that did the work when Moah knows it; when it does not, say that it
+          // stays under Reviewed instead (the brief never shows a Done task, so no agent is next).
+          const accepted = t("Accepted. {task} is in Done.", { task: detail.task_ref });
+          const where = result.current.chat_known
+            ? t("Your comment goes to the chat that did the work.")
+            : t("Moah doesn't know which chat did the work, so your comment is only saved under Reviewed.");
+          notify(said ? `${accepted} ${where}` : accepted, "success", {
             group: "review-decision",
             action: { label: t("Undo"), run: () => undo() },
           });

@@ -7,6 +7,7 @@ where the person sees and approves it.
 
 from __future__ import annotations
 
+import re
 import shlex
 import sys
 from urllib.parse import quote
@@ -15,6 +16,9 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
 from app.models.project import Project
+from app.models.review import TaskReview
+from app.services import claude_desktop
+from app.services.agent_sessions import app_chat
 from app.services.context import ContextService
 from app.services.settings import AgentName, AgentSettings
 from app.services.tasks import TaskService
@@ -111,6 +115,65 @@ def _opened(agent: AgentName, human_id: str, prompt: str, folder: str | None) ->
 
 
 COMMENT_LIMIT = 2500
+UUID = re.compile(r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+
+
+def chat_of(session: Session, review: TaskReview) -> dict:
+    """Where the person's decision on this round goes: the chat that asked, as far as Moah can
+    tell, and what Review's button can do about it.
+
+    kind "desktop": Claude Code chat the Claude desktop app has a record of; ``url`` opens it.
+    kind "terminal": a Claude Code chat the app does not know: it runs in a terminal (or the app
+        archived it); nothing to open.
+    kind "elsewhere": a Claude Code chat, but the app's records could not be read here (no
+        folder, or not allowed to): it may be in the app, and Moah cannot tell.
+    kind "codex": a Codex chat; ``url`` is its thread link and ``resume`` the command for a
+        terminal.
+    kind "unknown": the review did not record its chat (a question from before this was kept, or
+        an agent whose name is not one of those two): only a new chat can carry the decision.
+    ``delivered`` says the waiting chat already took the decision in (``delivered_at``)."""
+    agent = (review.agent or "").strip().lower()
+    chat_id = review.session_id
+    delivered = review.delivered_at is not None
+    chat: dict = {
+        "kind": "unknown",
+        "agent": agent if agent in NAMES else None,
+        "url": None,
+        "delivered": delivered,
+        "resume": None,
+    }
+    if not chat_id or agent not in NAMES:
+        return chat
+    if agent == "claude":
+        found = app_chat(session, chat_id)
+        if found.state == claude_desktop.FOUND and found.record:
+            chat["kind"] = "desktop"
+            chat["url"] = "claude://code/continue?session=" + quote(found.record, safe="")
+        elif found.state == claude_desktop.NOT_FOUND:
+            chat["kind"] = "terminal"
+        else:
+            chat["kind"] = "elsewhere"
+    elif UUID.match(chat_id):
+        chat["kind"] = "codex"
+        # Not checked against the Codex or ChatGPT desktop app: that it opens a session started
+        # in the terminal by this link (and the CLI's own session id is the thread id) is what
+        # Codex's link scheme suggests, nothing more. If it does not, the button reports that the
+        # app could not be opened and the resume command below still works.
+        chat["url"] = f"codex://threads/{chat_id.lower()}"
+        chat["resume"] = f"codex resume {chat_id.lower()}"
+    return chat
+
+
+def _opened_for(
+    session: Session,
+    review: TaskReview,
+    agent: AgentName,
+    human_id: str,
+    prompt: str,
+    folder: str | None,
+) -> dict:
+    """``_opened`` (the new-chat prompt and link) plus ``chat``, the chat that asked."""
+    return {**_opened(agent, human_id, prompt, folder), "chat": chat_of(session, review)}
 
 
 def fix_prompt(session: Session, project: Project, task_ref: str, agent: AgentName) -> dict:
@@ -153,7 +216,9 @@ How to work
 2. Record my answer as a decision (brain_create_memory) if it settles something for later.
 3. Go on with the task. When it is done, call brain_create_checkpoint and brain_submit_review,
    with screenshots of anything I can see."""
-        return _opened(agent, task.human_id, _clip(prompt, PROMPT_LIMIT), folder)
+        return _opened_for(
+            session, review, agent, task.human_id, _clip(prompt, PROMPT_LIMIT), folder
+        )
     unmet = [c.description for c in task.criteria if not c.is_completed]
     criteria = (
         "\n\nAcceptance criteria not met yet\n"
@@ -174,7 +239,7 @@ How to work
 2. Fix what my comments ask, nothing more. Ask me if a comment is unclear.
 3. Verify the fix, then call brain_create_checkpoint and brain_submit_review again: say what
    changed since the last round, and attach fresh screenshots of anything I can see."""
-    return _opened(agent, task.human_id, _clip(prompt, PROMPT_LIMIT), folder)
+    return _opened_for(session, review, agent, task.human_id, _clip(prompt, PROMPT_LIMIT), folder)
 
 
 def second_opinion(

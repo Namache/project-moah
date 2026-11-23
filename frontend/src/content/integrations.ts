@@ -9,9 +9,11 @@
  *   Claude Code: https://code.claude.com/docs/en/mcp  (`claude mcp add --scope user ... -- command args`)
  *                https://code.claude.com/docs/en/hooks (SessionStart hook output is added as context)
  *   Codex:       https://developers.openai.com/codex/mcp  (`codex mcp add ... -- command args`, `~/.codex/config.toml`)
- * Stop and UserPromptSubmit hooks (questions asked in the chat, backend/app/services/chat_questions.py)
- * checked on 2026-11-07: Claude Code's hooks page above, and https://developers.openai.com/codex/hooks
- * (`~/.codex/hooks.json`, the same shape, JSON on stdin, trusted once with /hooks).
+ * Stop, UserPromptSubmit and PostToolUse hooks (questions asked in the chat, and the person's answers
+ * going back to it: backend/app/services/chat_questions.py, chat_wait.py) checked on 2026-11-07:
+ * Claude Code's hooks page above, and https://developers.openai.com/codex/hooks (`~/.codex/hooks.json`,
+ * the same shape, JSON on stdin, trusted once with /hooks). asyncRewake: Claude Code's hooks page,
+ * "Run hooks in the background".
  * Claude Code's connection was confirmed by hand on 2026-10-11; Codex's has not been yet.
  */
 import type { AgentLaunch } from "../api/system";
@@ -50,15 +52,33 @@ export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH):
   const hook = windows
     ? { type: "command", command: shell([...launch.command, "--brief"], windows), timeout: 20 }
     : { type: "command", command: `${shell([...launch.command, "--brief", "--cwd"], windows)} "$CLAUDE_PROJECT_DIR"`, timeout: 20 };
-  // Catch a question the agent ends its turn on (Stop), and the person's reply to it in the chat
-  // (UserPromptSubmit), so the question waits in Review. They print nothing.
-  const turn = (hook: "stop" | "prompt") => ({ type: "command", command: shell([...command, "--hook", hook], windows), timeout: 15, ...(agent === "claude" && hook === "prompt" ? { async: true } : {}) });
-  const turnHooks = { Stop: [{ hooks: [turn("stop")] }], UserPromptSubmit: [{ hooks: [turn("prompt")] }] };
+  // The hooks that keep the chat and Review in step (what Connect writes, agent_connect.py): a
+  // question the turn ends on goes to Review (stop), the person's reply settles it (prompt), the chat
+  // each Moah tool call came from is learned (tool), and the person's answer in Review goes back to
+  // the chat that asked (wait; Codex starts that from its Stop hook). Claude Code runs a hook in the
+  // background with async, or with asyncRewake, which also wakes the chat when the hook exits 2.
+  // Codex waits for every hook, so its hooks have neither.
+  const line = (hook: string, ...flags: string[]) => shell([...command, "--hook", hook, ...flags], windows);
+  const matcher = "mcp__project[-_](moah|brain)__brain_.*";
+  const turnHooks = agent === "claude"
+    ? {
+        Stop: [{ hooks: [
+          { type: "command", command: line("stop", "--settle"), async: true, timeout: 60 },
+          { type: "command", command: line("wait"), asyncRewake: true, timeout: 86400 },
+        ] }],
+        UserPromptSubmit: [{ hooks: [{ type: "command", command: line("prompt", "--deliver"), asyncRewake: true, timeout: 60 }] }],
+        PostToolUse: [{ matcher, hooks: [{ type: "command", command: line("tool"), async: true, timeout: 30 }] }],
+      }
+    : {
+        Stop: [{ hooks: [{ type: "command", command: line("stop"), timeout: 15 }] }],
+        UserPromptSubmit: [{ hooks: [{ type: "command", command: line("prompt"), timeout: 15 }] }],
+        PostToolUse: [{ matcher, hooks: [{ type: "command", command: line("tool"), timeout: 30 }] }],
+      };
   if (agent === "claude") {
     return {
       setup: [
         { label: msg("1. Connect Claude Code once, for every project"), language: "bash", text: `claude mcp add --transport stdio --scope user project-moah -- ${shell(command, windows)}` },
-        { label: windows ? msg("2. Load your rules at the start of every session, and put questions asked in the chat into Review: add this to %USERPROFILE%\\.claude\\settings.json") : msg("2. Load your rules at the start of every session, and put questions asked in the chat into Review: add this to ~/.claude/settings.json"), language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [hook] }], ...turnHooks } }, null, 2) },
+        { label: windows ? msg("2. Load your rules at the start of every session, put questions asked in the chat into Review and send your answers back to the chat: add this to %USERPROFILE%\\.claude\\settings.json") : msg("2. Load your rules at the start of every session, put questions asked in the chat into Review and send your answers back to the chat: add this to ~/.claude/settings.json"), language: "json", text: JSON.stringify({ hooks: { SessionStart: [{ matcher: "startup|clear|compact", hooks: [hook] }], ...turnHooks } }, null, 2) },
       ],
       verify: [{ label: msg("Check the connection"), language: "bash", text: "claude mcp list" }],
       sources: [{ label: msg("Claude Code MCP documentation"), url: "https://code.claude.com/docs/en/mcp" }, { label: msg("Claude Code hooks"), url: "https://code.claude.com/docs/en/hooks" }],
@@ -71,7 +91,7 @@ export function snippetsFor(agent: Agent, launch: AgentLaunch = FLATPAK_LAUNCH):
       { label: windows ? msg("1. Connect Codex once, for every project: run this in PowerShell, not in Codex's chat") : msg("1. Connect Codex once, for every project"), language: "bash", text: `codex mcp add project-moah -- ${shell(command, windows)}` },
       { label: windows ? msg("Or, if PowerShell can't find codex, add this to %USERPROFILE%\\.codex\\config.toml and restart Codex") : msg("Or add this to ~/.codex/config.toml"), language: "toml", text: `[mcp_servers.project-moah]\ncommand = ${JSON.stringify(command[0])}\nargs = [${args}]\nstartup_timeout_sec = 20` },
       { label: windows ? msg("2. Tell Codex to start every session from Project Moah: add this to %USERPROFILE%\\.codex\\AGENTS.md") : msg("2. Tell Codex to start every session from Project Moah: add this to ~/.codex/AGENTS.md"), language: "markdown", text: "Project Moah is the source of truth for my rules and memory. At the start of every session, call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it returns." },
-      { label: windows ? msg("3. Put questions Codex asks in the chat into Review: add this to %USERPROFILE%\\.codex\\hooks.json, then type /hooks in Codex and trust both") : msg("3. Put questions Codex asks in the chat into Review: add this to ~/.codex/hooks.json, then type /hooks in Codex and trust both"), language: "json", text: JSON.stringify({ hooks: turnHooks }, null, 2) },
+      { label: windows ? msg("3. Put questions Codex asks in the chat into Review and send your answers back to the chat: add this to %USERPROFILE%\\.codex\\hooks.json, then type /hooks in Codex and trust all three") : msg("3. Put questions Codex asks in the chat into Review and send your answers back to the chat: add this to ~/.codex/hooks.json, then type /hooks in Codex and trust all three"), language: "json", text: JSON.stringify({ hooks: turnHooks }, null, 2) },
     ],
     verify: [{ label: msg("Check the connection"), language: "bash", text: "codex mcp list" }],
     sources: [{ label: msg("Codex MCP documentation"), url: "https://developers.openai.com/codex/mcp" }, { label: msg("Codex hooks"), url: "https://developers.openai.com/codex/hooks" }],
