@@ -20,8 +20,8 @@ On the right is the selected report, in colour: green for what was done, red for
 
 Under the report is your comment box. Type, or press the microphone to dictate. Attach files or images with the paperclip, by dragging them in, or by pasting a screenshot.
 
-- **Accept and move to Done** moves the task to *Done* on the board. Nothing else happens: no new tasks are made.
-- **Send back** needs a comment or a file. The task goes back to *In progress* with your comments, and the next agent that works on it sees them first. *Open in Claude Code* (or Codex) opens the agent with the fix typed in, for you to read and send. Moah never starts an agent itself.
+- **Accept and move to Done** moves the task to *Done* on the board. No new tasks are made. Accepting with a comment (or a file) passes it on to the chat that did the work, which takes it in as soon as it can; accepting without one wakes nobody.
+- **Send back** needs a comment or a file. The task goes back to *In progress* with your comments, and they go to the chat that did the work, which takes them in as soon as it can. *Go to the chat* opens that chat in the Claude Code or Codex app when Moah can (for a Codex chat it also shows the command to continue it in a terminal); Moah cannot open a chat that runs in a terminal. When Moah does not know which chat it was, *Start a new chat in Claude Code with my comments* (or in Codex) opens a new chat with the fix typed in, for you to read and send. Either way, the next agent that works on the task sees your comments first. Moah never starts an agent itself.
 
 Changed your mind about accepted work? Select it under *Reviewed* and press **Reopen**. Say what is wrong: the task goes back to *In progress*, and the next agent sees your comment first, as if you had sent it back.
 
@@ -37,7 +37,7 @@ Each line under *Not done* has a **Make a task** button, which makes it a new ta
 
 ## Questions from agents
 
-When an agent can't go on without you (a choice, a fact, an approval), it asks in Review instead of guessing. The task moves to *Blocked* and the question waits under *Questions from agents*, at the top, until you answer it. Pick one of the agent's suggested answers or write your own, then press **Send answer**. The task goes back to *In progress*, and the next agent that opens the project sees your answer first. *Open in Claude Code with my answer* hands it over now.
+When an agent can't go on without you (a choice, a fact, an approval), it asks in Review instead of guessing. The task moves to *Blocked* and the question waits under *Questions from agents*, at the top, until you answer it. Pick one of the agent's suggested answers or write your own, then press **Send answer**. The task goes back to *In progress*, and your answer goes to the chat that asked, which takes it in as soon as it can. *Go to the chat* opens that chat in the Claude Code or Codex app when Moah can; Moah cannot open a chat that runs in a terminal. When Moah does not know which chat asked (a question from before it kept that), *Start a new chat in Claude Code with my answer* (or in Codex) hands it over in a new chat. Either way, the next agent that opens the project sees your answer first.
 
 Agents often ask in the chat instead. Once you connect them (Help, Connect agents), Claude Code and Codex hand Moah the question their turn ends on, so it waits here too, marked as asked by that agent. That needs the task they work on: the one they picked in Moah, or, before they pick one, the task your message names by ID or plainly by its title. Questions that ask for nothing ("Anything else?") and offers after the work is handed over ("Want me to add tests too?") stay out. When you reply in the same chat, the question is settled there and shows as *Answered in the chat*, so Review never keeps one the agent already has an answer to.
 

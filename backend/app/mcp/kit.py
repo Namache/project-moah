@@ -29,6 +29,8 @@ class ToolKit:
     working: SessionTask
     packs: SessionPacks
     briefed: dict[str, str | None]
+    # The agent's own id of the chat this server serves right now, when it knows it.
+    chat_session: Callable[[], str | None]
     session_task: Callable[[Session, str], str | None]
     in_brief: Callable[[Session, str], bool]
     file_on_shelf: Callable[..., dict]

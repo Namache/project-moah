@@ -214,6 +214,9 @@ class ReviewRound(UtcModel):
     left_out: bool = False
     # A question Moah opened from the agent's checkpoint that waited for the person.
     from_note: bool = False
+    # Whether the agent's chat that wrote this round is known (``TaskReview.session_id``, after
+    # the stamping decide does), so that what the person decided can reach that chat.
+    chat_known: bool = False
 
 
 class ReviewCriterion(BaseModel):

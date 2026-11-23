@@ -42,17 +42,30 @@ def database(database_url: str):
         engine.dispose()
 
 
-def run_hook(monkeypatch, capsys, database_url: str, hook: str, payload: dict, agent="claude"):
-    """Run the hook exactly as Claude Code or Codex does: JSON on standard input."""
+def run_hook(
+    monkeypatch,
+    capsys,
+    database_url: str,
+    hook: str,
+    payload: dict,
+    agent="claude",
+    code=0,
+    flags: tuple[str, ...] = (),
+) -> str:
+    """Run the hook exactly as Claude Code or Codex does: JSON on standard input. Exit code 0,
+    which is every hook's but one: Claude's prompt hook with ``--deliver``, which hands the chat
+    what the person decided in Review (``code=2``, its message on standard error). Returns what
+    the hook printed on standard error."""
     from app.mcp import cli
 
     monkeypatch.setattr(cli, "get_database_url", lambda: database_url)
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": SESSION, **payload})))
-    assert cli.main(["--agent", agent, "--hook", hook]) == 0
+    assert cli.main(["--agent", agent, "--hook", hook, *flags]) == code
     printed = capsys.readouterr()
     # Claude Code adds a prompt hook's output to the person's message: it must print nothing.
     assert printed.out == "", printed.out
     assert f"Project Moah {hook} hook" not in printed.err, printed.err  # and nothing failed
+    return printed.err
 
 
 def reviews_of(database_url: str, ref: str):
@@ -92,6 +105,22 @@ def test_question_in_finds_the_question_a_turn_ends_on() -> None:
     for text in (
         "Fixed, and the tests pass.\n\nAnything else?",
         "Done. Does that help?",
+        # "What's next?" after a hand-over asks for nothing, with or without a short courtesy.
+        "What's next?",
+        "What’s next?",
+        "What is next?",
+        "What next?",
+        "Got it, what's next?",
+        "Done. What's next?",
+        "Done, what is next?",
+        "Fixed.\n\nOk — what's next?",
+        # "Got it?", "Okay?" and the like ask for nothing when they are the whole question.
+        "Got it?",
+        "Okay?",
+        "Sounds good?",
+        "All good?",
+        "Fixed. So, sounds good?",
+        "Added the tiles.\n\nAlso, ok?",
         "Here it is:\n\n```js\nconst a = b ? c : d; // why?\n```\n\nIt works.",
         "See https://example.com/?a=1 for details.",
         "All done. The tests pass.",
@@ -99,6 +128,21 @@ def test_question_in_finds_the_question_a_turn_ends_on() -> None:
         None,
     ):
         assert question_in(text) is None, text
+    # Real questions stay: asking for a go-ahead, or for something about a particular thing.
+    for text in (
+        "Shall I continue?",
+        "Done. Should I push?",
+        "The tests pass.\n\nShould I push, or what's next?",
+        "What's next for the migration?",
+        "What is next on the list, the tiles or the legend?",
+        # ...and so are those words with a real question after them.
+        "Got it, should I push?",
+        "Ok, which one do you want?",
+        "Okay, do you want PNG or WebP?",
+        "All good, or should I redo the legend?",
+        "Sounds good, but which format?",
+    ):
+        assert question_in(text) is not None, text
 
 
 async def test_a_question_asked_in_the_chat_waits_in_review_until_answered_there(
@@ -186,7 +230,12 @@ async def test_a_question_asked_in_the_chat_waits_in_review_until_answered_there
         )
 
     # A turn that ends on courtesy, or without a question, asks nothing.
-    for message in ("Added the legend. Anything else?", "Added the legend; tests pass."):
+    for message in (
+        "Added the legend. Anything else?",
+        "Added the legend; tests pass.",
+        "Added the legend. Got it, what's next?",
+        "Added the legend. Sounds good?",
+    ):
         run_hook(monkeypatch, capsys, database_url, "stop", {"last_assistant_message": message})
     assert reviews_of(database_url, legend) == ("in_progress", rounds)
 
@@ -239,7 +288,18 @@ async def test_offers_after_a_hand_over_and_questions_the_tool_asked_are_left_al
         url = f"/api/projects/{pid}/tasks/{badge}/review/decision"
         answer = await client.post(url, json={"verdict": "answer", "comment": "Red Full label."})
         assert answer.status_code == 200, answer.text
-    run_hook(monkeypatch, capsys, database_url, "prompt", {"prompt": "Go on."})
+    # The chat that worked on the task has the answer when the person next writes there.
+    monkeypatch.setattr("app.services.chat_delivery.SETTLE", 0)
+    told = run_hook(
+        monkeypatch,
+        capsys,
+        database_url,
+        "prompt",
+        {"prompt": "Go on."},
+        code=2,
+        flags=("--deliver",),
+    )
+    assert "The person answered: Red Full label." in told
     submit_review(database_url, pid, badge)
     run_hook(
         monkeypatch,
@@ -352,7 +412,14 @@ def test_a_turn_without_a_question_ends_before_loading_the_database(tmp_path: Pa
         "except SystemExit as end:\n    assert end.code == 0, end.code\n"
         "print('sqlalchemy' in sys.modules)"
     )
-    for message, loads in (("All done; the tests pass.", "False"), (REAL_QUESTION, "True")):
+    for message, loads in (
+        ("All done; the tests pass.", "False"),
+        ("Done. What's next?", "False"),
+        ("Done. Sounds good?", "False"),
+        ("Done. Should I push?", "True"),
+        ("Got it, should I push?", "True"),
+        (REAL_QUESTION, "True"),
+    ):
         payload = json.dumps({"session_id": SESSION, "last_assistant_message": message})
         done = subprocess.run(
             [sys.executable, "-c", probe],

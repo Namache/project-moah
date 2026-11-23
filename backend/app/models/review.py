@@ -60,6 +60,7 @@ class TaskReview(Base):
         Index("ix_task_reviews_status_created", "status", "created_at"),
         Index("ix_task_reviews_project_status", "project_id", "status"),
         Index("ix_task_reviews_reviewed", "reviewed_at"),
+        Index("ix_task_reviews_session", "session_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -96,6 +97,13 @@ class TaskReview(Base):
     # For a question Moah opened from an agent's checkpoint that waits for the person: the
     # newest such checkpoint. Its later notes update the round; one that moves on settles it.
     checkpoint_id: Mapped[str | None] = mapped_column(String(36))
+    # The agent's own session id (Claude Code's or Codex's) of the chat that asked this question
+    # or sent this report, so the person's answer can go back to that chat. Empty when Moah never
+    # learned which chat it was (older rounds, agents that give no session id).
+    session_id: Mapped[str | None] = mapped_column(String(64))
+    # When the person's answer, or the comments of a send-back, given in Review were handed to
+    # that chat. Empty until then, so an answer is delivered once.
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ReviewFile(Base):

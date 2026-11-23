@@ -54,6 +54,8 @@ export interface ReviewRound {
   left_out?: boolean;
   /** A question Moah opened from the agent's checkpoint that waited for you. */
   from_note?: boolean;
+  /** Whether the chat that wrote this round is known: what you decide on it can reach that chat. */
+  chat_known?: boolean;
 }
 
 /** A checkpoint a drafted review was picked from. */

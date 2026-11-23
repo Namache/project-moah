@@ -1,5 +1,6 @@
 """The `project-moah-mcp` command: the MCP server over stdio, the session brief (`--brief`), or
-an agent hook (`--hook stop` / `--hook prompt`, services/chat_questions.py).
+an agent hook (`--hook stop` / `prompt` / `tool` / `wait` / `release`, services/chat_questions.py,
+chat_wait.py, codex_waiter.py).
 
 Kept apart from server.py so the start-up hook, which runs at every agent session start, clear
 and compaction, loads only what the brief needs: not the MCP library, which takes about as long
@@ -47,16 +48,48 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--hook",
-        choices=("stop", "prompt"),
+        choices=("stop", "prompt", "tool", "wait", "release"),
         default=None,
-        help="run an agent hook and exit: stop (the agent ended its turn) or prompt (the person "
-        "wrote); reads the hook's JSON on standard input and prints nothing",
+        help="run an agent hook and exit: stop (the agent ended its turn), prompt (the person "
+        "wrote), tool (a Moah tool ran: PostToolUse), wait (the waiter for the person's "
+        "decision in Review, services/chat_wait.py; Codex's is started by its stop hook, "
+        "services/codex_waiter.py) or release (give decisions back that could not be handed "
+        "over, with --ids); reads the hook's JSON on standard input and prints nothing, except "
+        "what the person decided in Review for this chat (services/chat_delivery.py)",
+    )
+    parser.add_argument(
+        "--settle",
+        action="store_true",
+        help="stop hook: wait a few seconds before recording, and record nothing when the person "
+        "wrote in the chat meanwhile (only for the background hook line Connect writes: a "
+        "synchronous one would hold up the agent's turn)",
+    )
+    parser.add_argument(
+        "--deliver",
+        action="store_true",
+        help="Claude Code's prompt hook: hand the chat what the person decided in Review, and "
+        "wake it with exit code 2 (only for the hook line Connect writes with asyncRewake: "
+        "from a plain background hook that exit code is lost)",
+    )
+    parser.add_argument(
+        "--print",
+        action="store_true",
+        help="Codex's waiter (--hook wait): claim the decision and print it for a shell to queue "
+        "(line 1 the thread id, line 2 the ids of the decisions, the rest the message) instead "
+        "of running codex itself; for a Flatpak, which cannot run it (codex_waiter."
+        "flatpak_stop_line)",
+    )
+    parser.add_argument(
+        "--ids",
+        default=None,
+        help="--hook release: the ids of the decisions to give back, separated by spaces",
     )
     parser.add_argument(
         "--session-id",
         default=None,
         help="the agent's session id, for installs where the agent's environment does not reach "
-        "this server (a Flatpak started from a container); Connect adds it",
+        "this server (a Flatpak started from a container) and for Codex's detached waiter, "
+        "which has no input; Connect adds it to the server",
     )
     parser.add_argument(
         "--cwd",
@@ -96,21 +129,49 @@ def print_brief(session, args: argparse.Namespace) -> None:
     print(with_update_check(session, build_brief(session, found, note, hint)), flush=True)
 
 
-def run_hook(session, args: argparse.Namespace) -> None:
-    """One agent hook. Never fails the agent: whatever goes wrong, its turn goes on as before."""
+def run_hook(session, args: argparse.Namespace) -> int:
+    """One agent hook. Never fails the agent: whatever goes wrong, its turn goes on as before.
+
+    Returns the hook's exit code: 0, except 2 for the prompt hook that handed the chat a decision
+    the person gave in Review (Claude Code wakes the chat on a background hook's exit 2, which is
+    why nothing else, and no error, ever returns it)."""
     from app.services.agent_sessions import read_hook_input
+    from app.services.chat_delivery import prompt_delivery
     from app.services.chat_questions import HOOKS
+    from app.services.codex_waiter import after_stop
+    from app.services.hook_text import valid_id
 
     agent = "claude" if args.agent == "agent" else args.agent.strip().casefold()
+    code = 0
     try:
-        HOOKS[args.hook](session, agent, read_hook_input())
+        hook_input = read_hook_input()
+        HOOKS[args.hook](session, agent, hook_input)
+        if args.hook == "prompt":
+            code = prompt_delivery(session, agent, hook_input, wake=args.deliver)
+        elif args.hook == "stop":
+            # Codex cannot wait in a hook: once the turn is recorded, a detached waiter does.
+            after_stop(agent, valid_id(hook_input.get("session_id")))
     except Exception as error:  # noqa: BLE001 - a hook must never stop the agent or the person
         session.rollback()
         print(f"Project Moah {args.hook} hook: {error}", file=sys.stderr)
+    return code
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    try:
+        args = parse_args(argv)
+    except SystemExit as end:
+        # A command line that argparse refuses ends with exit code 2: for a hook that would wake
+        # the chat with a usage message. Only a delivery may.
+        if "--hook" in (sys.argv[1:] if argv is None else argv):
+            return 0
+        raise end
+    if args.hook in ("wait", "release"):
+        # Normally settled before this module loads (chat_wait.before_loading).
+        from app.services.chat_wait import handle, release_hook
+
+        words = sys.argv[1:] if argv is None else argv
+        return handle(words) if args.hook == "wait" else release_hook(words)
     url = get_database_url()
     error_log.install("mcp")  # the start-up brief too: a failure there is otherwise silent
     upgrade_database(url)
@@ -120,10 +181,9 @@ def main(argv: list[str] | None = None) -> int:
         # which Claude Code would add to the person's message.
         try:
             with make_session_factory(engine)() as session:
-                run_hook(session, args)
+                return run_hook(session, args)
         finally:
             engine.dispose()
-        return 0
     try:
         with make_session_factory(engine)() as session:
             register_build(session, installed=False)  # a new session may be a new build's first

@@ -163,18 +163,21 @@ def main() -> int:
 
         return connect_main()
     if "--mcp" in sys.argv:
-        from app.services.hook_text import nothing_to_record
+        from app.services.chat_wait import before_loading
 
-        # A turn that did not end on a question needs nothing else (services/hook_text.py).
-        if nothing_to_record(sys.argv[1:]):
-            return 0
+        argv = [a for a in sys.argv[1:] if a != "--mcp"]
+        # A hook with nothing to do ends here, before the database is loaded; Claude Code's stop
+        # hook waits here (services/chat_wait.py).
+        code = before_loading(argv)
+        if code is not None:
+            return code
         # The same executable also serves agents over stdio: `project-brain-backend --mcp`.
         from app.mcp.cli import main as mcp_main
         from app.services.system import open_app_in_tray
 
         if "--brief" not in sys.argv and "--hook" not in sys.argv:
             open_app_in_tray()
-        return mcp_main([a for a in sys.argv[1:] if a != "--mcp"])
+        return mcp_main(argv)
     try:
         return 0 if asyncio.run(serve()) else 1
     except Exception as error:

@@ -1,3 +1,4 @@
+import asyncio
 import errno
 import os
 import queue
@@ -5,14 +6,16 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 
 import pytest
 from httpx import ASGITransport, AsyncClient, Client
 
 from app import desktop_server
+from app.core import error_log
 from app.core.resources import resource_path
 from app.main import create_app
+from app.services import agent_connect
 
 
 @pytest.mark.anyio
@@ -205,3 +208,22 @@ def test_diagnostics_answer_while_the_service_waits_on_its_input(tmp_path: Path)
         if process.poll() is None:
             process.kill()
             process.wait(timeout=5)
+
+
+@pytest.mark.parametrize("throwaway_database", [False, True])
+def test_the_app_refreshes_agent_hooks_when_it_starts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, throwaway_database: bool
+) -> None:
+    """The Flatpak included: Electron sets no database path, so the start-up thread runs and
+    refresh_connections does the rest (a sandboxed Flatpak refreshes its hooks there). A
+    throwaway database, as the package checks use, means nobody's agents are involved."""
+    started = Event()
+    monkeypatch.setattr(agent_connect, "refresh_connections", lambda *_: started.set() or [])
+    monkeypatch.setattr(error_log, "install", lambda *_: None)
+    monkeypatch.delenv("PROJECT_BRAIN_DESKTOP_TOKEN", raising=False)  # serve() stops at the token
+    if throwaway_database:
+        monkeypatch.setenv("PROJECT_BRAIN_DB_PATH", str(tmp_path / "check.db"))
+    else:
+        monkeypatch.delenv("PROJECT_BRAIN_DB_PATH", raising=False)
+    assert asyncio.run(desktop_server.serve()) is False
+    assert started.wait(0.3 if throwaway_database else 5) is not throwaway_database

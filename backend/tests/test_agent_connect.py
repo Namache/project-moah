@@ -100,18 +100,16 @@ def test_connects_the_hooks_that_catch_questions_asked_in_the_chat(home: Path) -
         }
 
     claude = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]
+    assert set(claude) == {"SessionStart", "Stop", "UserPromptSubmit", "PostToolUse"}
     assert claude["Stop"][0] == own_stop and len(claude["Stop"]) == 2
-    stop = claude["Stop"][1]["hooks"][0]
-    assert stop["command"].endswith("--mcp --agent claude --hook stop") and "async" not in stop
-    [prompt_group] = claude["UserPromptSubmit"]
-    # Claude Code sends the person's message without waiting for Project Moah.
-    assert prompt_group["hooks"][0]["async"] is True
-    assert prompt_group["hooks"][0]["command"].endswith("--agent claude --hook prompt")
+    assert [len(claude[event]) for event in ("UserPromptSubmit", "PostToolUse")] == [1, 1]
+    stop, wait = claude["Stop"][1]["hooks"]
+    assert stop["command"].endswith("--agent claude --hook stop --settle")
+    assert wait["command"].endswith("--agent claude --hook wait")
     codex = json.loads((home / ".codex/hooks.json").read_text(encoding="utf-8"))
-    assert codex["description"] == "mine" and set(codex["hooks"]) == {"Stop", "UserPromptSubmit"}
-    assert [len(groups) for groups in codex["hooks"].values()] == [1, 1]
-    assert codex["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("--agent codex --hook stop")
-    assert "async" not in codex["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert codex["description"] == "mine"
+    assert set(codex["hooks"]) == {"Stop", "UserPromptSubmit", "PostToolUse"}
+    assert [len(groups) for groups in codex["hooks"].values()] == [1, 1, 1]
 
 
 def test_windows_brief_hook_is_one_line_that_cmd_and_git_bash_both_run(
@@ -122,6 +120,275 @@ def test_windows_brief_hook_is_one_line_that_cmd_and_git_bash_both_run(
     # Claude Code has no "args" field: anything outside "command" is dropped and the bare path,
     # cut at its first space, fails. The brief reads CLAUDE_PROJECT_DIR itself.
     assert hook == {"type": "command", "command": f'"{EXE}" --mcp --brief', "timeout": 20}
+
+
+REAL_FLATPAK = {
+    "install": "flatpak",
+    "command": [
+        "flatpak",
+        "run",
+        "--command=project-moah-mcp",
+        "io.github.projectbrain.ProjectBrain",
+    ],
+}
+FP = "flatpak run --command=project-moah-mcp io.github.projectbrain.ProjectBrain"
+MATCHER = "mcp__project[-_](moah|brain)__brain_.*"
+
+
+def test_claude_hooks_exactly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The set Connect writes for Claude Code (chat_wait.py has the reasons): the Stop group runs
+    the recording (async, after a short wait) and the waiting that wakes the chat (asyncRewake);
+    the prompt hook hands over what was not delivered; the tool hook learns each call's chat."""
+    monkeypatch.setattr(agent_connect.sys, "platform", "linux")
+    assert agent_connect._claude_hooks(REAL_FLATPAK["command"]) == {
+        "SessionStart": {
+            "matcher": "startup|clear|compact",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f'{FP} --brief --cwd "$CLAUDE_PROJECT_DIR"',
+                    "timeout": 20,
+                }
+            ],
+        },
+        "Stop": {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"{FP} --agent claude --hook stop --settle",
+                    "async": True,
+                    "timeout": 60,
+                },
+                {
+                    "type": "command",
+                    "command": f"{FP} --agent claude --hook wait",
+                    "asyncRewake": True,
+                    "timeout": 86400,
+                },
+            ]
+        },
+        "UserPromptSubmit": {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"{FP} --agent claude --hook prompt --deliver",
+                    "asyncRewake": True,
+                    "timeout": 60,
+                }
+            ]
+        },
+        "PostToolUse": {
+            "matcher": MATCHER,
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"{FP} --agent claude --hook tool",
+                    "async": True,
+                    "timeout": 30,
+                }
+            ],
+        },
+    }
+
+
+def test_claude_hook_lines_for_windows_and_for_a_path_with_a_space(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def commands(command: list[str]) -> list[str]:
+        groups = agent_connect._claude_hooks(command)
+        return [
+            h["command"]
+            for event in ("Stop", "UserPromptSubmit", "PostToolUse")
+            for h in groups[event]["hooks"]
+        ]
+
+    monkeypatch.setattr(agent_connect.sys, "platform", "win32")
+    assert commands(LAUNCH["command"]) == [
+        f'"{EXE}" --mcp --agent claude --hook stop --settle',
+        f'"{EXE}" --mcp --agent claude --hook wait',
+        f'"{EXE}" --mcp --agent claude --hook prompt --deliver',
+        f'"{EXE}" --mcp --agent claude --hook tool',
+    ]
+    monkeypatch.setattr(agent_connect.sys, "platform", "linux")
+    assert commands(["/opt/Project Moah/moah-mcp"])[1] == (
+        "'/opt/Project Moah/moah-mcp' --agent claude --hook wait"
+    )
+
+
+def test_codex_hooks_exactly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex runs every hook in turn and waits for it, so none is async. Where Moah is not
+    sandboxed Stop is the line it always was; the Flatpak's Stop line starts the waiter."""
+    from app.services.codex_waiter import flatpak_stop_line
+
+    monkeypatch.setattr(agent_connect.sys, "platform", "win32")
+    assert agent_connect._codex_hooks(LAUNCH["command"]) == {
+        "Stop": {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f'"{EXE}" --mcp --agent codex --hook stop',
+                    "timeout": 15,
+                }
+            ]
+        },
+        "UserPromptSubmit": {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f'"{EXE}" --mcp --agent codex --hook prompt',
+                    "timeout": 15,
+                }
+            ]
+        },
+        "PostToolUse": {
+            "matcher": MATCHER,
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f'"{EXE}" --mcp --agent codex --hook tool',
+                    "timeout": 30,
+                }
+            ],
+        },
+    }
+    monkeypatch.setattr(agent_connect.sys, "platform", "linux")
+    flatpak = agent_connect._codex_hooks(REAL_FLATPAK["command"])
+    stop = flatpak["Stop"]["hooks"][0]
+    assert stop == {
+        "type": "command",
+        "command": flatpak_stop_line(REAL_FLATPAK["command"]),
+        "timeout": 15,
+    }
+    assert stop["command"].startswith(f'd=$(cat); printf %s "$d" | {FP} --agent codex --hook stop')
+    assert flatpak["UserPromptSubmit"]["hooks"] == [
+        {"type": "command", "command": f"{FP} --agent codex --hook prompt", "timeout": 15}
+    ]
+    assert flatpak["PostToolUse"]["hooks"] == [
+        {"type": "command", "command": f"{FP} --agent codex --hook tool", "timeout": 30}
+    ]
+    # Any other install runs the plain Stop hook: the waiter starts from Moah's own Python.
+    deb = agent_connect._codex_hooks(["project-moah-mcp"])["Stop"]["hooks"][0]
+    assert deb["command"] == "project-moah-mcp --agent codex --hook stop"
+
+
+@pytest.mark.parametrize(
+    ("platform", "launch", "stop", "prompt"),
+    [
+        (
+            "win32",
+            LAUNCH,
+            f'"{EXE}" --mcp --agent codex --hook stop',
+            f'"{EXE}" --mcp --agent codex --hook prompt',
+        ),
+        (
+            "linux",
+            {"install": "deb", "command": ["project-moah-mcp"]},
+            "project-moah-mcp --agent codex --hook stop",
+            "project-moah-mcp --agent codex --hook prompt",
+        ),
+    ],
+)
+def test_connecting_again_leaves_codexs_old_hook_lines_byte_for_byte(
+    home: Path, monkeypatch: pytest.MonkeyPatch, platform: str, launch: dict, stop: str, prompt: str
+) -> None:
+    """Codex asks the person to trust a hook again when its definition changes. The Stop and
+    prompt hooks of the earlier versions are not changed, so only the new tool hook asks."""
+    monkeypatch.setattr(agent_connect.sys, "platform", platform)
+    (home / ".codex").mkdir()
+    old = {
+        "hooks": {
+            "Stop": [{"hooks": [{"type": "command", "command": stop, "timeout": 15}]}],
+            "UserPromptSubmit": [
+                {"hooks": [{"type": "command", "command": prompt, "timeout": 15}]}
+            ],
+        }
+    }
+    path = home / ".codex/hooks.json"
+    path.write_text(json.dumps(old, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    assert statuses(agent_connect.connect_agents(launch))["codex"] == "connected"
+    new = json.loads(path.read_text(encoding="utf-8"))["hooks"]
+
+    def text(entry: object) -> str:  # key order counts: it is the text Codex hashes
+        return json.dumps(entry, indent=2, ensure_ascii=False)
+
+    assert text(new["Stop"]) == text(old["hooks"]["Stop"])
+    assert text(new["UserPromptSubmit"]) == text(old["hooks"]["UserPromptSubmit"])
+    assert new["PostToolUse"][0]["hooks"][0]["command"].endswith("--agent codex --hook tool")
+    before = path.read_bytes()
+    agent_connect.connect_agents(launch)
+    assert path.read_bytes() == before  # and again changes nothing
+
+
+def test_the_flatpaks_waiting_stop_line_is_written_only_for_the_flatpak(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(agent_connect.sys, "platform", "linux")
+    (home / ".codex").mkdir()
+    (home / "flatpak-info").write_text(ONE_RUN)
+    monkeypatch.setattr(agent_connect, "FLATPAK_INFO", home / "flatpak-info")
+    lines = {}
+    for name, launch in (
+        ("flatpak", REAL_FLATPAK),
+        ("deb", {"install": "deb", "command": ["moah"]}),
+    ):
+        agent_connect.connect_agents(launch)
+        hooks = json.loads((home / ".codex/hooks.json").read_text(encoding="utf-8"))["hooks"]
+        lines[name] = hooks["Stop"][0]["hooks"][0]["command"]
+    assert "setsid" in lines["flatpak"] and "codex queue" in lines["flatpak"]
+    assert lines["deb"] == "moah --agent codex --hook stop"
+
+
+def test_a_persons_own_hook_that_says_brief_is_not_moahs(home: Path) -> None:
+    """Only a hook that starts Moah is replaced: `git diff --brief` stays."""
+    own = {"type": "command", "command": "git diff --brief"}
+    assert not agent_connect._is_ours(own)
+    assert not agent_connect._is_ours({"type": "command", "command": "my-tool --hook stop"})
+    assert agent_connect._is_ours({"command": f'{FP} --brief --cwd "$CLAUDE_PROJECT_DIR"'})
+    assert agent_connect._is_ours({"command": f"{FP} --agent claude --hook wait"})
+    (home / ".claude").mkdir()
+    (home / ".claude/settings.json").write_text(
+        json.dumps({"hooks": {"SessionStart": [{"hooks": [own]}]}})
+    )
+    agent_connect.connect_claude(LAUNCH["command"])
+    groups = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]
+    assert groups["SessionStart"][0] == {"hooks": [own]} and len(groups["SessionStart"]) == 2
+
+
+def test_connecting_replaces_the_earlier_hook_set_without_a_second_copy(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What 0.4.3 wrote (stop and prompt hooks, no waiting) becomes the new set, one group per
+    event, and the person's own hooks stay where they were."""
+    monkeypatch.setattr(agent_connect.sys, "platform", "win32")
+    (home / ".claude").mkdir()
+    own = {"hooks": [{"type": "command", "command": "notify-send done"}]}
+    brief = {"type": "command", "command": f'"{EXE}" --mcp --brief', "timeout": 20}
+    stop = {
+        "type": "command",
+        "command": f'"{EXE}" --mcp --agent claude --hook stop',
+        "timeout": 15,
+    }
+    prompt = {**stop, "command": f'"{EXE}" --mcp --agent claude --hook prompt', "async": True}
+    (home / ".claude/settings.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [{"matcher": "startup", "hooks": [brief]}],
+                    "Stop": [own, {"hooks": [stop]}],
+                    "UserPromptSubmit": [{"hooks": [prompt]}],
+                }
+            }
+        )
+    )
+    agent_connect.connect_claude(LAUNCH["command"])
+    hooks = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]
+    assert hooks["Stop"][0] == own and len(hooks["Stop"]) == 2
+    assert hooks["Stop"][1] == agent_connect._claude_hooks(LAUNCH["command"])["Stop"]
+    assert hooks["UserPromptSubmit"] == [
+        agent_connect._claude_hooks(LAUNCH["command"])["UserPromptSubmit"]
+    ]
+    assert len(hooks["SessionStart"]) == 1 and "PostToolUse" in hooks
 
 
 def test_a_damaged_settings_file_is_reported_and_left_alone(home: Path) -> None:
@@ -243,7 +510,7 @@ def test_refresh_at_start_moves_connected_agents_to_this_install(home: Path) -> 
     assert server["env"] == {"MY_VAR": "1"}  # the person's own variables stay
     assert config["theme"] == "dark" and config["mcpServers"]["other"] == {"command": "x"}
     settings = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
-    assert set(settings["hooks"]) == {"SessionStart", "Stop", "UserPromptSubmit"}
+    assert set(settings["hooks"]) == {"SessionStart", "Stop", "UserPromptSubmit", "PostToolUse"}
     saved = tomllib.loads((home / ".codex/config.toml").read_text(encoding="utf-8"))
     assert saved["model"] == "gpt" and saved["mcp_servers"]["project-moah"]["command"] == EXE
     # Once connected, AGENTS.md is the person's: a refresh doesn't add the brief line back.
@@ -292,10 +559,14 @@ def test_refresh_does_nothing_where_the_app_cant_change_agent_settings(
     (home / ".codex/config.toml").write_text(original)
     (home / "flatpak-info").write_text(SANDBOX)
     monkeypatch.setattr(agent_connect, "FLATPAK_INFO", home / "flatpak-info")
+    monkeypatch.setattr(agent_connect, "data_folder", lambda: home / "moah-data")
     source = {"install": "source", "command": ["python", "-m", "app.mcp"]}
     for launch in (FLATPAK, source):
         assert agent_connect.refresh_connections(launch) == []
     assert (home / ".codex/config.toml").read_text() == original
+    # The sandboxed Flatpak looks at the hook files only (test_hook_refresh.py): no hooks there,
+    # so nothing was added and no backup made.
+    assert not (home / ".codex/hooks.json").exists() and not (home / "moah-data").exists()
 
 
 def test_an_old_flatpak_connection_is_told_how_to_refresh(

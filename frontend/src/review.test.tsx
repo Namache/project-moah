@@ -1,9 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { SendBackToAgent } from "./components/review/ReviewComposer";
+import { setLanguage } from "./lib/i18n";
+import type { ReviewChat } from "./api/agents";
 
 const project = { id: "p1", name: "Trailhead", slug: "trailhead", description: null, icon: "⛰️", accent: "#D99A53", root_path: null, status: "active", current_focus_task_id: null, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", last_opened_at: null, archived_at: null };
 const row = { project_id: "p1", project_name: "Trailhead", project_icon: "⛰️", project_accent: "#D99A53", kind: "task", reviewed_at: null, verdict: null, question: false, task_status: "review", moved_to: null, round: 1, generated: false };
@@ -42,7 +45,8 @@ function reviewOf(ref: string) {
 const acceptedTents = { project_id: "p1", project_name: "Trailhead", project_slug: "trailhead", task_id: "t0", task_ref: "CAMP-000", task_title: "Tents", task_status: "completed", task_description: "Put up the tents", criteria: [], earlier: [],
   current: { ...round, id: "r0", agent: "codex", status: "accepted", reviewed_at: "2026-01-01T12:00:00Z", summary: "Tents are up.", done: ["Four tents"], not_done: [], how_to_check: null, details: null, screenshots: [] } };
 
-function setup({ question = false, wait = false, singleKeys = true } = {}) {
+const UNKNOWN: ReviewChat = { kind: "unknown", agent: "claude", url: null, delivered: false, resume: null };
+function setup({ question = false, wait = false, singleKeys = true, chat = UNKNOWN, chatKnown = true }: { question?: boolean; wait?: boolean; singleKeys?: boolean; chat?: ReviewChat; chatKnown?: boolean } = {}) {
   const state = { waiting: wait ? [camp5, upgrade] : question ? [camp4, upgrade, rations] : [upgrade, rations], reviewed: [tents] as object[] };
   const made: object[] = [];
   const calls: { url: string; method: string; body?: unknown }[] = [];
@@ -66,7 +70,7 @@ function setup({ question = false, wait = false, singleKeys = true } = {}) {
       const key = verdict === "accept" ? `review:a-${done.ref}` : verdict === "answer" ? "review:q1" : "review:r1";
       state.reviewed = [{ ...done, key, reviewed_at: "2026-01-03T11:00:00Z", verdict: status }, ...state.reviewed];
       const detail = reviewOf(decision[1]);
-      return Response.json({ ...detail, task_status: verdict === "accept" ? "completed" : "in_progress", current: { ...detail.current, id: verdict === "answer" ? "q1" : "r1", status, reviewed_at: "2026-01-03T11:00:00Z" } });
+      return Response.json({ ...detail, task_status: verdict === "accept" ? "completed" : "in_progress", current: { ...detail.current, id: verdict === "answer" ? "q1" : "r1", status, reviewed_at: "2026-01-03T11:00:00Z", chat_known: chatKnown } });
     }
     const followUps = url.match(/^\/api\/projects\/p1\/tasks\/(CAMP-\d+)\/review\/follow-ups$/);
     if (followUps && method === "POST") {
@@ -85,7 +89,7 @@ function setup({ question = false, wait = false, singleKeys = true } = {}) {
       const now = state.reviewed.find((i) => (i as { ref: string }).ref === "CAMP-000") as { verdict: string };
       return Response.json(now.verdict === "rejected" ? { ...acceptedTents, task_status: "in_progress", current: { ...acceptedTents.current, status: "rejected", comment: "Tents leak" } } : acceptedTents);
     }
-    if (url.endsWith("/review/fix-prompt?agent=claude")) return Response.json({ agent: "claude", prompt: "Fix CAMP-002", url: "claude://code/new?q=Fix", folder: null });
+    if (/\/review\/fix-prompt(\?agent=claude)?$/.test(url)) return Response.json({ agent: "claude", task: "CAMP-002", prompt: "Fix CAMP-002", url: "claude://code/new?q=Fix", folder: null, chat });
     const review = url.match(/^\/api\/projects\/p1\/tasks\/(CAMP-\d+)\/review$/);
     if (review) {
       const decided = state.reviewed.find((i) => (i as { ref: string }).ref === review[1] && ["rejected", "answered"].includes((i as { verdict: string }).verdict)) as { verdict: string } | undefined;
@@ -99,7 +103,7 @@ function setup({ question = false, wait = false, singleKeys = true } = {}) {
   return { calls, state };
 }
 const renderAt = (path: string) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>);
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); setLanguage("system"); });
 
 describe("Review screen", () => {
   it("lists finished work on the left with who did it, and opens the newest", async () => {
@@ -228,6 +232,49 @@ describe("Review screen", () => {
     expect(within(panel).getByRole("checkbox", { name: "Works with a gamepad" })).toBeChecked();
   });
 
+  it("says an acceptance with a comment goes to the chat that did the work", async () => {
+    const { calls } = setup();
+    const user = userEvent.setup();
+    renderAt("/review");
+    await screen.findByText("Cost panel");
+    await user.type(screen.getByRole("textbox", { name: "Your comment for the agent" }), "Good. Add it to the changelog too.");
+    await user.click(screen.getByRole("button", { name: "Accept and move to Done" }));
+    expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/CAMP-002/review/decision"))?.body).toMatchObject({
+      verdict: "accept", comment: "Good. Add it to the changelog too.",
+    });
+    expect(await screen.findByText("Accepted. CAMP-002 is in Done. Your comment goes to the chat that did the work.")).toBeInTheDocument();
+  });
+
+  it("does not say the comment goes to a chat when Moah does not know the chat", async () => {
+    const { calls } = setup({ chatKnown: false });
+    const user = userEvent.setup();
+    renderAt("/review");
+    await screen.findByText("Cost panel");
+    await user.type(screen.getByRole("textbox", { name: "Your comment for the agent" }), "Good. Add it to the changelog too.");
+    await user.click(screen.getByRole("button", { name: "Accept and move to Done" }));
+    expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/CAMP-002/review/decision"))?.body).toMatchObject({ verdict: "accept" });
+    expect(await screen.findByText("Accepted. CAMP-002 is in Done. Moah doesn't know which chat did the work, so your comment is only saved under Reviewed.")).toBeInTheDocument();
+    expect(screen.queryByText(/goes to the chat/)).not.toBeInTheDocument();
+  });
+
+  it("says it in Russian too, with the chat known and not", async () => {
+    setLanguage("ru");
+    setup();
+    const user = userEvent.setup();
+    renderAt("/review");
+    await screen.findByText("Cost panel");
+    await user.type(screen.getByRole("textbox", { name: "Ваш комментарий для агента" }), "Хорошо.");
+    await user.click(screen.getByRole("button", { name: "Принять и перенести в «Готово»" }));
+    expect(await screen.findByText("Принято. CAMP-002 в «Готово». Ваш комментарий уйдёт в чат, который делал работу.")).toBeInTheDocument();
+    cleanup(); vi.unstubAllGlobals();
+    setup({ chatKnown: false });
+    renderAt("/review");
+    await screen.findByText("Cost panel");
+    await user.type(screen.getByRole("textbox", { name: "Ваш комментарий для агента" }), "Хорошо.");
+    await user.click(screen.getByRole("button", { name: "Принять и перенести в «Готово»" }));
+    expect(await screen.findByText("Принято. CAMP-002 в «Готово». Moah не знает, какой чат делал работу, поэтому комментарий только сохранён в «Проверено».")).toBeInTheDocument();
+  });
+
   it("accepts the work straight into Done, with your ticks, and moves on", async () => {
     const { calls } = setup();
     const user = userEvent.setup();
@@ -243,6 +290,9 @@ describe("Review screen", () => {
       criteria: [{ id: "c1", met: true }, { id: "c2", met: false }],
     });
     expect(calls.some((c) => c.url.endsWith("/follow-ups"))).toBe(false);
+    // Nothing was written, so nothing is said about a chat.
+    expect(await screen.findByText("Accepted. CAMP-002 is in Done.")).toBeInTheDocument();
+    expect(screen.queryByText(/goes to the chat/)).not.toBeInTheDocument();
     // The next task came without a report: its lines are picked out of the agent's notes, in the same frames.
     expect(await screen.findByText("Codex wrote no report, so this is picked out of its notes on the task.")).toBeInTheDocument();
     expect(screen.getByText("Lines about other tasks are left out.")).toBeInTheDocument();
@@ -281,7 +331,9 @@ describe("Review screen", () => {
     // The rejected task stays on screen, with the way to hand the comments over now.
     expect(await screen.findByText("Sent back.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Camp upgrade screen" })).toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "Open in Claude Code with my comments" }));
+    // Moah does not know which chat asked, so a new chat is offered, and says so.
+    expect(await screen.findByText(/The next agent that opens this project sees your comments first/)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Start a new chat in Claude Code with my comments" }));
     await waitFor(() => expect(openAgent).toHaveBeenCalledWith("claude://code/new?q=Fix"));
     expect(await screen.findByText(/Claude Code opened with the prompt typed in/)).toBeInTheDocument();
   });
@@ -353,7 +405,7 @@ describe("Review screen", () => {
     await user.click(send);
     await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.url.endsWith("/CAMP-004/review/decision"))?.body).toEqual({ verdict: "answer", comment: "Red Full label" }));
     expect(await screen.findByText("Answered.")).toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "Open in Claude Code with my answer" }));
+    await user.click(await screen.findByRole("button", { name: "Start a new chat in Claude Code with my answer" }));
     await waitFor(() => expect(openAgent).toHaveBeenCalled());
   });
 
@@ -480,5 +532,255 @@ describe("Review screen", () => {
     renderAt("/projects/p1/review");
     expect(await screen.findByText("Cost panel")).toBeInTheDocument();
     expect(calls.some((c) => c.url === "/api/reviews?project_id=p1")).toBe(true);
+  });
+});
+
+// ---- Review's button goes to the chat that asked ----------------------------------------------
+
+const THREAD = "019a7c2e-5b1f-7c3a-8e4d-2f6b9a1c0d37"; // a Codex thread id, made up
+const CHATS = {
+  desktop: { kind: "desktop", agent: "claude", url: "claude://code/continue?session=local_5d3b8f72-0c1a-4e96-b7d4-9a2e6c18f035", delivered: false, resume: null },
+  terminal: { kind: "terminal", agent: "claude", url: null, delivered: false, resume: null },
+  elsewhere: { kind: "elsewhere", agent: "claude", url: null, delivered: false, resume: null },
+  codex: { kind: "codex", agent: "codex", url: `codex://threads/${THREAD}`, delivered: false, resume: `codex resume ${THREAD}` },
+  unknown: UNKNOWN,
+} satisfies Record<string, ReviewChat>;
+
+/** Only the box under a decision, with the backend's answer about the chat: `state.chat` can change between looks. */
+function chatBox(chat: ReviewChat, { opened = true, preferred = "claude" }: { opened?: boolean; preferred?: "claude" | "codex" } = {}) {
+  const state = { chat, fail: false };
+  const looks: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (!url.includes("/review/fix-prompt")) return Response.json({});
+    looks.push(url);
+    if (state.fail) return Response.json({ detail: "CAMP-002 was not sent back." }, { status: 409 });
+    const agent = url.includes("agent=codex") ? "codex" : url.includes("agent=claude") ? "claude" : preferred;
+    return Response.json({ agent, task: "CAMP-002", prompt: `Fix CAMP-002 in ${agent}`, url: agent === "codex" ? "codex://new?prompt=Fix" : "claude://code/new?q=Fix", folder: null, chat: state.chat });
+  }));
+  const openAgent = vi.fn(async () => opened);
+  vi.stubGlobal("projectBrainDesktop", { apiToken: "", install: "linux", openAgent });
+  const writeText = vi.fn(async () => undefined);
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  return { state, looks, openAgent, writeText };
+}
+const renderBox = (answered = false) => render(<SendBackToAgent projectId="p1" taskRef="CAMP-002" answered={answered} />);
+const noNewChatButton = () => {
+  expect(screen.queryByRole("button", { name: /^Start a new chat in / })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^or in / })).not.toBeInTheDocument();
+};
+
+describe("Sending a decision back to the chat that asked", () => {
+  it("fetches the chat as the box shows and goes to it, never to a new chat", async () => {
+    const user = userEvent.setup();
+    const { openAgent, looks } = chatBox(CHATS.desktop);
+    renderBox();
+    const go = await screen.findByRole("button", { name: "Go to the chat" });
+    expect(looks).toHaveLength(1); // before any press
+    expect(screen.getByText("Sent back.")).toBeInTheDocument();
+    // One sentence says where it goes and whether it arrived: no second status line under the buttons.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Sent back. Your comments go to the chat that did the work as soon as it can take them.");
+    expect(screen.queryByText(/Moah can't open that chat/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/The next agent that opens this project/)).not.toBeInTheDocument();
+    noNewChatButton();
+    await user.click(go);
+    expect(openAgent).toHaveBeenCalledExactlyOnceWith(CHATS.desktop.url);
+    expect(screen.queryByText(/could not be opened/)).not.toBeInTheDocument();
+  });
+
+  it("says an answer is already in the chat once it is delivered", async () => {
+    chatBox({ ...CHATS.desktop, delivered: true });
+    renderBox(true);
+    expect(await screen.findByText("Answered.")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Answered. Your answer is already in the chat that asked.");
+    expect(screen.getByRole("button", { name: "Go to the chat" })).toBeInTheDocument();
+    noNewChatButton();
+  });
+
+  it("looks once more after about four seconds when the chat has not taken it yet, and only once", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true }); // the testing library waits on timers too
+    const { state, looks } = chatBox(CHATS.desktop);
+    renderBox(true);
+    expect(await screen.findByText(/Your answer goes to the chat that asked as soon as it can take it\./)).toBeInTheDocument();
+    expect(looks).toHaveLength(1);
+    state.chat = { ...state.chat, delivered: true };
+    await act(async () => { vi.advanceTimersByTime(3500); });
+    expect(looks).toHaveLength(1);
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(looks).toHaveLength(2);
+    expect(await screen.findByText(/Your answer is already in the chat that asked\./)).toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(looks).toHaveLength(2);
+  });
+
+  it("does not look again when the chat already has it, or when no chat is known", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true }); // the testing library waits on timers too
+    const delivered = chatBox({ ...CHATS.terminal, delivered: true });
+    renderBox();
+    await screen.findByText(/Your comments are already in the chat that did the work\./);
+    await act(async () => { vi.advanceTimersByTime(30_000); });
+    expect(delivered.looks).toHaveLength(1);
+    cleanup();
+    const unknown = chatBox(CHATS.unknown);
+    renderBox();
+    await screen.findByRole("button", { name: "Start a new chat in Claude Code with my comments" });
+    await act(async () => { vi.advanceTimersByTime(30_000); });
+    expect(unknown.looks).toHaveLength(1);
+  });
+
+  it("stops looking when the box goes away", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true }); // the testing library waits on timers too
+    const { looks } = chatBox(CHATS.desktop);
+    renderBox();
+    await screen.findByRole("button", { name: "Go to the chat" });
+    cleanup();
+    await act(async () => { vi.advanceTimersByTime(30_000); });
+    expect(looks).toHaveLength(1);
+  });
+
+  it("goes to a Codex chat, and offers the command for a terminal with a Copy button", async () => {
+    const user = userEvent.setup();
+    const { openAgent, writeText } = chatBox(CHATS.codex, { preferred: "codex" });
+    renderBox(true);
+    await user.click(await screen.findByRole("button", { name: "Go to the chat" }));
+    expect(openAgent).toHaveBeenCalledExactlyOnceWith(`codex://threads/${THREAD}`);
+    expect(screen.getByRole("status")).toHaveTextContent("Answered. Your answer goes to the chat that asked as soon as it can take it.");
+    expect(screen.getByText("Or in a terminal:")).toBeInTheDocument();
+    expect(screen.getByText(`codex resume ${THREAD}`)).toBeInTheDocument();
+    noNewChatButton();
+    await user.click(screen.getByRole("button", { name: "Copy command" }));
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(`codex resume ${THREAD}`);
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
+  });
+
+  it.each(["terminal", "elsewhere"] as const)("cannot open a %s chat, says so, and still only offers a new chat as a small extra", async (kind) => {
+    const { openAgent } = chatBox(CHATS[kind]);
+    renderBox();
+    expect(await screen.findByRole("button", { name: "Start a new chat instead" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Go to the chat" })).not.toBeInTheDocument();
+    noNewChatButton();
+    const said = screen.getByRole("status");
+    expect(said).toHaveTextContent("Sent back. Your comments go to the chat that did the work as soon as it can take them.");
+    expect(said).not.toHaveTextContent("Moah can't");
+    // The reason it cannot open the chat is one muted line, below the buttons.
+    const why = screen.getByText("Moah can't open that chat from here: it runs in a terminal or outside the Claude app.");
+    expect(screen.getByRole("button", { name: "Start a new chat instead" }).compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText(/Or in a terminal/)).not.toBeInTheDocument();
+    expect(openAgent).not.toHaveBeenCalled();
+  });
+
+  it("says a terminal chat already took the answer", async () => {
+    chatBox({ ...CHATS.terminal, delivered: true });
+    renderBox(true);
+    expect(await screen.findByText(/Your answer is already in the chat that asked\./)).toBeInTheDocument();
+  });
+
+  it("offers a new chat only when it does not know the chat, labelled as one, in either agent", async () => {
+    const user = userEvent.setup();
+    const { openAgent, writeText } = chatBox(CHATS.unknown);
+    renderBox(true);
+    expect(await screen.findByText(/The next agent that opens this project sees your answer first\. Or hand it over now:/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Go to the chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start a new chat instead" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start a new chat in Claude Code with my answer" }));
+    await waitFor(() => expect(openAgent).toHaveBeenLastCalledWith("claude://code/new?q=Fix"));
+    expect(writeText).toHaveBeenCalledWith("Fix CAMP-002 in claude");
+    expect(await screen.findByText(/Claude Code opened with the prompt typed in/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "or in Codex" }));
+    await waitFor(() => expect(openAgent).toHaveBeenLastCalledWith("codex://new?prompt=Fix"));
+    expect(await screen.findByText(/Codex opened with the prompt typed in/)).toBeInTheDocument();
+  });
+
+  it("starts a new chat from the small link in the chat's own agent, with the prompt typed in", async () => {
+    const user = userEvent.setup();
+    const { openAgent, writeText } = chatBox(CHATS.codex, { preferred: "claude" });
+    renderBox();
+    await user.click(await screen.findByRole("button", { name: "Start a new chat instead" }));
+    await waitFor(() => expect(openAgent).toHaveBeenCalledExactlyOnceWith("codex://new?prompt=Fix"));
+    expect(writeText).toHaveBeenCalledWith("Fix CAMP-002 in codex");
+    expect(await screen.findByText(/Codex opened with the prompt typed in/)).toBeInTheDocument();
+  });
+
+  it("says when the app could not be opened from here, and a Codex chat still has its command", async () => {
+    const user = userEvent.setup();
+    const claude = chatBox(CHATS.desktop, { opened: false });
+    renderBox();
+    await user.click(await screen.findByRole("button", { name: "Go to the chat" }));
+    expect(await screen.findByText("Claude Code could not be opened from here.")).toBeInTheDocument();
+    expect(claude.openAgent).toHaveBeenCalledOnce();
+    cleanup();
+    chatBox(CHATS.codex, { opened: false });
+    renderBox();
+    await user.click(await screen.findByRole("button", { name: "Go to the chat" }));
+    expect(await screen.findByText("Codex could not be opened from here.")).toBeInTheDocument();
+    expect(screen.getByText(`codex resume ${THREAD}`)).toBeInTheDocument();
+  });
+
+  it("says so in a browser, where the desktop app's bridge does not exist", async () => {
+    chatBox(CHATS.desktop);
+    vi.stubGlobal("projectBrainDesktop", undefined);
+    const user = userEvent.setup();
+    renderBox();
+    await user.click(await screen.findByRole("button", { name: "Go to the chat" }));
+    expect(await screen.findByText("Claude Code could not be opened from here.")).toBeInTheDocument();
+  });
+
+  it("falls back to the new chat button when the chat could not be looked up", async () => {
+    const box = chatBox(CHATS.desktop);
+    box.state.fail = true;
+    renderBox();
+    expect(await screen.findByRole("button", { name: "Start a new chat in Claude Code with my comments" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Go to the chat" })).not.toBeInTheDocument();
+  });
+
+  it("shows no buttons while it does not know the chat yet", async () => {
+    chatBox(CHATS.desktop);
+    renderBox();
+    expect(screen.getByText("Sent back.")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Go to the chat" });
+  });
+
+  it("works through the Review screen: a rejected task goes to its desktop chat", async () => {
+    const { calls } = setup({ chat: CHATS.desktop });
+    const user = userEvent.setup();
+    const openAgent = vi.fn(async () => true);
+    vi.stubGlobal("projectBrainDesktop", { apiToken: "", install: "linux", openAgent });
+    renderAt("/review");
+    await screen.findByText("Cost panel");
+    await user.type(screen.getByLabelText("Your comment for the agent"), "Still missing");
+    await user.click(screen.getByRole("button", { name: "Send back" }));
+    await user.click(await screen.findByRole("button", { name: "Go to the chat" }));
+    expect(openAgent).toHaveBeenCalledExactlyOnceWith(CHATS.desktop.url);
+    noNewChatButton();
+    expect(calls.filter((c) => c.url.includes("/fix-prompt"))).toHaveLength(1);
+  });
+});
+
+describe("Sending a decision back, in Russian", () => {
+  const texts = {
+    desktop: ["Перейти в чат", "Ваши комментарии уйдут в чат, который делал работу, как только он сможет их принять.", "Вместо этого начать новый чат"],
+    codex: ["Перейти в чат", "Ваши комментарии уйдут в чат, который делал работу, как только он сможет их принять.", "Или в терминале:"],
+    terminal: ["Ваши комментарии уйдут в чат, который делал работу, как только он сможет их принять.", "Moah не может открыть этот чат отсюда: он идёт в терминале или вне приложения Claude.", "Вместо этого начать новый чат"],
+    elsewhere: ["Ваши комментарии уйдут в чат, который делал работу, как только он сможет их принять.", "Moah не может открыть этот чат отсюда: он идёт в терминале или вне приложения Claude.", "Вместо этого начать новый чат"],
+    unknown: ["Начать новый чат в Claude Code с моими комментариями", "Следующий агент, открывший этот проект, первым делом увидит ваши комментарии. Или передайте их сейчас:"],
+  } as const;
+  it.each(Object.keys(texts) as (keyof typeof texts)[])("shows a %s chat in Russian", async (kind) => {
+    setLanguage("ru");
+    chatBox(CHATS[kind]);
+    renderBox();
+    for (const text of texts[kind]) expect(await screen.findByText(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
+  });
+
+  it("says an answer is already in the chat, and that a new chat is meant, in Russian", async () => {
+    setLanguage("ru");
+    chatBox({ ...CHATS.desktop, delivered: true });
+    renderBox(true);
+    expect(await screen.findByRole("status")).toHaveTextContent("Ответ дан. Ваш ответ уже в чате, который спрашивал.");
+    cleanup();
+    chatBox(CHATS.unknown);
+    renderBox(true);
+    expect(await screen.findByRole("button", { name: "Начать новый чат в Claude Code с моим ответом" })).toBeInTheDocument();
   });
 });

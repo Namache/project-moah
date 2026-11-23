@@ -4,8 +4,10 @@ Writes the same settings Help lists by hand. Other settings in those files are k
 backup is saved next to each changed file, and running it again changes nothing new.
 
 People connect once. After an update, the app refreshes the connections it finds when it starts
-(`refresh_connections`), and the sandboxed Flatpak, which can't, has Moah tell the agent how
-(`connection_notice`).
+(`refresh_connections`). The sandboxed Flatpak can't change an agent's server entry, so it has Moah
+tell the agent how (`connection_notice`); but the manifest gives it the two hook files themselves,
+and there it refreshes Moah's hooks in place (`refresh_sandboxed_hooks`), so a change to the hooks
+needs no command from the person.
 """
 
 from __future__ import annotations
@@ -21,8 +23,12 @@ import sys
 import tomllib
 from pathlib import Path
 
+from sqlalchemy.engine import make_url
+
 from app.core import error_log
+from app.core.config import get_database_url
 from app.services.agent_sessions import SESSION_ENV
+from app.services.codex_waiter import flatpak_stop_line
 from app.services.system import FLATPAK_ID, agent_launch
 from app.services.usage import claude_home, codex_home
 
@@ -35,6 +41,9 @@ CODEX_SECTION = re.compile(rf"^\[mcp_servers\.{SERVER_NAME}\].*\n?(?:(?!\[).*\n?
 OLD_CODEX_SECTION = re.compile(
     rf"^\[mcp_servers\.{OLD_SERVER_NAME}\].*\n?(?:(?!\[).*\n?)*", re.MULTILINE
 )
+# The Moah tools whose calls the tool hook reports (services/hook_text.py MOAH_TOOL): the desktop
+# app's own server is project-brain, the one Connect writes is project-moah.
+TOOL_MATCHER = "mcp__project[-_](moah|brain)__brain_.*"
 CODEX_BRIEF = (
     "Project Moah is the source of truth for my rules and memory. At the start of every session, "
     "call\nthe project-moah tool brain_brief with your working folder as cwd and follow what it "
@@ -86,6 +95,71 @@ def _write(path: Path, text: str) -> None:
     os.replace(temporary, path)
 
 
+def data_folder() -> Path:
+    """Moah's own data folder: the one that holds its database. Raises OSError when the database
+    is not a file."""
+    url = make_url(get_database_url())
+    if not url.drivername.startswith("sqlite") or url.database in (None, "", ":memory:"):
+        raise OSError("Project Moah has no data folder here")
+    return Path(url.database).expanduser().resolve().parent
+
+
+def _put_back(path: Path, old: bytes) -> bool:
+    """Write the bytes a file had before an in-place write went wrong. True when it reads back."""
+    try:
+        with open(path, "rb+") as file:
+            file.write(old)
+            file.truncate()
+            file.flush()
+            os.fsync(file.fileno())
+        return path.read_bytes() == old
+    except OSError:
+        return False
+
+
+def _write_in_place(path: Path, text: str, expected: bytes, backup: Path) -> None:
+    """Rewrite a file that can't be replaced, as the sandboxed Flatpak's hook files can't.
+
+    The manifest gives the Flatpak that one file (a single-file bind mount) and not its folder.
+    A mount point can't be renamed over (os.replace fails with "device or resource busy"), and
+    the folder around it is the sandbox's own throwaway one, where the temp file and the
+    ``.moah-backup`` that ``_write`` makes beside a file would land and be lost. So: the new text
+    is validated first; the backup goes to Moah's own data folder, once (never overwritten, as
+    with ``_write``); the file is opened r+ (keeping its permissions and owner), the new bytes
+    are written and the rest of the old ones cut off (never an empty file in between), flushed,
+    fsynced and read back. On any failure the bytes it had are put back and logged, and the error
+    is raised for the caller to log. ``expected`` is what the new text was built from: when the
+    file changed meanwhile (the agent writes its own settings), nothing is written.
+    """
+    json.loads(text)  # never save what the agent couldn't read
+    new = text.encode("utf-8")
+    touched = False
+    try:
+        with open(path, "rb+") as file:  # a file that can't be opened for writing is untouched
+            if file.read() != expected:
+                raise OSError(f"{path.name} changed while Moah read it; left for the next start")
+            if not backup.exists():
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                backup.write_bytes(expected)
+            touched = True
+            file.seek(0)
+            file.write(new)
+            file.truncate()
+            file.flush()
+            os.fsync(file.fileno())
+        if path.read_bytes() != new:
+            raise OSError(f"{path.name} did not read back as written")
+    except Exception as error:  # noqa: BLE001 - whatever went wrong, the old text goes back
+        if touched:
+            restored = _put_back(path, expected)
+            error_log.write(
+                "service",
+                f"Writing {path.name} in place failed ({error}); "
+                + ("the old text is back." if restored else "the old text could not be put back."),
+            )
+        raise
+
+
 def _read_json(path: Path) -> dict:
     text = _read(path).strip()
     data = json.loads(text) if text else {}
@@ -111,22 +185,43 @@ def _brief_hook(command: list[str]) -> dict:
     return {"type": "command", "command": line, "timeout": 20}
 
 
-def _turn_hook(command: list[str], agent: str, hook: str) -> dict:
-    """The hook that catches a question the agent stops on (stop), or the person's reply to it
-    (prompt): services/chat_questions.py. It prints nothing and never fails the turn."""
-    entry = {
-        "type": "command",
-        "command": _line([*command, "--agent", agent, "--hook", hook]),
-        "timeout": 15,
-    }
-    if agent == "claude" and hook == "prompt":
-        entry["async"] = True  # Claude Code sends the message without waiting for it
-    return entry
+def _hook(
+    command: list[str],
+    agent: str,
+    hook: str,
+    flags: tuple[str, ...] = (),
+    *,
+    timeout: int = 15,
+    mode: dict | None = None,
+) -> dict:
+    """One hook of Project Moah's (services/chat_questions.py, chat_wait.py). ``mode`` is how
+    Claude Code runs it: {"async": True} sends the event on without waiting, {"asyncRewake": True}
+    runs it in the background and wakes the chat when it exits 2 (Claude Code enforces the
+    timeout for asyncRewake, not for async). Codex runs every hook in turn: no mode."""
+    line = _line([*command, "--agent", agent, "--hook", hook, *flags])
+    return {"type": "command", "command": line, **(mode or {}), "timeout": timeout}
 
 
 def _is_ours(hook: object) -> bool:
+    """Whether an agent's hook is one of Project Moah's: it starts Moah and is the brief or a turn
+    hook. A hook of the person's that happens to say --brief (git diff --brief) is not."""
     text = str(hook)
-    return "--brief" in text or ("--hook" in text and _ours(text))
+    return _ours(text) and ("--brief" in text or "--hook" in text)
+
+
+def _has_our_hooks(settings: dict) -> bool:
+    """Whether an agent's hook file holds any hook of Project Moah's: the agent was connected."""
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    return any(
+        _is_ours(hook)
+        for groups in hooks.values()
+        if isinstance(groups, list)
+        for group in groups
+        if isinstance(group, dict)
+        for hook in group.get("hooks") or []
+    )
 
 
 def _with_hooks(settings: dict, groups_by_event: dict[str, dict]) -> dict:
@@ -142,17 +237,57 @@ def _with_hooks(settings: dict, groups_by_event: dict[str, dict]) -> dict:
 
 
 def _claude_hooks(command: list[str]) -> dict[str, dict]:
+    """Claude Code's hooks. Stop records the turn (after SETTLE seconds, so a message the person
+    is already writing gets there first) and, side by side, waits for the person's answer in
+    Review and wakes the chat with it; the prompt hook hands over what was not delivered; the tool
+    hook learns the chat of every Moah tool call (chat_wait.py has the details)."""
     return {
         "SessionStart": {"matcher": "startup|clear|compact", "hooks": [_brief_hook(command)]},
-        "Stop": {"hooks": [_turn_hook(command, "claude", "stop")]},
-        "UserPromptSubmit": {"hooks": [_turn_hook(command, "claude", "prompt")]},
+        "Stop": {
+            "hooks": [
+                _hook(command, "claude", "stop", ("--settle",), timeout=60, mode={"async": True}),
+                _hook(command, "claude", "wait", timeout=86400, mode={"asyncRewake": True}),
+            ]
+        },
+        "UserPromptSubmit": {
+            "hooks": [
+                _hook(
+                    command,
+                    "claude",
+                    "prompt",
+                    ("--deliver",),
+                    timeout=60,
+                    mode={"asyncRewake": True},
+                )
+            ]
+        },
+        "PostToolUse": {
+            "matcher": TOOL_MATCHER,
+            "hooks": [_hook(command, "claude", "tool", timeout=30, mode={"async": True})],
+        },
     }
 
 
+def _flatpak(command: list[str]) -> bool:
+    return command[0] == "flatpak"
+
+
 def _codex_hooks(command: list[str]) -> dict[str, dict]:
+    """Codex's hooks. Codex asks the person to trust a new or changed hook once, so a line that
+    does not need to change stays exactly as it was: the Stop and prompt hooks of earlier
+    versions. Stop starts the waiter that hands Review's answers to the session from Moah's own
+    Python; the Flatpak cannot run ``codex``, so there its Stop line's shell does it
+    (codex_waiter.flatpak_stop_line). The tool hook runs before Stop, so it is not async."""
+    stop = _hook(command, "codex", "stop")
+    if _flatpak(command):
+        stop = {"type": "command", "command": flatpak_stop_line(command), "timeout": 15}
     return {
-        "Stop": {"hooks": [_turn_hook(command, "codex", "stop")]},
-        "UserPromptSubmit": {"hooks": [_turn_hook(command, "codex", "prompt")]},
+        "Stop": {"hooks": [stop]},
+        "UserPromptSubmit": {"hooks": [_hook(command, "codex", "prompt")]},
+        "PostToolUse": {
+            "matcher": TOOL_MATCHER,
+            "hooks": [_hook(command, "codex", "tool", timeout=30)],
+        },
     }
 
 
@@ -269,6 +404,46 @@ def connect_codex(command: list[str], *, refresh: bool = False) -> bool:
     return True
 
 
+def _refresh_hooks_in_place(path: Path, hooks: dict[str, dict], backup: Path) -> bool:
+    """Bring Moah's hooks in an agent's hook file up to date, in place. False (nothing touched)
+    when the file isn't there or holds none of Moah's hooks: the agent was never connected."""
+    if not path.is_file():
+        return False
+    raw = path.read_bytes()
+    text = raw.decode("utf-8")
+    before = json.loads(text) if text.strip() else {}
+    if not isinstance(before, dict) or not _has_our_hooks(before):
+        return False
+    after = _with_hooks(copy.deepcopy(before), hooks)
+    if after != before:
+        _write_in_place(path, json.dumps(after, indent=2, ensure_ascii=False) + "\n", raw, backup)
+    return True
+
+
+def refresh_sandboxed_hooks(command: list[str]) -> list[str]:
+    """What the sandboxed Flatpak can do at the app's start: keep Moah's hooks current in the two
+    files the manifest gives it (``~/.claude/settings.json``, ``~/.codex/hooks.json``).
+
+    Only a file that already holds hooks of Moah's is touched: an agent that was never connected
+    gets none, and nothing else is read or written (``~/.claude.json`` and ``config.toml`` are not
+    visible here). A file the sandbox does not see (an installed app older than the grant, or no
+    such file when the app started) is skipped, and the agent keeps the hooks it has. Returns the
+    agents whose hooks were found. A failure goes to the error log.
+    """
+    backups = data_folder() / "agent-backups"
+    found = []
+    for agent, path, hooks in (
+        ("claude", claude_home() / "settings.json", _claude_hooks(command)),
+        ("codex", codex_home() / "hooks.json", _codex_hooks(command)),
+    ):
+        try:
+            if _refresh_hooks_in_place(path, hooks, backups / f"{agent}-{path.name}.moah-backup"):
+                found.append(agent)
+        except Exception as error:  # noqa: BLE001 - a background check must never stop the app
+            error_log.write("service", f"Refreshing the {agent} hooks: {error}")
+    return found
+
+
 def connect_agents(launch: dict | None = None) -> list[dict]:
     """Connect every agent found here. Each result is connected, not_found or failed."""
     launch = launch or agent_launch()
@@ -293,13 +468,18 @@ def refresh_connections(launch: dict | None = None) -> list[str]:
 
     An update that changes how agents start Moah, or an install in another folder, then needs no
     Connect. Agents that were never connected stay untouched, and files are written only when
-    something changed. Returns the connected agents. Never raises: a problem goes to the error
-    log, and Connect in Help still works.
+    something changed. Returns the connected agents (in the sandboxed Flatpak: the agents whose
+    hooks it found). Never raises: a problem goes to the error log, and Connect in Help still
+    works.
     """
     try:
         launch = launch or agent_launch()
         if blocked_reason(launch):
-            return []  # the sandboxed Flatpak: its agents hear it from connection_notice
+            if launch["install"] == "flatpak":
+                # The sandboxed Flatpak: its hooks only. The server entries are in files it
+                # can't see, and its agents hear about those from connection_notice.
+                return refresh_sandboxed_hooks(launch["command"])
+            return []
     except Exception as error:  # noqa: BLE001 - a background check must never stop the app
         error_log.write("service", f"Checking the agent connections: {error}")
         return []
